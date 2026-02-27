@@ -1,0 +1,12 @@
+# Core
+python-dotenv>=1.0.0
+aiosqlite>=0.19.0
+
+# Telegram
+python-telegram-bot>=21.0.0
+
+# Anthropic SDK
+anthropic>=0.25.0
+
+# Scheduler
+apscheduler>=3.10.0

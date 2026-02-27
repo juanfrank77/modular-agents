@@ -1,0 +1,64 @@
+## Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+## Distribution / packaging outputs
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+## PyInstaller temporary files
+*.manifest
+*.spec
+
+## Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+## Unit test & coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+## Django specific files
+*.log
+local_settings.py
+db.sqlite3
+
+## Flask specific files
+instance/
+.webassets-cache/
+
+## Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+## Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/

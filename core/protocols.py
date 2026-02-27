@@ -1,0 +1,97 @@
+"""
+core/protocols.py
+-----------------
+All Protocol definitions for the framework.
+Every swappable component implements one of these interfaces.
+Nothing outside core/ should import concrete implementations directly —
+only these protocols.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum, auto
+from typing import Any, Protocol, runtime_checkable
+
+
+# ──────────────────────────────────────────────
+# Shared data types
+# ──────────────────────────────────────────────
+
+class EventType(Enum):
+    USER_MESSAGE   = auto()
+    SCHEDULED_TASK = auto()
+    HEARTBEAT_TICK = auto()
+    WEBHOOK_EVENT  = auto()
+    APPROVAL_RESPONSE = auto()
+
+
+@dataclass
+class AgentEvent:
+    type: EventType
+    agent_name: str          # which agent should handle this
+    chat_id: str             # telegram chat_id to reply to
+    text: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
+class AgentResponse:
+    text: str
+    agent_name: str
+    success: bool = True
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Message:
+    role: str           # 'user' | 'assistant' | 'system'
+    content: str
+    agent: str = ""
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+
+# ──────────────────────────────────────────────
+# Protocols (swappable interfaces)
+# ──────────────────────────────────────────────
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    async def complete(
+        self,
+        messages: list[Message],
+        system: str,
+        model: str = "",
+        max_tokens: int = 1024,
+    ) -> str:
+        ...
+
+
+@runtime_checkable
+class Notifier(Protocol):
+    async def send(self, chat_id: str, text: str) -> None:
+        ...
+
+    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+        ...
+
+
+@runtime_checkable
+class MemoryStore(Protocol):
+    async def save_message(
+        self, session_id: str, role: str, content: str, agent: str
+    ) -> None:
+        ...
+
+    async def search_history(
+        self, query: str, agent: str | None = None, limit: int = 10
+    ) -> list[Message]:
+        ...
+
+    async def get_context(self, key: str) -> str:
+        ...
+
+    async def save_solution(self, agent: str, topic: str, content: str) -> None:
+        ...
