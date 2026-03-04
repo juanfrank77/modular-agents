@@ -45,6 +45,7 @@ from core.scheduler import Scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
 from agents.business.agent import BusinessAgent
+from agents.devops.agent import DevOpsAgent
 from agents.echo.agent import EchoAgent
 
 log = get_logger("main")
@@ -89,15 +90,16 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
 
     # 10. Instantiate and register agents
     business = BusinessAgent(
-        settings=settings,
-        storage=storage,
-        notifier=notifier,
-        llm=llm,
-        memory=memory,
-        safety=safety,
-        skill_loader=skill_loader,
+        settings=settings, storage=storage, notifier=notifier,
+        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader
     )
     bus.register(business)
+
+    devops = DevOpsAgent(
+        settings=settings, storage=storage, notifier=notifier,
+        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader
+    )
+    bus.register(devops)
 
     # Keep echo agent as fallback
     echo = EchoAgent(settings=settings, storage=storage, notifier=notifier)
@@ -198,9 +200,6 @@ async def main() -> None:
     print(f"  PAIRING CODE: {safety.pairing.code}")
     print(f"{'='*50}\n")
 
-    # Start scheduler
-    scheduler.start()
-
     app = (
         ApplicationBuilder()
         .token(settings.telegram_token)
@@ -214,10 +213,20 @@ async def main() -> None:
 
     log.info("Telegram bot starting", event="bot_start", mode="polling")
 
-    try:
-        await app.run_polling(allowed_updates=Update.ALL_TYPES)
-    finally:
-        scheduler.stop()
+    async with app:
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        scheduler.start()
+
+        try:
+            # Block until cancelled (KeyboardInterrupt → asyncio.run cancels the task)
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            scheduler.stop()
+            await app.updater.stop()
+            await app.stop()
 
 
 if __name__ == "__main__":

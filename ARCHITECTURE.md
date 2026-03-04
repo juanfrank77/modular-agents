@@ -461,39 +461,51 @@ Recommended build order. Each phase produces working, testable output before the
 ### Phase 1 — Core Layer
 > **Deliverable:** A working Python project that can load config, connect to Telegram, send a message, and write a log line.
 
-- [ ] `config.py` with `.env` loading and validation
-- [ ] `logger.py` with structured JSON output
-- [ ] `notifier.py` Telegram adapter
-- [ ] `storage.py` SQLite session store
-- [ ] `bus.py` event types and routing
-- [ ] "Hello world" agent that echoes Telegram messages — validates the full stack
+- [x] `config.py` with `.env` loading and validation
+- [x] `logger.py` with structured JSON output
+- [x] `notifier.py` Telegram adapter
+- [x] `storage.py` SQLite session store
+- [x] `bus.py` event types and routing
+- [x] "Hello world" agent that echoes Telegram messages — validates the full stack
 
 ### Phase 2 — Memory & Skills
 > **Deliverable:** Agents that remember context across sessions and load skills dynamically.
 
-- [ ] `memory.py` two-layer implementation (SQLite + Markdown)
-- [ ] `skill_loader.py` with keyword matching
-- [ ] `scheduler.py` with cron + heartbeat
-- [ ] `safety.py` blocklist + approval gates
-- [ ] Initial `memory/context/` markdown files (`preferences.md`, `personal.md`, `projects.md`)
+- [x] `memory.py` two-layer implementation (SQLite + Markdown)
+- [x] `skill_loader.py` with keyword matching
+- [x] `scheduler.py` with cron + heartbeat
+- [x] `safety.py` blocklist + approval gates
+- [x] Initial `memory/context/` markdown files (`preferences.md`, `personal.md`, `projects.md`)
 
 ### Phase 3 — Business Agent
 > **Deliverable:** Morning briefing, email triage, and calendar access via Telegram.
 
-- [ ] `BusinessAgent` with `supervised` autonomy mode
-- [ ] First 3 SKILL.md files: `morning-briefing.md`, `email-triage.md`, `calendar-blocking.md`
+- [x] `BusinessAgent` with `supervised` autonomy mode
+- [x] First 3 SKILL.md files: `morning-briefing.md`, `email-triage.md`, `calendar-blocking.md`
 - [ ] Google Calendar + Gmail tools
-- [ ] Approval gate integration with Telegram inline buttons
-- [ ] Cron job: daily morning briefing
+- [x] Approval gate integration with Telegram inline buttons
+- [x] Cron job: daily morning briefing
 
 ### Phase 4 — DevOps Agent
 > **Deliverable:** GitHub monitoring, deploy pipeline, and incident alerts via Telegram.
 
-- [ ] `DevOpsAgent` with `autonomous` autonomy mode
-- [ ] GitHub tools (PRs, issues, Actions status)
-- [ ] Deployment + monitoring tools
-- [ ] Cron-based health checks and heartbeat alerts
-- [ ] SKILL.md files: `deploy-checklist.md`, `incident-response.md`
+- [x] `DevOpsAgent` with `autonomous` autonomy mode
+- [x] GitHub tools — `tools/github.py` wrapping `gh` CLI (PRs, issues, CI runs, health summary)
+- [x] Railway tools — `tools/railway.py` wrapping `railway` CLI (status, deploy, logs, rollback, env vars)
+- [x] `tools/cli_runner.py` — shared async subprocess runner with retry-once logic
+- [x] Cron-based health checks and heartbeat alerts
+- [x] SKILL.md files: `deploy-checklist.md`, `incident-response.md`, `pr-review.md`
+
+> **Repo layout for tools:**
+> ```
+> agents/devops/tools/
+>   __init__.py       ← build_tools() factory
+>   cli_runner.py     ← shared async CLI runner, ToolError, retry logic
+>   github.py         ← GitHubTool wrapping gh CLI
+>   railway.py        ← RailwayTool wrapping railway CLI
+> ```
+> Repos resolved from `memory/context/projects.md` at runtime — no restart needed to add a repo.
+> Railway project/service/environment also resolved from `projects.md`.
 
 ---
 
