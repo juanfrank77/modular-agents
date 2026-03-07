@@ -105,13 +105,34 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     echo = EchoAgent(settings=settings, storage=storage, notifier=notifier)
     bus.register(echo)
 
-    # 11. Health checks
+    # 11. Register each agent's scheduled jobs
+    # Must happen AFTER scheduler.set_bus() and agent registration
+    for agent in [business, devops, echo]:
+        try:
+            await agent.register_schedules(bus)
+        except Exception as e:
+            log.warning(
+                "Failed to register schedules for agent",
+                event="schedule_reg_error",
+                agent=agent.name,
+                error=str(e),
+            )
+
+    # 12. Health checks
     health = await bus.health_check_all()
+    all_healthy = True
     for agent_name, healthy in health.items():
         if healthy:
             log.info("Agent healthy", event="health_ok", agent=agent_name)
         else:
             log.warning("Agent unhealthy", event="health_fail", agent=agent_name)
+            all_healthy = False
+
+    if not all_healthy:
+        log.warning(
+            "Some agents failed health checks — check logs before continuing",
+            event="startup_degraded",
+        )
 
     log.info(
         "Bootstrap complete",
@@ -120,6 +141,11 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     )
     return bus, notifier, safety, scheduler
 
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+async def _send_to_chat_bus(bus: MessageBus, chat_id: str, text: str) -> None:
+    await bus.send_notification(chat_id, text)
 
 # ──────────────────────────────────────────────
 # Telegram handlers
@@ -133,24 +159,18 @@ def make_message_handler(bus: MessageBus, safety: Safety):
         chat_id = str(update.message.chat_id)
         text = update.message.text
 
-        # Pairing check: if not paired, try to pair with the code
+        # Pairing flow: unpaired chats must send the pairing code first
         if not safety.pairing.is_paired(chat_id):
             if safety.pairing.try_pair(chat_id, text):
-                await bus._agents.get("business", next(iter(bus._agents.values()))).notifier.send(
-                    chat_id, "Paired successfully. You can now use the bot."
-                )
+                await bus.send_notification(chat_id, "✅ Paired. You can now use the bot.")
+                log.info("Chat paired via message", event="paired", chat_id=chat_id)
             else:
-                await bus._agents.get("business", next(iter(bus._agents.values()))).notifier.send(
-                    chat_id, "Send the pairing code to get started."
+                await bus.send_notification(
+                    chat_id, "🔒 Send the pairing code shown in the console to get started."
                 )
             return
 
-        log.info(
-            "Inbound message",
-            event="inbound",
-            chat_id=chat_id,
-            length=len(text),
-        )
+        log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
@@ -169,6 +189,7 @@ def make_message_handler(bus: MessageBus, safety: Safety):
 
 def make_callback_handler(safety: Safety):
     async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline button presses (approval gate responses)."""
         query = update.callback_query
         if not query or not query.data:
             return
@@ -180,10 +201,12 @@ def make_callback_handler(safety: Safety):
             approval_id = data.split(":", 1)[1]
             safety.gate.resolve(approval_id, approved=True)
             await query.edit_message_text("Approved.")
+            log.info("Action approved", event="approval", approval_id=approval_id)
         elif data.startswith("deny:"):
             approval_id = data.split(":", 1)[1]
             safety.gate.resolve(approval_id, approved=False)
             await query.edit_message_text("Denied.")
+            log.info("Action denied", event="denial", approval_id=approval_id)
 
     return on_callback
 
@@ -195,10 +218,11 @@ def make_callback_handler(safety: Safety):
 async def main() -> None:
     bus, notifier, safety, scheduler = await bootstrap()
 
-    # Print pairing code to console
-    print(f"\n{'='*50}")
-    print(f"  PAIRING CODE: {safety.pairing.code}")
-    print(f"{'='*50}\n")
+    # Print pairing code prominently — this is how new chats authenticate
+    print(f"\n{'=' * 52}")
+    print(f"  PAIRING CODE:  {safety.pairing.code}")
+    print(f"  Send this code to the bot on Telegram to pair.")
+    print(f"{'=' * 52}\n")
 
     app = (
         ApplicationBuilder()
@@ -217,6 +241,7 @@ async def main() -> None:
         await app.start()
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         scheduler.start()
+        log.info("Bot is running. Press Ctrl+C to stop.", event="running")
 
         try:
             # Block until cancelled (KeyboardInterrupt → asyncio.run cancels the task)
@@ -224,9 +249,11 @@ async def main() -> None:
         except asyncio.CancelledError:
             pass
         finally:
+            log.info("Shutting down", event="shutdown_start")
             scheduler.stop()
             await app.updater.stop()
             await app.stop()
+            log.info("Shutdown complete", event="shutdown_complete")
 
 
 if __name__ == "__main__":

@@ -98,18 +98,16 @@ class MessageBus:
 
     async def publish_all(self, event: AgentEvent) -> list[AgentResponse]:
         """Broadcast an event to ALL registered agents (used for heartbeats)."""
-        responses: list[AgentResponse] = []
-
-        async def _run(agent: "BaseAgent") -> None:
-            try:
-                responses.append(await agent.handle(event))
-            except Exception as e:
+        tasks = [agent.handle(event) for agent in self._agents.values()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        responses = []
+        
+        for r in results:
+            if isinstance(r, Exception):
                 log.error("Agent error during broadcast", event="bus_broadcast_error",
-                          agent=agent.name, error=str(e))
-
-        async with asyncio.TaskGroup() as tg:
-            for agent in self._agents.values():
-                tg.create_task(_run(agent))
+                          error=str(r))
+            else:
+                responses.append(r)
 
         return responses
 
@@ -129,6 +127,19 @@ class MessageBus:
     @property
     def registered_agents(self) -> list[str]:
         return list(self._agents.keys())
+
+    async def send_notification(self, chat_id: str, text: str) -> None:
+    """
+    Send a plain message to a chat via the first available agent's notifier.
+    Used by main.py for system messages (pairing, startup notices) without
+    needing to access bus._agents directly.
+    """
+    if not self._agents:
+        log.warning("send_notification called but no agents registered",
+                    event="notify_no_agents")
+        return
+    agent = next(iter(self._agents.values()))
+    await agent.notifier.send(chat_id, text)
 
     # ── Internal ─────────────────────────────
 
