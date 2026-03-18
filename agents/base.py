@@ -22,7 +22,7 @@ from core.protocols import AgentEvent, AgentResponse
 if TYPE_CHECKING:
     from core.bus import MessageBus
     from core.config import Settings
-    from core.llm import AnthropicLLM
+    from core.protocols import LLMProvider
     from core.memory import Memory
     from core.notifier import TelegramNotifier
     from core.safety import Safety
@@ -41,7 +41,7 @@ class BaseAgent(ABC):
         settings: "Settings",
         storage: "Storage",
         notifier: "TelegramNotifier",
-        llm: "AnthropicLLM | None" = None,
+        llm: "LLMProvider | None" = None,
         memory: "Memory | None" = None,
         safety: "Safety | None" = None,
         skill_loader: "SkillLoader | None" = None,

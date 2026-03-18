@@ -93,10 +93,10 @@ async def test_config() -> None:
     try:
         from core.config import settings
         assert settings.telegram_token, "telegram_token is empty"
-        assert settings.anthropic_api_key, "anthropic_api_key is empty"
+        assert settings.kilo_api_key, "kilo_api_key is empty"
         ok("Config loads from .env")
         ok(f"Telegram token present ({settings.telegram_token[:8]}...)")
-        ok(f"Anthropic key present ({settings.anthropic_api_key[:8]}...)")
+        ok(f"Kilo API key present ({settings.kilo_api_key[:8]}...)")
         if settings.telegram_allowed_chat_ids:
             ok(f"Allowed chat IDs: {settings.telegram_allowed_chat_ids}")
         else:
@@ -164,7 +164,7 @@ async def test_memory(tmp_path: Path) -> None:
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
 
-        mock_settings.memory_context_dir.mkdir(parents=True)
+        mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         (mock_settings.memory_context_dir / "preferences.md").write_text(
             "# Preferences\ntimezone: UTC\ntone: concise"
         )
@@ -251,7 +251,11 @@ async def test_bus_and_echo(tmp_path: Path) -> None:
         await storage.init()
         notifier = make_mock_notifier()
 
-        echo = EchoAgent(settings=settings, storage=storage, notifier=notifier)
+        # Use empty allowed list so all chat IDs are permitted in tests
+        mock_settings = MagicMock()
+        mock_settings.telegram_allowed_chat_ids = []
+
+        echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
         bus = MessageBus()
         bus.register(echo)
         ok("Bus registers agent")
@@ -304,7 +308,7 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
-        mock_settings.memory_context_dir.mkdir(parents=True)
+        mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         mock_settings.telegram_allowed_chat_ids = []
 
         from core.memory import Memory
@@ -330,10 +334,10 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
         fail("Agent health checks", traceback.format_exc())
 
 
-async def test_scheduler() -> None:
+async def test_scheduler(tmp_path: Path) -> None:
     section("8. Scheduler")
     try:
-        from core.scheduler import Scheduler
+        from core.scheduler import Scheduler, scheduler as singleton
         from core.protocols import AgentEvent, EventType
         from core.bus import MessageBus
 
@@ -366,12 +370,124 @@ async def test_scheduler() -> None:
         scheduler.stop()
         ok("Scheduler starts and stops cleanly")
 
+        # Singleton is importable and usable by agents
+        assert singleton is not None
+        ok("Module-level scheduler singleton is importable")
+
+        # Agent register_schedules() uses the singleton — verify it works
+        from core.storage import Storage
+        from core.config import settings
+        from core.safety import Safety
+        from core.memory import Memory
+        from agents.business.agent import BusinessAgent
+        from agents.devops.agent import DevOpsAgent
+
+        storage = Storage(tmp_path / "sched_test.db")
+        await storage.init()
+        notifier = make_mock_notifier()
+        llm = make_mock_llm()
+        safety = Safety(notifier=notifier, allowed_ids=[])
+
+        mock_settings = MagicMock()
+        mock_settings.memory_context_dir = tmp_path / "context"
+        mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
+        mock_settings.telegram_allowed_chat_ids = ["test_chat"]
+
+        memory = Memory(storage=storage, llm=llm, settings=mock_settings)
+        singleton.set_bus(bus)
+
+        business = BusinessAgent(
+            settings=mock_settings, storage=storage, notifier=notifier,
+            llm=llm, memory=memory, safety=safety, skill_loader=None,
+        )
+        await business.register_schedules(bus)
+        ok("BusinessAgent.register_schedules() works via singleton")
+
+        devops = DevOpsAgent(
+            settings=mock_settings, storage=storage, notifier=notifier,
+            llm=llm, memory=memory, safety=safety, skill_loader=None,
+        )
+        await devops.register_schedules(bus)
+        ok("DevOpsAgent.register_schedules() works via singleton")
+
     except Exception as e:
         fail("Scheduler", traceback.format_exc())
 
 
+async def test_devops_tools(tmp_path: Path) -> None:
+    section("9. DevOps Tools")
+    try:
+        from agents.devops.tools import DevOpsTools, build_tools
+        from agents.devops.tools.github import GitHubTool
+        from agents.devops.tools.railway import RailwayTool
+        ok("DevOpsTools and build_tools import correctly")
+
+        from core.storage import Storage
+        from core.config import settings
+        from core.memory import Memory
+
+        storage = Storage(tmp_path / "devops_tools_test.db")
+        await storage.init()
+        llm = make_mock_llm()
+
+        mock_settings = MagicMock()
+        mock_settings.memory_context_dir = tmp_path / "context"
+        mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
+
+        memory = Memory(storage=storage, llm=llm, settings=mock_settings)
+        tools = build_tools(memory=memory)
+
+        assert isinstance(tools, DevOpsTools)
+        assert isinstance(tools.github, GitHubTool)
+        assert isinstance(tools.railway, RailwayTool)
+        ok("build_tools() returns DevOpsTools with .github and .railway")
+
+    except Exception as e:
+        fail("DevOps Tools", traceback.format_exc())
+
+
+async def test_skill_loader(tmp_path: Path) -> None:
+    section("10. SkillLoader")
+    try:
+        from core.skill_loader import SkillLoader
+        import inspect
+
+        loader = SkillLoader()
+
+        # find_relevant and load_all must be async
+        assert inspect.iscoroutinefunction(loader.find_relevant)
+        ok("find_relevant() is async")
+        assert inspect.iscoroutinefunction(loader.load_all)
+        ok("load_all() is async")
+
+        # Accepts str path — returns empty list for non-existent dir
+        result = await loader.find_relevant("some task", str(tmp_path / "no_skills"))
+        assert result == []
+        ok("find_relevant() accepts str path and returns [] for missing dir")
+
+        # Returns skills from a real dir
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        (skills_dir / "finance.md").write_text("# Finance\nbudget invoice revenue expense")
+        (skills_dir / "hr.md").write_text("# HR\nhiring onboarding employee")
+
+        results = await loader.find_relevant("budget invoice", str(skills_dir), max_skills=1)
+        assert len(results) == 1
+        assert "Finance" in results[0]
+        ok("find_relevant() ranks and returns matching skills")
+
+        all_skills = await loader.load_all(str(skills_dir))
+        assert len(all_skills) == 2
+        ok("load_all() returns all skill files")
+
+    except Exception as e:
+        fail("SkillLoader", traceback.format_exc())
+
+
 async def test_cli_runner() -> None:
-    section("9. CLI Runner")
+    section("11. CLI Runner")
     try:
         from agents.devops.tools.cli_runner import run_cli, ToolError, _assert_available
 
@@ -422,7 +538,9 @@ async def run_all() -> None:
         await test_safety()
         await test_bus_and_echo(tmp_path)
         await test_agent_health_checks(tmp_path)
-        await test_scheduler()
+        await test_scheduler(tmp_path)
+        await test_devops_tools(tmp_path)
+        await test_skill_loader(tmp_path)
         await test_cli_runner()
 
     print(f"\n{'─' * 50}")

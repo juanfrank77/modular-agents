@@ -28,16 +28,17 @@ class SkillLoader:
         """Simple word tokenization — lowercase, alpha-only, 2+ chars."""
         return {w for w in re.findall(r"[a-z]{2,}", text.lower())}
 
-    def find_relevant(
-        self, task: str, skills_dir: Path, max_skills: int = 3
+    async def find_relevant(
+        self, task: str, skills_dir: Path | str, max_skills: int = 3
     ) -> list[str]:
         """Return top-N skill contents ranked by word overlap with the task."""
+        skills_dir = Path(skills_dir)
         if not skills_dir.exists():
             return []
 
         task_tokens = self._tokenize(task)
         if not task_tokens:
-            return self.load_all(skills_dir)
+            return await self.load_all(skills_dir)
 
         scored: list[tuple[float, str]] = []
         for md_file in skills_dir.glob("*.md"):
@@ -61,8 +62,9 @@ class SkillLoader:
         )
         return results
 
-    def load_all(self, skills_dir: Path) -> list[str]:
+    async def load_all(self, skills_dir: Path | str) -> list[str]:
         """Load all skill files (for agents with few skills)."""
+        skills_dir = Path(skills_dir)
         if not skills_dir.exists():
             return []
         results = []

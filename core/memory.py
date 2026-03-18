@@ -21,7 +21,7 @@ from core.protocols import Message
 
 if TYPE_CHECKING:
     from core.config import Settings
-    from core.llm import AnthropicLLM
+    from core.protocols import LLMProvider
     from core.storage import Storage
 
 log = get_logger("memory")
@@ -33,7 +33,7 @@ _KEEP_RECENT = 20
 
 
 class Memory:
-    def __init__(self, storage: "Storage", llm: "AnthropicLLM", settings: "Settings") -> None:
+    def __init__(self, storage: "Storage", llm: "LLMProvider", settings: "Settings") -> None:
         self._storage = storage
         self._llm = llm
         self._context_dir = settings.memory_context_dir

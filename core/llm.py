@@ -1,11 +1,11 @@
 """
 core/llm.py
 -----------
-Wraps anthropic.AsyncAnthropic behind the LLMProvider Protocol.
+Wraps AsyncAnthropic and AsyncOpenAI behind the LLMProvider Protocol.
 
 Usage:
-    from core.llm import AnthropicLLM
-    llm = AnthropicLLM(api_key=settings.anthropic_api_key)
+    from core.llm import KiloLLM
+    llm = KiloLLM(api_key=settings.kilo_api_key)
     response = await llm.complete(messages, system="You are helpful.")
 """
 
@@ -122,6 +122,6 @@ class AnthropicLLM:
         return await self.complete(messages, system=system, max_tokens=512)
 
 def get_llm_provider() -> LLMProvider:
-    if settings.anthropic_api_key:
-        return AnthropicLLM(settings.anthropic_api_key)
-    return KiloLLM(settings.kilo_api_key)
+    if settings.kilo_api_key:
+        return KiloLLM(settings.kilo_api_key)
+    return AnthropicLLM(settings.anthropic_api_key)
