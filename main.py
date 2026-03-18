@@ -28,6 +28,7 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
+    CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
@@ -41,7 +42,7 @@ from core.memory import Memory
 from core.notifier import TelegramNotifier
 from core.protocols import AgentEvent, EventType
 from core.safety import Safety
-from core.scheduler import Scheduler
+from core.scheduler import Scheduler, scheduler as _scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
 from agents.business.agent import BusinessAgent
@@ -81,12 +82,12 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     # 7. Skill loader
     skill_loader = SkillLoader()
 
-    # 8. Scheduler
-    scheduler = Scheduler(heartbeat_minutes=settings.heartbeat_interval_minutes)
+    # 8. Scheduler — configure the module-level singleton so agents can import it
+    _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
 
     # 9. Message bus
     bus = MessageBus()
-    scheduler.set_bus(bus)
+    _scheduler.set_bus(bus)
 
     # 10. Instantiate and register agents
     business = BusinessAgent(
@@ -139,7 +140,7 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
         event="startup_complete",
         agents=bus.registered_agents,
     )
-    return bus, notifier, safety, scheduler
+    return bus, notifier, safety, _scheduler
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -211,6 +212,37 @@ def make_callback_handler(safety: Safety):
     return on_callback
 
 
+def make_model_handler(safety: Safety):
+    async def on_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        if not safety.pairing.is_paired(chat_id):
+            await update.message.reply_text("🔒 Not paired.")
+            return
+
+        if context.args:
+            new_model = context.args[0].strip()
+            old_model = settings.default_model
+            settings.default_model = new_model
+            log.info(
+                "Model changed",
+                event="model_change",
+                chat_id=chat_id,
+                old=old_model,
+                new=new_model,
+            )
+            await update.message.reply_text(f"Model set to `{new_model}`.", parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                f"Current model: `{settings.default_model}`.\n"
+                "Usage: `/model <model-id>`",
+                parse_mode="Markdown",
+            )
+
+    return on_model
+
+
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
@@ -234,6 +266,7 @@ async def main() -> None:
         MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(bus, safety))
     )
     app.add_handler(CallbackQueryHandler(make_callback_handler(safety)))
+    app.add_handler(CommandHandler("model", make_model_handler(safety)))
 
     log.info("Telegram bot starting", event="bot_start", mode="polling")
 

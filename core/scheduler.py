@@ -127,3 +127,8 @@ class Scheduler:
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)
         log.info("Scheduler stopped", event="scheduler_stop")
+
+
+# Module-level singleton — agents import this directly to register cron jobs.
+# main.py configures it (heartbeat_minutes, set_bus) before calling start().
+scheduler = Scheduler()

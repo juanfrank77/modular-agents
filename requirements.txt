@@ -10,3 +10,6 @@ anthropic>=0.25.0
 
 # Scheduler
 apscheduler>=3.10.0
+
+# OpenAI Compatible
+openai>=2.29.0

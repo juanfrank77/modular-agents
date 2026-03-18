@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 log = get_logger("bus")
 
-
 class MessageBus:
     def __init__(self) -> None:
         # agent_name → agent instance
@@ -129,17 +128,17 @@ class MessageBus:
         return list(self._agents.keys())
 
     async def send_notification(self, chat_id: str, text: str) -> None:
-    """
-    Send a plain message to a chat via the first available agent's notifier.
-    Used by main.py for system messages (pairing, startup notices) without
-    needing to access bus._agents directly.
-    """
-    if not self._agents:
-        log.warning("send_notification called but no agents registered",
-                    event="notify_no_agents")
-        return
-    agent = next(iter(self._agents.values()))
-    await agent.notifier.send(chat_id, text)
+        """
+        Send a plain message to a chat via the first available agent's notifier.
+        Used by main.py for system messages (pairing, startup notices) without
+        needing to access bus._agents directly.
+        """
+        if not self._agents:
+            log.warning("send_notification called but no agents registered",
+                        event="notify_no_agents")
+            return
+        agent = next(iter(self._agents.values()))
+        await agent.notifier.send(chat_id, text)
 
     # ── Internal ─────────────────────────────
 
