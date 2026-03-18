@@ -35,7 +35,7 @@ from telegram.ext import (
 
 from core.bus import MessageBus
 from core.config import settings
-from core.llm import AnthropicLLM
+from core.llm import get_llm_provider
 from core.logger import configure_logging, get_logger
 from core.memory import Memory
 from core.notifier import TelegramNotifier
@@ -70,7 +70,7 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     notifier = TelegramNotifier(token=settings.telegram_token)
 
     # 4. LLM
-    llm = AnthropicLLM(api_key=settings.anthropic_api_key)
+    llm = get_llm_provider()
 
     # 5. Memory
     memory = Memory(storage=storage, llm=llm, settings=settings)

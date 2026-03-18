@@ -12,13 +12,55 @@ Usage:
 from __future__ import annotations
 
 from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 
 from core.config import settings
 from core.logger import get_logger
-from core.protocols import Message
+from core.protocols import LLMProvider, Message
 
 log = get_logger("llm")
 
+class KiloLLM:
+    """Implements LLMProvider using Kilo's OpenAI-compatible endpoint."""
+
+    def __init__(self, api_key: str) -> None:
+        self._client = AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url)
+
+    async def complete(
+        self,
+        messages: list[Message],
+        system: str,
+        model: str = "",
+        max_tokens: int = 0,
+    ) -> str:
+        model = model or settings.default_model
+        max_tokens = max_tokens or settings.default_max_tokens
+
+        api_messages = [{"role": "system", "content": system}] + [
+            {"role": m.role, "content": m.content}
+            for m in messages
+            if m.role in ("user", "assistant")
+        ]
+
+        with log.timer() as t:
+            response = await self._client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=api_messages,
+            )
+
+        text = response.choices[0].message.content or "" if response.choices else ""
+        usage = response.usage
+        log.info(
+            "LLM call complete",
+            event="llm_complete",
+            provider="kilo",
+            model=model,
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
+            duration_ms=t.ms,
+        )
+        return text
 
 class AnthropicLLM:
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
@@ -78,3 +120,8 @@ class AnthropicLLM:
             "Be concise but retain important details the user mentioned."
         )
         return await self.complete(messages, system=system, max_tokens=512)
+
+def get_llm_provider() -> LLMProvider:
+    if settings.anthropic_api_key:
+        return AnthropicLLM(settings.anthropic_api_key)
+    return KiloLLM(settings.kilo_api_key)

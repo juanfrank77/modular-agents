@@ -30,8 +30,12 @@ class Settings:
     telegram_token: str
     telegram_allowed_chat_ids: list[str]
 
-    # LLM
-    anthropic_api_key: str
+    # Required
+    kilo_api_key: str
+    kilo_base_url: str = "https://api.kilocode.com/v1"
+
+    # LLM — optional fallback if Kilo is unavailable
+    anthropic_api_key: str = ""
     default_model: str = "claude-opus-4-6"
     default_max_tokens: int = 2048
 
@@ -88,7 +92,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     return Settings(
         # Required
         telegram_token=_require("TELEGRAM_BOT_TOKEN"),
-        anthropic_api_key=_require("ANTHROPIC_API_KEY"),
+        kilo_api_key=_require("KILO_API_KEY"),
+        anthropic_api_key=_optional("ANTHROPIC_API_KEY", ""),
         telegram_allowed_chat_ids=allowed_ids,
 
         # Optional with defaults
