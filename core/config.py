@@ -36,7 +36,7 @@ class Settings:
 
     # LLM — optional fallback if Kilo is unavailable
     anthropic_api_key: str = ""
-    default_model: str = "claude-sonnet-4-6"
+    default_model: str = "claude-sonnet-4.6"
     default_max_tokens: int = 2048
 
     # Storage
@@ -97,7 +97,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         telegram_allowed_chat_ids=allowed_ids,
 
         # Optional with defaults
-        default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4-6"),
+        default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
 
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),

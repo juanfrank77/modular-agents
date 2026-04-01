@@ -123,7 +123,7 @@ class DevOpsAgent(BaseAgent):
         await self.memory.save_message(session_id, "user", event.text, self.name)
 
         system_prompt = await self._build_system_prompt(event.text)
-        _, history = await self.memory.build_context(session_id, self.name)
+        _, history = await self.memory.build_context(session_id, self.name, task=event.text)
         messages = history + [Message(role="user", content=event.text)]
 
         with log.timer() as t:
@@ -147,6 +147,7 @@ class DevOpsAgent(BaseAgent):
         if _looks_like_solution(event.text, response_text):
             topic = _slugify(event.text[:60])
             await self.memory.save_solution(self.name, topic, response_text)
+            self.memory.schedule_consolidation(self.name)
             log.info("Solution saved", event="solution_saved", topic=topic)
 
         return await self.reply(event, response_text)
@@ -392,7 +393,7 @@ class DevOpsAgent(BaseAgent):
             if skills:
                 skill_content = "## Relevant Skills\n\n" + "\n\n---\n\n".join(skills)
 
-        markdown_context, _ = await self.memory.build_context("_unused_", self.name)
+        markdown_context, _ = await self.memory.build_context("_unused_", self.name, task=task)
 
         return _SYSTEM_TEMPLATE.format(
             context=f"## Context\n{markdown_context}" if markdown_context else "",

@@ -101,7 +101,7 @@ class BusinessAgent(BaseAgent):
         system_prompt = await self._build_system_prompt(event.text)
 
         # Get compacted history
-        _, history = await self.memory.build_context(session_id, self.name)
+        _, history = await self.memory.build_context(session_id, self.name, task=event.text)
 
         # Append current message to history for the LLM call
         messages = history + [Message(role="user", content=event.text)]
@@ -254,7 +254,7 @@ class BusinessAgent(BaseAgent):
                 skill_content = "## Relevant Skills\n\n" + "\n\n---\n\n".join(skills)
 
         # Load markdown context
-        markdown_context, _ = await self.memory.build_context("_unused_", self.name)
+        markdown_context, _ = await self.memory.build_context("_unused_", self.name, task=task)
 
         return _SYSTEM_TEMPLATE.format(
             context=f"## User Context\n{markdown_context}" if markdown_context else "",
