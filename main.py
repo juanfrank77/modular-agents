@@ -45,6 +45,7 @@ from core.safety import Safety
 from core.scheduler import Scheduler, scheduler as _scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
+from core.agent_creator import AgentCreator
 from agents.business.agent import BusinessAgent
 from agents.devops.agent import DevOpsAgent
 from agents.echo.agent import EchoAgent
@@ -135,6 +136,9 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
             event="startup_degraded",
         )
 
+    # Agent creator - handles /new-agent command
+    agent_creator = AgentCreator(llm=llm, project_root=Path("."))
+
     log.info(
         "Bootstrap complete",
         event="startup_complete",
@@ -146,6 +150,10 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
 # Helpers
 # ──────────────────────────────────────────────
 async def _send_to_chat_bus(bus: MessageBus, chat_id: str, text: str) -> None:
+    """
+    Send a plain message to a chat via the first registered agent's notifier.
+    Used internally for pairing messages — avoids accessing bus._agents directly.
+    """
     await bus.send_notification(chat_id, text)
 
 # ──────────────────────────────────────────────
@@ -170,6 +178,13 @@ def make_message_handler(bus: MessageBus, safety: Safety):
                     chat_id, "🔒 Send the pairing code shown in the console to get started."
                 )
             return
+
+        # If user is mid-wizard, route to creator instead of agents
+        if creator and creator.is_active(chat_id):
+            response = await creator.handle(chat_id, text)
+            await bus.send_notification(chat_id, response)
+            return
+
 
         log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
@@ -243,12 +258,45 @@ def make_model_handler(safety: Safety):
     return on_model
 
 
+def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
+    async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+
+        chat_id = str(update.message.chat_id)
+        command = update.message.text or ""
+
+        # Pairing check
+        if not safety.pairing.is_paired(chat_id):
+            await bus.send_notification(chat_id,
+                "🔒 Send the pairing code shown in the server console to get started.")
+            return
+
+        # /new-agent — start or continue the wizard
+        if command.startswith("/new-agent") or creator.is_active(chat_id):
+            log.info("Agent creator command", event="new_agent_cmd", chat_id=chat_id)
+            response = await creator.handle(chat_id, command)
+            await bus.send_notification(chat_id, response)
+            return
+
+        # /help
+        if command.startswith("/help"):
+            await bus.send_notification(chat_id, (
+                "*Available commands*\n\n"
+                "/new-agent — create a new agent interactively\n"
+                "/help — show this message\n\n"
+                "Or just send a message to talk to your agents."
+            ))
+            return
+
+    return on_command
+
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
 
 async def main() -> None:
-    bus, notifier, safety, scheduler = await bootstrap()
+    bus, notifier, safety, scheduler, agent_creator = await bootstrap()
 
     # Print pairing code prominently — this is how new chats authenticate
     print(f"\n{'=' * 52}")
@@ -263,10 +311,22 @@ async def main() -> None:
     )
 
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(bus, safety))
+        MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(bus, safety, agent_creator))
     )
     app.add_handler(CallbackQueryHandler(make_callback_handler(safety)))
     app.add_handler(CommandHandler("model", make_model_handler(safety)))
+    app.add_handler(
+        CommandHandler(["new-agent", "help"], make_command_handler(bus, safety, agent_creator))
+    )
+
+    # Also handle /new-agent continuation messages (non-command text during wizard)
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+            make_message_handler(bus, safety, agent_creator)
+        ),
+        group=1,
+    )
 
     log.info("Telegram bot starting", event="bot_start", mode="polling")
 
