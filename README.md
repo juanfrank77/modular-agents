@@ -38,9 +38,10 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 - **Agents** are Python classes that each handle a domain
 - **Skills** are Markdown files that define how agents approach tasks — edit them without touching code
-- **Memory** is two-layer: SQLite for conversation history, Markdown files for your preferences and context
+- **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences and context, with learned patterns
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
 - **Safety** is built in — supervised agents ask for approval before consequential actions
+- **Reliability** includes LLM retry logic and typing indicators during processing
 
 ---
 
@@ -48,7 +49,8 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 - Python 3.11+
 - A [Telegram bot token](https://core.telegram.org/bots#botfather) (free, takes 2 minutes)
-- An [Anthropic API key](https://console.anthropic.com/) or a [Kilo API key](https://app.kilo.ai/users/sign_in?callbackPath=/profile)
+- A [Kilo API key](https://app.kilo.ai/users/sign_in?callbackPath=/profile)
+- An [Anthropic API key](https://console.anthropic.com/) (optional fallback if Kilo is unavailable)
 - For DevOps agent: [`gh` CLI](https://cli.github.com/) and [`railway` CLI](https://docs.railway.app/develop/cli) installed and authenticated
 
 ---
@@ -82,7 +84,8 @@ nano .env   # add your tokens
 Required keys:
 ```
 TELEGRAM_BOT_TOKEN=your_token_here
-ANTHROPIC_API_KEY=your_key_here
+KILO_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here  # optional fallback
 TELEGRAM_ALLOWED_CHAT_IDS=your_chat_id   # get this from @userinfobot on Telegram
 ```
 
@@ -172,6 +175,13 @@ agents/devops/skills/
 To add a new skill: create a new `.md` file in the relevant skills folder following the existing format. The skill loader picks it up automatically.
 
 ### Adding a new agent
+
+**Option 1: Interactive Wizard (Recommended)**
+
+Use the `/new-agent` command in Telegram to create a new agent interactively. The wizard will guide you through defining the agent's purpose, autonomy level, skills, and generate the necessary code and files automatically.
+
+**Option 2: Manual Creation**
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design. The short version:
 
 1. Create `agents/youragent/agent.py` and subclass `BaseAgent`
@@ -207,10 +217,11 @@ modular-agents/
 │       ├── skills/
 │       └── tools/               ← gh and railway CLI wrappers
 ├── core/                        ← shared infrastructure (don't modify unless extending)
+│   ├── agent_creator.py         ← interactive agent creation wizard
 │   ├── bus.py                   ← message routing
 │   ├── config.py                ← environment and settings
-│   ├── llm.py                   ← LLM provider (Anthropic)
-│   ├── memory.py                ← two-layer memory system
+│   ├── llm.py                   ← LLM provider (Kilo primary, Anthropic fallback)
+│   ├── memory.py                ← enhanced two-layer memory system
 │   ├── safety.py                ← approval gates and blocklist
 │   ├── scheduler.py             ← cron jobs and heartbeat
 │   └── skill_loader.py          ← discovers and injects skill files
@@ -235,6 +246,12 @@ journalctl -u modular-agents -f         # live logs
 sudo systemctl restart modular-agents   # restart after config change
 python test_integration.py              # run the test suite
 ```
+
+### Telegram Commands
+
+- `/model <model-id>` — Change the default LLM model
+- `/new-agent` — Start interactive wizard to create a new agent
+- `/help` — Show available commands
 
 ---
 
