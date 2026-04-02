@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 from telegram import Update
 from telegram.ext import (
@@ -57,8 +58,10 @@ log = get_logger("main")
 # Bootstrap
 # ──────────────────────────────────────────────
 
-async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
-    """Initialise all components and return the wired-up bus, notifier, safety, and scheduler."""
+async def bootstrap() -> tuple[
+    MessageBus, TelegramNotifier, Safety, Scheduler, "AgentCreator"
+]:
+    """Initialise all components and return the wired-up bus, notifier, safety, scheduler, and creator."""
 
     # 1. Logging
     configure_logging(level=settings.log_level, fmt=settings.log_format)
@@ -74,32 +77,45 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     # 4. LLM
     llm = get_llm_provider()
 
-    # 5. Memory
+    # 5. Agent creator
+    creator = AgentCreator(llm=llm, project_root=Path("."))
+
+    # 6. Memory
     memory = Memory(storage=storage, llm=llm, settings=settings)
 
-    # 6. Safety
+    # 9. Safety
     safety = Safety(notifier=notifier, allowed_ids=settings.telegram_allowed_chat_ids)
 
-    # 7. Skill loader
+    # 10. Skill loader
     skill_loader = SkillLoader()
 
-    # 8. Scheduler — configure the module-level singleton so agents can import it
+    # 13. Scheduler — configure the module-level singleton so agents can import it
     _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
 
-    # 9. Message bus
+    # 14. Message bus
     bus = MessageBus()
     _scheduler.set_bus(bus)
 
-    # 10. Instantiate and register agents
+    # 17. Instantiate and register agents
     business = BusinessAgent(
-        settings=settings, storage=storage, notifier=notifier,
-        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader
+        settings=settings,
+        storage=storage,
+        notifier=notifier,
+        llm=llm,
+        memory=memory,
+        safety=safety,
+        skill_loader=skill_loader,
     )
     bus.register(business)
 
     devops = DevOpsAgent(
-        settings=settings, storage=storage, notifier=notifier,
-        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader
+        settings=settings,
+        storage=storage,
+        notifier=notifier,
+        llm=llm,
+        memory=memory,
+        safety=safety,
+        skill_loader=skill_loader,
     )
     bus.register(devops)
 
@@ -107,7 +123,7 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
     echo = EchoAgent(settings=settings, storage=storage, notifier=notifier)
     bus.register(echo)
 
-    # 11. Register each agent's scheduled jobs
+    # 18. Register each agent's scheduled jobs
     # Must happen AFTER scheduler.set_bus() and agent registration
     for agent in [business, devops, echo]:
         try:
@@ -120,7 +136,7 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
                 error=str(e),
             )
 
-    # 12. Health checks
+    # 19. Health checks
     health = await bus.health_check_all()
     all_healthy = True
     for agent_name, healthy in health.items():
@@ -136,15 +152,12 @@ async def bootstrap() -> tuple[MessageBus, TelegramNotifier, Safety, Scheduler]:
             event="startup_degraded",
         )
 
-    # Agent creator - handles /new-agent command
-    agent_creator = AgentCreator(llm=llm, project_root=Path("."))
-
     log.info(
         "Bootstrap complete",
         event="startup_complete",
         agents=bus.registered_agents,
     )
-    return bus, notifier, safety, _scheduler
+    return bus, notifier, safety, _scheduler, creator
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -160,7 +173,7 @@ async def _send_to_chat_bus(bus: MessageBus, chat_id: str, text: str) -> None:
 # Telegram handlers
 # ──────────────────────────────────────────────
 
-def make_message_handler(bus: MessageBus, safety: Safety):
+def make_message_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message or not update.message.text:
             return
@@ -171,11 +184,14 @@ def make_message_handler(bus: MessageBus, safety: Safety):
         # Pairing flow: unpaired chats must send the pairing code first
         if not safety.pairing.is_paired(chat_id):
             if safety.pairing.try_pair(chat_id, text):
-                await bus.send_notification(chat_id, "✅ Paired. You can now use the bot.")
+                await bus.send_notification(
+                    chat_id, "✅ Paired. You can now use the bot."
+                )
                 log.info("Chat paired via message", event="paired", chat_id=chat_id)
             else:
                 await bus.send_notification(
-                    chat_id, "🔒 Send the pairing code shown in the console to get started."
+                    chat_id,
+                    "🔒 Send the pairing code shown in the console to get started.",
                 )
             return
 
@@ -185,20 +201,25 @@ def make_message_handler(bus: MessageBus, safety: Safety):
             await bus.send_notification(chat_id, response)
             return
 
-
         log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
-            agent_name="",      # bus resolves the agent
+            agent_name="",  # bus resolves the agent
             chat_id=chat_id,
             text=text,
         )
 
+        thinking_id = await bus.send_thinking(chat_id)
         response = await bus.publish(event)
+        if thinking_id:
+            await bus.clear_thinking(chat_id, thinking_id)
         if response and not response.success:
-            log.warning("Agent returned unsuccessful response",
-                        event="response_error", agent=response.agent_name)
+            log.warning(
+                "Agent returned unsuccessful response",
+                event="response_error",
+                agent=response.agent_name,
+            )
 
     return on_message
 
@@ -247,7 +268,9 @@ def make_model_handler(safety: Safety):
                 old=old_model,
                 new=new_model,
             )
-            await update.message.reply_text(f"Model set to `{new_model}`.", parse_mode="Markdown")
+            await update.message.reply_text(
+                f"Model set to `{new_model}`.", parse_mode="Markdown"
+            )
         else:
             await update.message.reply_text(
                 f"Current model: `{settings.default_model}`.\n"
@@ -268,8 +291,10 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 
         # Pairing check
         if not safety.pairing.is_paired(chat_id):
-            await bus.send_notification(chat_id,
-                "🔒 Send the pairing code shown in the server console to get started.")
+            await bus.send_notification(
+                chat_id,
+                "🔒 Send the pairing code shown in the server console to get started.",
+            )
             return
 
         # /new-agent — start or continue the wizard
@@ -281,12 +306,15 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 
         # /help
         if command.startswith("/help"):
-            await bus.send_notification(chat_id, (
-                "*Available commands*\n\n"
-                "/new-agent — create a new agent interactively\n"
-                "/help — show this message\n\n"
-                "Or just send a message to talk to your agents."
-            ))
+            await bus.send_notification(
+                chat_id,
+                (
+                    "*Available commands*\n\n"
+                    "/new-agent — create a new agent interactively\n"
+                    "/help — show this message\n\n"
+                    "Or just send a message to talk to your agents."
+                ),
+            )
             return
 
     return on_command
@@ -296,34 +324,36 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 # ──────────────────────────────────────────────
 
 async def main() -> None:
-    bus, notifier, safety, scheduler, agent_creator = await bootstrap()
+    bus, notifier, safety, scheduler, creator = await bootstrap()
+    assert creator is not None
 
     # Print pairing code prominently — this is how new chats authenticate
     print(f"\n{'=' * 52}")
     print(f"  PAIRING CODE:  {safety.pairing.code}")
-    print(f"  Send this code to the bot on Telegram to pair.")
+    print("  Send this code to the bot on Telegram to pair.")
     print(f"{'=' * 52}\n")
 
-    app = (
-        ApplicationBuilder()
-        .token(settings.telegram_token)
-        .build()
-    )
+    app = ApplicationBuilder().token(settings.telegram_token).build()
 
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, make_message_handler(bus, safety, agent_creator))
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            make_message_handler(bus, safety, creator),
+        )
     )
     app.add_handler(CallbackQueryHandler(make_callback_handler(safety)))
     app.add_handler(CommandHandler("model", make_model_handler(safety)))
     app.add_handler(
-        CommandHandler(["new-agent", "help"], make_command_handler(bus, safety, agent_creator))
+        CommandHandler(
+            ["new-agent", "help"], make_command_handler(bus, safety, creator)
+        )
     )
 
     # Also handle /new-agent continuation messages (non-command text during wizard)
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-            make_message_handler(bus, safety, agent_creator)
+            make_message_handler(bus, safety, creator),
         ),
         group=1,
     )

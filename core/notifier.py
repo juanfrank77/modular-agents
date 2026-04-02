@@ -51,7 +51,34 @@ class TelegramNotifier:
                 try:
                     await self._bot.send_message(chat_id=int(chat_id), text=chunk)
                 except TelegramError as e:
-                    log.error("Failed to send message", event="send_error", error=str(e))
+                    log.error(
+                        "Failed to send message", event="send_error", error=str(e)
+                    )
+
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
+        """Send a message and return its Telegram message_id (for later editing/deletion)."""
+        try:
+            message = await self._bot.send_message(
+                chat_id=int(chat_id),
+                text=text,
+            )
+            return message.message_id
+        except TelegramError as e:
+            log.error("Failed to send message", event="send_error", error=str(e))
+            return None
+
+    async def delete_message(self, chat_id: str, message_id: int) -> None:
+        """Delete a previously sent message by its ID."""
+        try:
+            await self._bot.delete_message(chat_id=int(chat_id), message_id=message_id)
+        except TelegramError as e:
+            log.error(
+                "Failed to delete message",
+                event="delete_error",
+                chat_id=chat_id,
+                message_id=message_id,
+                error=str(e),
+            )
 
     async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
         """Send a file (photo, document, etc.) by local path."""
@@ -77,15 +104,21 @@ class TelegramNotifier:
         self,
         chat_id: str,
         text: str,
-        buttons: list[tuple[str, str]],   # [(label, callback_data), ...]
+        buttons: list[tuple[str, str]],
     ) -> None:
         """Send a message with inline keyboard buttons (used for approval gates)."""
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        except ImportError:
+            InlineKeyboardButton = None
+        InlineKeyboardMarkup = None
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(label, callback_data=data)]
-            for label, data in buttons
-        ])
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(label, callback_data=data)]
+                for label, data in buttons
+            ]
+        )
         try:
             await self._bot.send_message(
                 chat_id=int(chat_id),
@@ -94,8 +127,9 @@ class TelegramNotifier:
                 parse_mode=ParseMode.MARKDOWN,
             )
         except TelegramError as e:
-            log.error("Failed to send buttons", event="send_buttons_error", error=str(e))
-
+            log.error(
+                "Failed to send buttons", event="send_buttons_error", error=str(e)
+            )
 
 def _split_message(text: str, limit: int = _MAX_MSG_LENGTH) -> list[str]:
     """Split a long message into chunks that respect Telegram's size limit."""

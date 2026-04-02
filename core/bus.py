@@ -22,7 +22,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse, EventType
+from core.protocols import AgentEvent, AgentResponse
 
 if TYPE_CHECKING:
     from agents.base import BaseAgent
@@ -126,6 +126,20 @@ class MessageBus:
     @property
     def registered_agents(self) -> list[str]:
         return list(self._agents.keys())
+
+    async def send_thinking(self, chat_id: str) -> int | None:
+        """Send a 'Thinking...' placeholder and return its message ID."""
+        if not self._agents:
+            return None
+        agent = next(iter(self._agents.values()))
+        return await agent.notifier.send_and_get_id(chat_id, "⏳ Thinking...")
+
+    async def clear_thinking(self, chat_id: str, message_id: int) -> None:
+        """Delete the thinking placeholder message."""
+        if not self._agents:
+            return
+        agent = next(iter(self._agents.values()))
+        await agent.notifier.delete_message(chat_id, message_id)
 
     async def send_notification(self, chat_id: str, text: str) -> None:
         """

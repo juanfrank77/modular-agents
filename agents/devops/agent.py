@@ -63,19 +63,19 @@ Autonomy level: autonomous
 
 # Action types specific to DevOps — maps to safety.ActionType
 _ACTION_MAP = {
-    "DEPLOY_PROD":      ActionType.DESTRUCTIVE,
-    "DEPLOY_STAGING":   ActionType.WRITE_HIGH,
-    "DB_MIGRATE":       ActionType.DESTRUCTIVE,
-    "DB_ROLLBACK":      ActionType.DESTRUCTIVE,
-    "DELETE_RESOURCE":  ActionType.DESTRUCTIVE,
-    "RESTART_SERVICE":  ActionType.WRITE_HIGH,
-    "MERGE_PR":         ActionType.WRITE_HIGH,
-    "CLOSE_ISSUE":      ActionType.WRITE_LOW,
-    "CREATE_ISSUE":     ActionType.WRITE_LOW,
-    "RUN_SCRIPT":       ActionType.EXECUTE,
-    "READ":             ActionType.READ,
-    "SEARCH":           ActionType.READ,
-    "QUERY":            ActionType.READ,
+    "DEPLOY_PROD": ActionType.DESTRUCTIVE,
+    "DEPLOY_STAGING": ActionType.WRITE_HIGH,
+    "DB_MIGRATE": ActionType.DESTRUCTIVE,
+    "DB_ROLLBACK": ActionType.DESTRUCTIVE,
+    "DELETE_RESOURCE": ActionType.DESTRUCTIVE,
+    "RESTART_SERVICE": ActionType.WRITE_HIGH,
+    "MERGE_PR": ActionType.WRITE_HIGH,
+    "CLOSE_ISSUE": ActionType.WRITE_LOW,
+    "CREATE_ISSUE": ActionType.WRITE_LOW,
+    "RUN_SCRIPT": ActionType.EXECUTE,
+    "READ": ActionType.READ,
+    "SEARCH": ActionType.READ,
+    "QUERY": ActionType.READ,
 }
 
 
@@ -94,7 +94,9 @@ class DevOpsAgent(BaseAgent):
     @property
     def tools(self) -> DevOpsTools:
         if self._tools is None:
-            assert self.memory is not None, "Memory must be injected before accessing tools"
+            assert self.memory is not None, (
+                "Memory must be injected before accessing tools"
+            )
             self._tools = build_tools(memory=self.memory)
         return self._tools
 
@@ -102,8 +104,12 @@ class DevOpsAgent(BaseAgent):
 
     async def handle(self, event: AgentEvent) -> AgentResponse:
         if not self._is_authorized(event.chat_id):
-            log.warning("Unauthorised access", event="auth_denied", chat_id=event.chat_id)
-            return AgentResponse(text="Unauthorized.", agent_name=self.name, success=False)
+            log.warning(
+                "Unauthorised access", event="auth_denied", chat_id=event.chat_id
+            )
+            return AgentResponse(
+                text="Unauthorized.", agent_name=self.name, success=False
+            )
 
         if event.type == EventType.HEARTBEAT_TICK:
             return await self._heartbeat(event)
@@ -116,14 +122,14 @@ class DevOpsAgent(BaseAgent):
     # ── Message handling ──────────────────────
 
     async def _handle_message(self, event: AgentEvent) -> AgentResponse:
-        session_id = await self.storage.get_or_create_session(
-            event.chat_id, self.name
-        )
+        session_id = await self.storage.get_or_create_session(event.chat_id, self.name)
 
         await self.memory.save_message(session_id, "user", event.text, self.name)
 
         system_prompt = await self._build_system_prompt(event.text)
-        _, history = await self.memory.build_context(session_id, self.name, task=event.text)
+        _, history = await self.memory.build_context(
+            session_id, self.name, task=event.text
+        )
         messages = history + [Message(role="user", content=event.text)]
 
         with log.timer() as t:
@@ -135,9 +141,7 @@ class DevOpsAgent(BaseAgent):
 
         # Only intercept destructive/high-risk actions — autonomous mode
         # lets WRITE_LOW and EXECUTE pass through without approval
-        response_text = await self._handle_action_proposal(
-            event.chat_id, response_text
-        )
+        response_text = await self._handle_action_proposal(event.chat_id, response_text)
 
         await self.memory.save_message(
             session_id, "assistant", response_text, self.name
@@ -154,9 +158,7 @@ class DevOpsAgent(BaseAgent):
 
     # ── Action proposal interception ──────────
 
-    async def _handle_action_proposal(
-        self, chat_id: str, response_text: str
-    ) -> str:
+    async def _handle_action_proposal(self, chat_id: str, response_text: str) -> str:
         """
         Intercept ACTION: lines. In autonomous mode most actions proceed
         immediately — only DESTRUCTIVE actions require approval.
@@ -165,7 +167,7 @@ class DevOpsAgent(BaseAgent):
             return response_text
 
         lines = response_text.splitlines()
-        action_lines = [l for l in lines if l.strip().startswith("ACTION:")]
+        action_lines = [line for line in lines if line.strip().startswith("ACTION:")]
 
         for action_line in action_lines:
             parts = action_line.replace("ACTION:", "").strip().split("|", 1)
@@ -184,7 +186,7 @@ class DevOpsAgent(BaseAgent):
             if not allowed:
                 response_text = response_text.replace(
                     action_line,
-                    f"⚠️ Action blocked — approval required: _{description}_"
+                    f"⚠️ Action blocked — approval required: _{description}_",
                 )
                 log.warning(
                     "Destructive action blocked",
@@ -209,8 +211,8 @@ class DevOpsAgent(BaseAgent):
 
         if failures:
             alert = (
-                f"🚨 *DevOps Alert*\n\n"
-                f"Health check failures detected:\n"
+                "🚨 *DevOps Alert*\n\n"
+                "Health check failures detected:\n"
                 + "\n".join(f"  • {f}" for f in failures)
             )
             await self.notifier.send(event.chat_id, alert)
@@ -218,8 +220,7 @@ class DevOpsAgent(BaseAgent):
                 "Health check failures", event="health_alert", failures=failures
             )
             return AgentResponse(
-                text=alert, agent_name=self.name,
-                data={"failures": failures}
+                text=alert, agent_name=self.name, data={"failures": failures}
             )
 
         log.info("All systems healthy", event="heartbeat_ok")
@@ -283,32 +284,49 @@ class DevOpsAgent(BaseAgent):
             failing_ci = gh_summary.get("failing_ci", [])
             gh_errors = gh_summary.get("errors", [])
         except ToolError as e:
-            log.error("GitHub fetch failed for digest", event="digest_error", error=str(e))
+            log.error(
+                "GitHub fetch failed for digest", event="digest_error", error=str(e)
+            )
             await self.notifier.send(
                 event.chat_id,
-                "\U0001f419 *GitHub Digest*\n\n\u26a0\ufe0f Could not fetch GitHub data: " + str(e),
+                "\U0001f419 *GitHub Digest*\n\n\u26a0\ufe0f Could not fetch GitHub data: "
+                + str(e),
             )
-            return AgentResponse(text="GitHub fetch failed.", agent_name=self.name, success=False)
+            return AgentResponse(
+                text="GitHub fetch failed.", agent_name=self.name, success=False
+            )
 
         NL = "\n"
 
-        pr_text = NL.join(
-            f"- [{pr.get('repo')}] #{pr.get('number')} {pr.get('title')} "
-            f"(by {pr.get('author', {}).get('login', '?')}, "
-            f"review: {pr.get('reviewDecision') or 'pending'})"
-            for pr in open_prs
-        ) or "None"
+        pr_text = (
+            NL.join(
+                f"- [{pr.get('repo')}] #{pr.get('number')} {pr.get('title')} "
+                f"(by {pr.get('author', {}).get('login', '?')}, "
+                f"review: {pr.get('reviewDecision') or 'pending'})"
+                for pr in open_prs
+            )
+            or "None"
+        )
 
-        ci_text = NL.join(
-            f"- [{r.get('repo')}] {r.get('name')} \u2014 {r.get('url')}"
-            for r in failing_ci
-        ) or "None"
+        ci_text = (
+            NL.join(
+                f"- [{r.get('repo')}] {r.get('name')} \u2014 {r.get('url')}"
+                for r in failing_ci
+            )
+            or "None"
+        )
 
         errors_text = (
-            "**Fetch errors:**\n" + NL.join(
-                f"- {err.get('repo')}: {err.get('error')}" for err in gh_errors
-            ) + "\n\n"
-        ) if gh_errors else ""
+            (
+                "**Fetch errors:**\n"
+                + NL.join(
+                    f"- {err.get('repo')}: {err.get('error')}" for err in gh_errors
+                )
+                + "\n\n"
+            )
+            if gh_errors
+            else ""
+        )
 
         skill_content = ""
         if self.skill_loader:
@@ -337,9 +355,15 @@ class DevOpsAgent(BaseAgent):
             system=system,
         )
 
-        await self.notifier.send(event.chat_id, "\U0001f419 *GitHub Digest*\n\n" + digest)
-        log.info("GitHub digest sent", event="digest_sent",
-                 open_prs=len(open_prs), failing_ci=len(failing_ci))
+        await self.notifier.send(
+            event.chat_id, "\U0001f419 *GitHub Digest*\n\n" + digest
+        )
+        log.info(
+            "GitHub digest sent",
+            event="digest_sent",
+            open_prs=len(open_prs),
+            failing_ci=len(failing_ci),
+        )
         return AgentResponse(text=digest, agent_name=self.name)
 
     async def _incident_watchdog(self, event: AgentEvent) -> AgentResponse:
@@ -376,8 +400,12 @@ class DevOpsAgent(BaseAgent):
             bullet_list = "\n".join(f"  \u2022 {a}" for a in alerts)
             message = f"\U0001f6a8 *Incident Watchdog*\n\n{bullet_list}"
             await self.notifier.send(event.chat_id, message)
-            log.warning("Watchdog alerts fired", event="watchdog_alert", count=len(alerts))
-            return AgentResponse(text=message, agent_name=self.name, data={"alerts": alerts})
+            log.warning(
+                "Watchdog alerts fired", event="watchdog_alert", count=len(alerts)
+            )
+            return AgentResponse(
+                text=message, agent_name=self.name, data={"alerts": alerts}
+            )
 
         log.info("Watchdog: all clear", event="watchdog_ok")
         return AgentResponse(text="WATCHDOG_OK", agent_name=self.name)
@@ -393,7 +421,9 @@ class DevOpsAgent(BaseAgent):
             if skills:
                 skill_content = "## Relevant Skills\n\n" + "\n\n---\n\n".join(skills)
 
-        markdown_context, _ = await self.memory.build_context("_unused_", self.name, task=task)
+        markdown_context, _ = await self.memory.build_context(
+            "_unused_", self.name, task=task
+        )
 
         return _SYSTEM_TEMPLATE.format(
             context=f"## Context\n{markdown_context}" if markdown_context else "",
@@ -408,7 +438,8 @@ class DevOpsAgent(BaseAgent):
 
             primary_chat = (
                 self.settings.telegram_allowed_chat_ids[0]
-                if self.settings.telegram_allowed_chat_ids else ""
+                if self.settings.telegram_allowed_chat_ids
+                else ""
             )
 
             # GitHub digest — weekdays at 9am
@@ -435,7 +466,9 @@ class DevOpsAgent(BaseAgent):
                 bus=bus,
             )
 
-            log.info("Schedules registered", event="schedules_registered", agent=self.name)
+            log.info(
+                "Schedules registered", event="schedules_registered", agent=self.name
+            )
 
         except (ImportError, AttributeError) as e:
             log.warning(
@@ -464,14 +497,20 @@ def _looks_like_solution(question: str, answer: str) -> bool:
     is substantial, it's probably worth saving as a solution.
     """
     problem_keywords = {
-        "error", "fail", "broken", "crash", "fix", "debug",
-        "issue", "problem", "incident", "down", "timeout"
+        "error",
+        "fail",
+        "broken",
+        "crash",
+        "fix",
+        "debug",
+        "issue",
+        "problem",
+        "incident",
+        "down",
+        "timeout",
     }
     q_lower = question.lower()
-    return (
-        any(kw in q_lower for kw in problem_keywords)
-        and len(answer) > 200
-    )
+    return any(kw in q_lower for kw in problem_keywords) and len(answer) > 200
 
 
 def _slugify(text: str) -> str:

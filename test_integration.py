@@ -148,7 +148,7 @@ async def test_storage(tmp_path: Path) -> None:
         assert len(results) >= 1
         ok(f"Search works ({len(results)} results for 'hello')")
 
-    except Exception as e:
+    except Exception:
         fail("Storage", traceback.format_exc())
 
 
@@ -157,7 +157,6 @@ async def test_memory(tmp_path: Path) -> None:
     try:
         from core.storage import Storage
         from core.memory import Memory
-        from core.config import settings as real_settings
 
         # Build a settings-like object pointing to temp dirs
         mock_settings = MagicMock()
@@ -190,7 +189,7 @@ async def test_memory(tmp_path: Path) -> None:
         assert solution_path.exists()
         ok("save_solution() writes file")
 
-    except Exception as e:
+    except Exception:
         fail("Memory", traceback.format_exc())
 
 
@@ -234,7 +233,7 @@ async def test_safety() -> None:
         # So just check the gate was invoked (notifier.send_with_buttons was called)
         ok("Autonomous DESTRUCTIVE triggers approval gate (not blocking in test)")
 
-    except Exception as e:
+    except Exception:
         fail("Safety", traceback.format_exc())
 
 
@@ -243,8 +242,7 @@ async def test_bus_and_echo(tmp_path: Path) -> None:
     try:
         from core.bus import MessageBus
         from core.storage import Storage
-        from core.config import settings
-        from core.protocols import AgentEvent, AgentResponse, EventType
+        from core.protocols import AgentEvent, EventType
         from agents.echo.agent import EchoAgent
 
         storage = Storage(tmp_path / "bus_test.db")
@@ -285,7 +283,7 @@ async def test_bus_and_echo(tmp_path: Path) -> None:
         assert health.get("echo") is True
         ok("Health check passes for echo agent")
 
-    except Exception as e:
+    except Exception:
         fail("Bus + Echo", traceback.format_exc())
 
 
@@ -293,7 +291,6 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
     section("7. Business + DevOps Agent Health Checks")
     try:
         from core.storage import Storage
-        from core.config import settings
         from core.safety import Safety
         from agents.business.agent import BusinessAgent
         from agents.devops.agent import DevOpsAgent
@@ -330,7 +327,7 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
         assert healthy is True
         ok("DevOpsAgent health check passes")
 
-    except Exception as e:
+    except Exception:
         fail("Agent health checks", traceback.format_exc())
 
 
@@ -339,7 +336,6 @@ async def test_scheduler(tmp_path: Path) -> None:
     try:
         from core.scheduler import Scheduler, scheduler as singleton
         from core.protocols import AgentEvent, EventType
-        from core.bus import MessageBus
 
         bus = MagicMock()
         bus.publish = AsyncMock()
@@ -376,7 +372,6 @@ async def test_scheduler(tmp_path: Path) -> None:
 
         # Agent register_schedules() uses the singleton — verify it works
         from core.storage import Storage
-        from core.config import settings
         from core.safety import Safety
         from core.memory import Memory
         from agents.business.agent import BusinessAgent
@@ -411,7 +406,7 @@ async def test_scheduler(tmp_path: Path) -> None:
         await devops.register_schedules(bus)
         ok("DevOpsAgent.register_schedules() works via singleton")
 
-    except Exception as e:
+    except Exception:
         fail("Scheduler", traceback.format_exc())
 
 
@@ -424,7 +419,6 @@ async def test_devops_tools(tmp_path: Path) -> None:
         ok("DevOpsTools and build_tools import correctly")
 
         from core.storage import Storage
-        from core.config import settings
         from core.memory import Memory
 
         storage = Storage(tmp_path / "devops_tools_test.db")
@@ -444,7 +438,7 @@ async def test_devops_tools(tmp_path: Path) -> None:
         assert isinstance(tools.railway, RailwayTool)
         ok("build_tools() returns DevOpsTools with .github and .railway")
 
-    except Exception as e:
+    except Exception:
         fail("DevOps Tools", traceback.format_exc())
 
 
@@ -482,7 +476,7 @@ async def test_skill_loader(tmp_path: Path) -> None:
         assert len(all_skills) == 2
         ok("load_all() returns all skill files")
 
-    except Exception as e:
+    except Exception:
         fail("SkillLoader", traceback.format_exc())
 
 
@@ -517,7 +511,7 @@ async def test_cli_runner() -> None:
         else:
             skip("railway CLI check", "railway not installed — install with: npm i -g @railway/cli")
 
-    except Exception as e:
+    except Exception:
         fail("CLI Runner", traceback.format_exc())
 
 

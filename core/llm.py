@@ -13,6 +13,12 @@ from __future__ import annotations
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from core.config import settings
 from core.logger import get_logger
@@ -20,12 +26,41 @@ from core.protocols import LLMProvider, Message
 
 log = get_logger("llm")
 
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True for transient HTTP errors worth retrying (429, 503, 529)."""
+    return getattr(exc, "status_code", None) in (429, 503, 529)
+
+
+def _log_retry(retry_state) -> None:
+    exc = retry_state.outcome.exception()
+    log.warning(
+        "LLM call failed, retrying",
+        event="llm_retry",
+        attempt=retry_state.attempt_number,
+        error=str(exc),
+    )
+
+
+_llm_retry = retry(
+    retry=retry_if_exception(_is_retryable),
+    wait=wait_exponential(
+        multiplier=1,
+        min=settings.llm_retry_min_wait,
+        max=settings.llm_retry_max_wait,
+    ),
+    stop=stop_after_attempt(settings.llm_max_retries),
+    before_sleep=_log_retry,
+    reraise=True,
+)
+
 class KiloLLM:
     """Implements LLMProvider using Kilo's OpenAI-compatible endpoint."""
 
     def __init__(self, api_key: str) -> None:
         self._client = AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url)
 
+    @_llm_retry
     async def complete(
         self,
         messages: list[Message],
@@ -68,6 +103,7 @@ class AnthropicLLM:
     def __init__(self, api_key: str) -> None:
         self._client = AsyncAnthropic(api_key=api_key)
 
+    @_llm_retry
     async def complete(
         self,
         messages: list[Message],

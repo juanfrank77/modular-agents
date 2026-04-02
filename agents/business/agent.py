@@ -74,8 +74,12 @@ class BusinessAgent(BaseAgent):
     async def handle(self, event: AgentEvent) -> AgentResponse:
         # Auth check
         if not self._is_authorized(event.chat_id):
-            log.warning("Unauthorised access", event="auth_denied", chat_id=event.chat_id)
-            return AgentResponse(text="Unauthorized.", agent_name=self.name, success=False)
+            log.warning(
+                "Unauthorised access", event="auth_denied", chat_id=event.chat_id
+            )
+            return AgentResponse(
+                text="Unauthorized.", agent_name=self.name, success=False
+            )
 
         # Heartbeat: just confirm alive
         if event.type == EventType.HEARTBEAT_TICK:
@@ -101,7 +105,9 @@ class BusinessAgent(BaseAgent):
         system_prompt = await self._build_system_prompt(event.text)
 
         # Get compacted history
-        _, history = await self.memory.build_context(session_id, self.name, task=event.text)
+        _, history = await self.memory.build_context(
+            session_id, self.name, task=event.text
+        )
 
         # Append current message to history for the LLM call
         messages = history + [Message(role="user", content=event.text)]
@@ -115,20 +121,18 @@ class BusinessAgent(BaseAgent):
         log.info("LLM responded", event="llm_done", duration_ms=t.ms)
 
         # Check if the LLM is proposing an action that needs approval
-        response_text = await self._handle_action_proposal(
-            event.chat_id, response_text
-        )
+        response_text = await self._handle_action_proposal(event.chat_id, response_text)
 
         # Save response
-        await self.memory.save_message(session_id, "assistant", response_text, self.name)
+        await self.memory.save_message(
+            session_id, "assistant", response_text, self.name
+        )
 
         return await self.reply(event, response_text)
 
     # ── Action proposal interception ──────────
 
-    async def _handle_action_proposal(
-        self, chat_id: str, response_text: str
-    ) -> str:
+    async def _handle_action_proposal(self, chat_id: str, response_text: str) -> str:
         """
         If the LLM response contains an ACTION: line, intercept it,
         run it through the safety gate, and either execute or cancel.
@@ -137,7 +141,7 @@ class BusinessAgent(BaseAgent):
             return response_text
 
         lines = response_text.splitlines()
-        action_lines = [l for l in lines if l.strip().startswith("ACTION:")]
+        action_lines = [line for line in lines if line.strip().startswith("ACTION:")]
 
         for action_line in action_lines:
             # Parse: ACTION: <TYPE> | <description>
@@ -157,12 +161,13 @@ class BusinessAgent(BaseAgent):
             if not allowed:
                 # Replace the action line with a cancellation notice
                 response_text = response_text.replace(
-                    action_line,
-                    f"⚠️ Action cancelled: _{description}_"
+                    action_line, f"⚠️ Action cancelled: _{description}_"
                 )
                 log.info(
-                    "Action denied", event="action_denied",
-                    action=action_type_str, description=description
+                    "Action denied",
+                    event="action_denied",
+                    action=action_type_str,
+                    description=description,
                 )
 
         return response_text
@@ -254,7 +259,9 @@ class BusinessAgent(BaseAgent):
                 skill_content = "## Relevant Skills\n\n" + "\n\n---\n\n".join(skills)
 
         # Load markdown context
-        markdown_context, _ = await self.memory.build_context("_unused_", self.name, task=task)
+        markdown_context, _ = await self.memory.build_context(
+            "_unused_", self.name, task=task
+        )
 
         return _SYSTEM_TEMPLATE.format(
             context=f"## User Context\n{markdown_context}" if markdown_context else "",
@@ -299,7 +306,9 @@ class BusinessAgent(BaseAgent):
                 bus=bus,
             )
 
-            log.info("Schedules registered", event="schedules_registered", agent=self.name)
+            log.info(
+                "Schedules registered", event="schedules_registered", agent=self.name
+            )
 
         except (ImportError, AttributeError) as e:
             log.warning(

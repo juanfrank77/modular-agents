@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import stat
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -51,9 +51,14 @@ class Settings:
     business_agent_autonomy: str = "supervised"
     devops_agent_autonomy: str = "autonomous"
 
+    # LLM retry / backoff
+    llm_max_retries: int = 3
+    llm_retry_min_wait: int = 2   # seconds
+    llm_retry_max_wait: int = 60  # seconds
+
     # Logging
     log_level: str = "INFO"
-    log_format: str = "json"   # "json" | "pretty"
+    log_format: str = "json"  # "json" | "pretty"
 
 
 # ──────────────────────────────────────────────
@@ -63,7 +68,9 @@ class Settings:
 def _require(key: str) -> str:
     val = os.getenv(key)
     if not val:
-        print(f"[config] FATAL: required env var '{key}' is missing. Check your .env file.")
+        print(
+            f"[config] FATAL: required env var '{key}' is missing. Check your .env file."
+        )
         sys.exit(1)
     return val
 
@@ -78,7 +85,9 @@ def _check_env_permissions(env_path: Path) -> None:
         return
     mode = env_path.stat().st_mode
     if mode & stat.S_IROTH or mode & stat.S_IWOTH:
-        print(f"[config] WARNING: {env_path} is readable by others. Run: chmod 600 {env_path}")
+        print(
+            f"[config] WARNING: {env_path} is readable by others. Run: chmod 600 {env_path}"
+        )
 
 
 def load_settings(env_path: Path = Path(".env")) -> Settings:
@@ -95,20 +104,20 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         kilo_api_key=_require("KILO_API_KEY"),
         anthropic_api_key=_optional("ANTHROPIC_API_KEY", ""),
         telegram_allowed_chat_ids=allowed_ids,
-
         # Optional with defaults
         default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
-
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),
         memory_context_dir=Path(_optional("MEMORY_CONTEXT_DIR", "memory/context")),
-        memory_solutions_dir=Path(_optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")),
-
+        memory_solutions_dir=Path(
+            _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")
+        ),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
-
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
-
+        llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
+        llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
+        llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
     )

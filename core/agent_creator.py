@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from core.llm import AnthropicLLM
+    from core.llm import LLMProvider
 
 log = get_logger("agent_creator")
 
@@ -188,16 +188,18 @@ def _patch_main(main_path: Path, module_name: str, class_name: str) -> bool:
     Returns True if patched, False if already present or file not found.
     """
     if not main_path.exists():
-        log.warning("main.py not found for patching", event="patch_skip",
-                    path=str(main_path))
+        log.warning(
+            "main.py not found for patching", event="patch_skip", path=str(main_path)
+        )
         return False
 
     content = main_path.read_text(encoding="utf-8")
 
     import_line = f"from agents.{module_name}.agent import {class_name}"
     if import_line in content:
-        log.info("Agent already registered in main.py", event="patch_skip",
-                 agent=module_name)
+        log.info(
+            "Agent already registered in main.py", event="patch_skip", agent=module_name
+        )
         return False
 
     # Add import after the echo agent import
@@ -216,7 +218,7 @@ def _patch_main(main_path: Path, module_name: str, class_name: str) -> bool:
     )
 
     content = content.replace(
-        f"    bus.register(echo)",
+        "    bus.register(echo)",
         f"{instantiation}    bus.register(echo)",
     )
 
@@ -307,7 +309,7 @@ def _snake(name: str) -> str:
 # ── AgentCreator ──────────────────────────────
 
 class AgentCreator:
-    def __init__(self, llm: "AnthropicLLM", project_root: Path) -> None:
+    def __init__(self, llm: "LLMProvider", project_root: Path) -> None:
         self._llm = llm
         self._root = project_root
         self._sessions: dict[str, WizardSession] = {}
@@ -320,9 +322,7 @@ class AgentCreator:
         Returns the response string to send back via Telegram.
         """
         # Clean up expired sessions
-        self._sessions = {
-            k: v for k, v in self._sessions.items() if not v.expired
-        }
+        self._sessions = {k: v for k, v in self._sessions.items() if not v.expired}
 
         text = text.strip()
 
@@ -334,10 +334,7 @@ class AgentCreator:
 
         # No active session
         if chat_id not in self._sessions:
-            return (
-                "No active agent creation session.\n"
-                "Send /new-agent to start."
-            )
+            return "No active agent creation session.\nSend /new-agent to start."
 
         session = self._sessions[chat_id]
         session.touch()
@@ -521,9 +518,7 @@ class AgentCreator:
             return f"❌ Failed to write agent files: {e}"
 
         # Patch main.py
-        patched = _patch_main(
-            self._root / "main.py", module_name, class_name
-        )
+        patched = _patch_main(self._root / "main.py", module_name, class_name)
 
         # Clean up session
         del self._sessions[session.chat_id]
@@ -554,9 +549,7 @@ class AgentCreator:
     ) -> str:
         from core.protocols import Message
 
-        skills_text = "\n".join(
-            f"{i+1}. {s}" for i, s in enumerate(session.skills)
-        )
+        skills_text = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(session.skills))
 
         prompt = _GENERATION_PROMPT.format(
             name=session.name,

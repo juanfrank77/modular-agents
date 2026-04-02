@@ -37,6 +37,7 @@ class CLIResult:
 
 class ToolError(Exception):
     """Raised after retry exhaustion or unrecoverable CLI failure."""
+
     def __init__(self, tool: str, command: list[str], stderr: str, returncode: int):
         self.tool = tool
         self.command = command
@@ -104,7 +105,8 @@ async def run_cli(
                     proc.kill()
                     await proc.communicate()
                     raise ToolError(
-                        label, args,
+                        label,
+                        args,
                         f"Command timed out after {timeout}s",
                         returncode=-1,
                     )
@@ -112,7 +114,7 @@ async def run_cli(
             result = CLIResult(
                 stdout=stdout_b.decode("utf-8", errors="replace").strip(),
                 stderr=stderr_b.decode("utf-8", errors="replace").strip(),
-                returncode=proc.returncode,
+                returncode=proc.returncode or 0,
             )
 
             log.info(
@@ -147,7 +149,8 @@ async def run_cli(
     # All attempts exhausted
     assert last_result is not None
     raise ToolError(
-        label, args,
+        label,
+        args,
         last_result.stderr or "Unknown error",
         last_result.returncode,
     )
@@ -157,7 +160,8 @@ def _assert_available(binary: str) -> None:
     """Raise a clear error if a required CLI tool is not on PATH."""
     if not shutil.which(binary):
         raise ToolError(
-            binary, [binary],
+            binary,
+            [binary],
             f"'{binary}' not found on PATH. "
             f"Install it and ensure it is accessible from this environment.",
             returncode=127,

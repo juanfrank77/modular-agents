@@ -57,8 +57,12 @@ class Scheduler:
         trigger = CronTrigger.from_crontab(cron_expr)
         job_id = f"{agent_name}_{cron_expr}"
         self._scheduler.add_job(callback, trigger, id=job_id, replace_existing=True)
-        log.info("Schedule registered", event="schedule_add",
-                 agent=agent_name, cron=cron_expr)
+        log.info(
+            "Schedule registered",
+            event="schedule_add",
+            agent=agent_name,
+            cron=cron_expr,
+        )
 
     # ── High-level: publish an AgentEvent on schedule ──
     def add_cron_job(
@@ -81,19 +85,30 @@ class Scheduler:
         async def _fire() -> None:
             b = effective_bus or self._bus
             if not b:
-                log.warning("Cron job fired but no bus available",
-                            event="cron_no_bus", agent=event.agent_name)
+                log.warning(
+                    "Cron job fired but no bus available",
+                    event="cron_no_bus",
+                    agent=event.agent_name,
+                )
                 return
-            log.info("Cron job firing", event="cron_fire",
-                     agent=event.agent_name, task=event.data.get("task", ""))
+            log.info(
+                "Cron job firing",
+                event="cron_fire",
+                agent=event.agent_name,
+                task=event.data.get("task", ""),
+            )
             await b.publish(event)
 
         job_id = f"{event.agent_name}_{event.data.get('task', cron)}"
         trigger = CronTrigger.from_crontab(cron)
         self._scheduler.add_job(_fire, trigger, id=job_id, replace_existing=True)
-        log.info("Cron job registered", event="cron_add",
-                 agent=event.agent_name, cron=cron,
-                 task=event.data.get("task", ""))
+        log.info(
+            "Cron job registered",
+            event="cron_add",
+            agent=event.agent_name,
+            cron=cron,
+            task=event.data.get("task", ""),
+        )
 
     # ── Heartbeat ─────────────────────────────
     async def _heartbeat(self) -> None:
@@ -119,8 +134,11 @@ class Scheduler:
                 replace_existing=True,
             )
         self._scheduler.start()
-        log.info("Scheduler started", event="scheduler_start",
-                 heartbeat_minutes=self._heartbeat_minutes)
+        log.info(
+            "Scheduler started",
+            event="scheduler_start",
+            heartbeat_minutes=self._heartbeat_minutes,
+        )
 
     def stop(self) -> None:
         """Gracefully shut down the scheduler."""

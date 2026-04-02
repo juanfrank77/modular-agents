@@ -13,3 +13,6 @@ apscheduler>=3.10.0
 
 # OpenAI Compatible
 openai>=2.29.0
+
+# Retry / backoff
+tenacity>=8.2.0
