@@ -84,7 +84,11 @@ async def bootstrap() -> tuple[
     memory = Memory(storage=storage, llm=llm, settings=settings)
 
     # 9. Safety
-    safety = Safety(notifier=notifier, allowed_ids=settings.telegram_allowed_chat_ids)
+    safety = Safety(
+        notifier=notifier,
+        allowed_ids=settings.telegram_allowed_chat_ids,
+        approval_timeouts=settings.approval_timeouts,
+    )
 
     # 10. Skill loader
     skill_loader = SkillLoader()

@@ -200,6 +200,22 @@ DEVOPS_AGENT_AUTONOMY=autonomous     # acts freely, asks for destructive ops
 
 Options: `read_only` | `supervised` | `autonomous`
 
+### Configuring approval timeouts
+
+When a supervised agent requests approval for a consequential action, it waits for you to tap Approve or Deny in Telegram. The timeout before auto-denying is configurable per action type:
+
+```
+APPROVAL_TIMEOUTS=WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600
+```
+
+| Action type | Default timeout | When it applies |
+|-------------|----------------|-----------------|
+| `WRITE_HIGH` | 120s | Send email, post message, calendar write |
+| `EXECUTE` | 300s | Run scripts, CLI commands |
+| `DESTRUCTIVE` | 600s | Delete, DB migrate, force deploy |
+
+If you don't set `APPROVAL_TIMEOUTS`, the defaults above apply. Any action type not listed falls back to 300s.
+
 ---
 
 ## Project structure

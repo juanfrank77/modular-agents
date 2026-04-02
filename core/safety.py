@@ -106,20 +106,38 @@ def is_blocked_command(text: str) -> bool:
 # Approval Gate
 # ──────────────────────────────────────────────
 
+_DEFAULT_TIMEOUT = 300  # fallback when action type not in timeouts dict
+
+
 class ApprovalGate:
     """
     For supervised-mode actions: sends inline buttons, waits for user response.
+    Timeout is configurable per ActionType via the timeouts dict.
     """
 
-    _TIMEOUT = 300  # 5 minutes
-
-    def __init__(self, notifier: "TelegramNotifier") -> None:
+    def __init__(
+        self,
+        notifier: "TelegramNotifier",
+        timeouts: dict[str, int] | None = None,
+    ) -> None:
         self._notifier = notifier
+        self._timeouts: dict[str, int] = timeouts or {}
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, bool] = {}
 
-    async def request_approval(self, chat_id: str, description: str) -> bool:
+    async def request_approval(
+        self,
+        chat_id: str,
+        description: str,
+        action_type: "ActionType | None" = None,
+    ) -> bool:
         """Send approval buttons and wait for response. Returns True if approved."""
+        timeout = (
+            self._timeouts.get(action_type.name, _DEFAULT_TIMEOUT)
+            if action_type is not None
+            else _DEFAULT_TIMEOUT
+        )
+
         approval_id = str(uuid.uuid4())[:8]
         event = asyncio.Event()
         self._pending[approval_id] = event
@@ -134,10 +152,16 @@ class ApprovalGate:
         )
 
         try:
-            await asyncio.wait_for(event.wait(), timeout=self._TIMEOUT)
+            await asyncio.wait_for(event.wait(), timeout=timeout)
             approved = self._results.pop(approval_id, False)
         except asyncio.TimeoutError:
-            log.warning("Approval timed out", event="approval_timeout", approval_id=approval_id)
+            log.warning(
+                "Approval timed out",
+                event="approval_timeout",
+                approval_id=approval_id,
+                timeout=timeout,
+                action_type=action_type.name if action_type else None,
+            )
             approved = False
         finally:
             self._pending.pop(approval_id, None)
@@ -162,9 +186,14 @@ class ApprovalGate:
 class Safety:
     """Orchestrates all safety checks."""
 
-    def __init__(self, notifier: "TelegramNotifier", allowed_ids: list[str]) -> None:
+    def __init__(
+        self,
+        notifier: "TelegramNotifier",
+        allowed_ids: list[str],
+        approval_timeouts: dict[str, int] | None = None,
+    ) -> None:
         self.pairing = PairingManager(allowed_ids)
-        self.gate = ApprovalGate(notifier)
+        self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
 
     async def check_action(
         self,
@@ -197,6 +226,6 @@ class Safety:
             if action_type in (ActionType.READ, ActionType.WRITE_LOW):
                 return True
             # High-risk actions need explicit approval
-            return await self.gate.request_approval(chat_id, description)
+            return await self.gate.request_approval(chat_id, description, action_type=action_type)
 
         return False

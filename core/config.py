@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import stat
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -55,6 +55,14 @@ class Settings:
     llm_max_retries: int = 3
     llm_retry_min_wait: int = 2   # seconds
     llm_retry_max_wait: int = 60  # seconds
+
+    # Approval timeouts per ActionType name (seconds)
+    # Keys match ActionType enum names: WRITE_HIGH, EXECUTE, DESTRUCTIVE
+    approval_timeouts: dict[str, int] = field(default_factory=lambda: {
+        "WRITE_HIGH": 120,
+        "EXECUTE": 300,
+        "DESTRUCTIVE": 600,
+    })
 
     # Logging
     log_level: str = "INFO"
@@ -98,6 +106,19 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     raw_ids = _optional("TELEGRAM_ALLOWED_CHAT_IDS", "")
     allowed_ids = [i.strip() for i in raw_ids.split(",") if i.strip()]
 
+    # Parse approval timeouts: "WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600"
+    approval_timeouts: dict[str, int] = {"WRITE_HIGH": 120, "EXECUTE": 300, "DESTRUCTIVE": 600}
+    raw_timeouts = _optional("APPROVAL_TIMEOUTS", "")
+    if raw_timeouts:
+        for pair in raw_timeouts.split(","):
+            pair = pair.strip()
+            if "=" in pair:
+                k, _, v = pair.partition("=")
+                try:
+                    approval_timeouts[k.strip().upper()] = int(v.strip())
+                except ValueError:
+                    pass  # ignore malformed entries
+
     return Settings(
         # Required
         telegram_token=_require("TELEGRAM_BOT_TOKEN"),
@@ -120,6 +141,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
+        approval_timeouts=approval_timeouts,
     )
 
 
