@@ -26,16 +26,17 @@ class EventType(Enum):
     HEARTBEAT_TICK = auto()
     WEBHOOK_EVENT = auto()
     APPROVAL_RESPONSE = auto()
-
+    AGENT_MESSAGE = auto()
 
 @dataclass
 class AgentEvent:
     type: EventType
     agent_name: str  # which agent should handle this
     chat_id: str  # telegram chat_id to reply to
+    origin_agent: str = "" # which agent originated the call
     text: str = ""
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=datetime.now(datetime.timezone.utc))
 
 
 @dataclass
@@ -51,7 +52,7 @@ class Message:
     role: str  # 'user' | 'assistant' | 'system'
     content: str
     agent: str = ""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=datetime.now(datetime.timezone.utc))
 
 
 # ──────────────────────────────────────────────

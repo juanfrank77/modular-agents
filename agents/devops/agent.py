@@ -110,7 +110,11 @@ class DevOpsAgent(BaseAgent):
             return AgentResponse(
                 text="Unauthorized.", agent_name=self.name, success=False
             )
-
+        
+        # Cross-agent messages handling
+        if event.type == EventType.AGENT_MESSAGE:
+            return await self._handle_agent_message(event)
+        
         if event.type == EventType.HEARTBEAT_TICK:
             return await self._heartbeat(event)
 
@@ -433,6 +437,7 @@ class DevOpsAgent(BaseAgent):
     # ── Lifecycle ─────────────────────────────
 
     async def register_schedules(self, bus: "MessageBus") -> None:
+        await super().register_schedules(bus)
         try:
             from core.scheduler import scheduler
 

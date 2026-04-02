@@ -109,6 +109,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
+        bus=bus
     )
     bus.register(business)
 
@@ -120,6 +121,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
+        bus=bus
     )
     bus.register(devops)
 

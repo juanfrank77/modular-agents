@@ -81,6 +81,10 @@ class BusinessAgent(BaseAgent):
                 text="Unauthorized.", agent_name=self.name, success=False
             )
 
+        # Cross-agent messages handling
+        if event.type == EventType.AGENT_MESSAGE:
+            return await self._handle_agent_message(event)
+        
         # Heartbeat: just confirm alive
         if event.type == EventType.HEARTBEAT_TICK:
             log.info("Heartbeat", event="heartbeat")
@@ -277,6 +281,7 @@ class BusinessAgent(BaseAgent):
         Assumes a scheduler is accessible via bus or imported directly.
         Adjust the import path to match your scheduler.py implementation.
         """
+        await super().register_schedules(bus)
         try:
             from core.scheduler import scheduler
 
