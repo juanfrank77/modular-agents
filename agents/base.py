@@ -91,7 +91,7 @@ class BaseAgent(ABC):
         context: str = ""
     ) -> "AgentResponse | None":
         """
-        Send a fire-and-forget notification to another agent.
+        Send a notification to another agent.
 
         Exanple:
             await self.emit(
@@ -123,15 +123,18 @@ class BaseAgent(ABC):
             }
         )
         
-        await self.bus.publish(message)
+        response = await self.bus.publish(message)
 
         log.info(
             "Agent message sent",
             event="agent_emit",
             from_agent=self.name,
             to_agent=agent_name,
-            message_event=event
+            message_event=event,
+            success=response.success if response else None
         )
+
+        return response
     
     async def _handle_agent_message(self, event: AgentEvent) -> AgentResponse:
         """
