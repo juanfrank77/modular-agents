@@ -10,7 +10,7 @@ only these protocols.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from typing import Any, Protocol, runtime_checkable
 
@@ -36,7 +36,7 @@ class AgentEvent:
     origin_agent: str = "" # which agent originated the call
     text: str = ""
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now(datetime.timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -52,7 +52,7 @@ class Message:
     role: str  # 'user' | 'assistant' | 'system'
     content: str
     agent: str = ""
-    timestamp: datetime = field(default_factory=datetime.now(datetime.timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ──────────────────────────────────────────────
@@ -69,6 +69,8 @@ class LLMProvider(Protocol):
         model: str = "",
         max_tokens: int = 1024,
     ) -> str: ...
+
+    async def summarize(self, messages: list[Message]) -> str: ...
 
 
 @runtime_checkable

@@ -42,7 +42,7 @@ def run(name: str, coro):
         ok(name)
     except AssertionError as e:
         fail(name, str(e))
-    except Exception as e:
+    except Exception:
         fail(name, traceback.format_exc().strip().splitlines()[-1])
 
 
@@ -103,10 +103,10 @@ async def test_kilo_retries_on_429():
     llm._client.chat.completions.create = mock_create
 
     with patch("asyncio.sleep", new_callable=AsyncMock):
-        result = await llm.complete(messages=[], system="test")
+        _ = await llm.complete(messages=[], system="test")
 
     assert call_count == 2, f"expected 2 calls, got {call_count}"
-    assert result == "hello"
+    assert _ == "hello"
 
 
 run("KiloLLM retries on 429", test_kilo_retries_on_429())
@@ -174,10 +174,10 @@ async def test_anthropic_retries_on_429():
 
     msgs = [Message(role="user", content="hi")]
     with patch("asyncio.sleep", new_callable=AsyncMock):
-        result = await llm.complete(messages=msgs, system="test")
+        _ = await llm.complete(messages=msgs, system="test")
 
     assert call_count == 2, f"expected 2 calls, got {call_count}"
-    assert result == "world"
+    assert _ == "world"
 
 
 run("AnthropicLLM retries on 429", test_anthropic_retries_on_429())
@@ -210,7 +210,7 @@ async def test_anthropic_retries_on_529():
 
     msgs = [Message(role="user", content="hi")]
     with patch("asyncio.sleep", new_callable=AsyncMock):
-        result = await llm.complete(messages=msgs, system="test")
+        _ = await llm.complete(messages=msgs, system="test")
 
     assert call_count == 2, f"expected 2 calls, got {call_count}"
 

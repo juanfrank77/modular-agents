@@ -368,6 +368,7 @@ async def main() -> None:
 
     async with app:
         await app.start()
+        assert app.updater is not None, "updater required"
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         scheduler.start()
         log.info("Bot is running. Press Ctrl+C to stop.", event="running")

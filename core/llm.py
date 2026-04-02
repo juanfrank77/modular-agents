@@ -81,7 +81,7 @@ class KiloLLM:
             response = await self._client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
-                messages=api_messages,
+                messages=api_messages,  # type: ignore
             )
 
         text = response.choices[0].message.content or "" if response.choices else ""
@@ -96,6 +96,15 @@ class KiloLLM:
             duration_ms=t.ms,
         )
         return text
+
+    async def summarize(self, messages: list[Message]) -> str:
+        """Summarize a conversation for session compaction."""
+        system = (
+            "You are a conversation summarizer. Condense the following conversation "
+            "into a brief summary that preserves key facts, decisions, and context. "
+            "Be concise but retain important details the user mentioned."
+        )
+        return await self.complete(messages, system=system, max_tokens=512)
 
 class AnthropicLLM:
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
@@ -129,7 +138,7 @@ class AnthropicLLM:
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
-                messages=api_messages,
+                messages=api_messages,  # type: ignore
             )
 
         # Extract text from response

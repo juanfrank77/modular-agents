@@ -100,6 +100,8 @@ class BusinessAgent(BaseAgent):
     # ── Message handling ──────────────────────
 
     async def _handle_message(self, event: AgentEvent) -> AgentResponse:
+        assert self.memory is not None, "memory required"
+        assert self.llm is not None, "llm required"
         session_id = await self.storage.get_or_create_session(event.chat_id, self.name)
 
         # Save inbound message
@@ -141,6 +143,7 @@ class BusinessAgent(BaseAgent):
         If the LLM response contains an ACTION: line, intercept it,
         run it through the safety gate, and either execute or cancel.
         """
+        assert self.safety is not None, "safety required"
         if "ACTION:" not in response_text:
             return response_text
 
@@ -189,6 +192,8 @@ class BusinessAgent(BaseAgent):
 
     async def _morning_briefing(self, event: AgentEvent) -> AgentResponse:
         """Generate and send the daily morning briefing."""
+        assert self.memory is not None, "memory required"
+        assert self.llm is not None, "llm required"
         log.info("Running morning briefing", event="morning_briefing")
 
         # Load the morning-briefing skill specifically
@@ -224,6 +229,8 @@ class BusinessAgent(BaseAgent):
 
     async def _weekly_review(self, event: AgentEvent) -> AgentResponse:
         """Generate and send the weekly review."""
+        assert self.memory is not None, "memory required"
+        assert self.llm is not None, "llm required"
         log.info("Running weekly review", event="weekly_review")
 
         context = await self.memory.get_context("preferences")
@@ -253,6 +260,7 @@ class BusinessAgent(BaseAgent):
 
     async def _build_system_prompt(self, task: str) -> str:
         """Inject relevant skills and markdown context into the system prompt."""
+        assert self.memory is not None, "memory required"
         # Load relevant skills
         skill_content = ""
         if self.skill_loader:

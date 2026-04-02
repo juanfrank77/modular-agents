@@ -126,6 +126,8 @@ class DevOpsAgent(BaseAgent):
     # ── Message handling ──────────────────────
 
     async def _handle_message(self, event: AgentEvent) -> AgentResponse:
+        assert self.memory is not None, "memory required"
+        assert self.llm is not None, "llm required"
         session_id = await self.storage.get_or_create_session(event.chat_id, self.name)
 
         await self.memory.save_message(session_id, "user", event.text, self.name)
@@ -167,6 +169,7 @@ class DevOpsAgent(BaseAgent):
         Intercept ACTION: lines. In autonomous mode most actions proceed
         immediately — only DESTRUCTIVE actions require approval.
         """
+        assert self.safety is not None, "safety required"
         if "ACTION:" not in response_text:
             return response_text
 
@@ -279,6 +282,8 @@ class DevOpsAgent(BaseAgent):
 
     async def _github_digest(self, event: AgentEvent) -> AgentResponse:
         """Morning GitHub activity digest — pulls real data from gh CLI then summarises."""
+        assert self.memory is not None, "memory required"
+        assert self.llm is not None, "llm required"
         log.info("Running GitHub digest", event="github_digest")
 
         # Fetch real data from GitHub
@@ -417,6 +422,7 @@ class DevOpsAgent(BaseAgent):
     # ── System prompt builder ─────────────────
 
     async def _build_system_prompt(self, task: str) -> str:
+        assert self.memory is not None, "memory required"
         skill_content = ""
         if self.skill_loader:
             skills = await self.skill_loader.find_relevant(

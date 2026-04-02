@@ -19,7 +19,7 @@ Usage:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -72,7 +72,7 @@ class Storage:
         async with aiosqlite.connect(self._db_path_str) as db:
             await db.execute(
                 "INSERT INTO sessions (id, agent, started_at) VALUES (?, ?, ?)",
-                (session_id, agent, datetime.utcnow().isoformat()),
+                (session_id, agent, datetime.now(timezone.utc).isoformat()),
             )
             await db.commit()
         return session_id
@@ -92,7 +92,7 @@ class Storage:
             if not row:
                 await db.execute(
                     "INSERT INTO sessions (id, agent, started_at) VALUES (?, ?, ?)",
-                    (session_id, agent, datetime.utcnow().isoformat()),
+                    (session_id, agent, datetime.now(timezone.utc).isoformat()),
                 )
                 await db.commit()
         return session_id
@@ -107,7 +107,7 @@ class Storage:
             await db.execute(
                 "INSERT INTO messages (id, session_id, agent, role, content, ts) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (msg_id, session_id, agent, role, content, datetime.utcnow().isoformat()),
+                (msg_id, session_id, agent, role, content, datetime.now(timezone.utc).isoformat()),
             )
             await db.commit()
 
@@ -125,7 +125,7 @@ class Storage:
         return [
             Message(role=r[0], content=r[1], agent=r[2],
                     timestamp=datetime.fromisoformat(r[3]))
-            for r in reversed(rows)
+            for r in list(rows)[::-1]
         ]
 
     async def search_history(

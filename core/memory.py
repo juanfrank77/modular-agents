@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
@@ -349,7 +349,7 @@ class Memory:
         if match:
             try:
                 last_run = datetime.fromisoformat(match.group(1).strip())
-                hours_since = (datetime.utcnow() - last_run).total_seconds() / 3600
+                hours_since = (datetime.now(timezone.utc) - last_run).total_seconds() / 3600
                 if hours_since < _CONSOLIDATION_MIN_HOURS:
                     return False
             except ValueError:
@@ -536,5 +536,5 @@ def _extract_summary(content: str) -> str:
  
  
 def _now() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
  

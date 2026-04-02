@@ -15,11 +15,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telegram import Bot
+from core.logger import get_logger
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
-
-from core.logger import get_logger
 
 log = get_logger("notifier")
 
@@ -107,12 +106,6 @@ class TelegramNotifier:
         buttons: list[tuple[str, str]],
     ) -> None:
         """Send a message with inline keyboard buttons (used for approval gates)."""
-        try:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        except ImportError:
-            InlineKeyboardButton = None
-        InlineKeyboardMarkup = None
-
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton(label, callback_data=data)]
