@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 from urllib.parse import urlparse
 
 import httpx
@@ -25,6 +26,28 @@ from core.logger import get_logger
 log = get_logger("web_tool")
 
 _MAX_SCRAPE_CHARS = 20480  # 20 KB
+
+# Known metadata hostnames that don't use raw IPs
+_PRIVATE_HOSTNAMES: frozenset[str] = frozenset([
+    "metadata.google.internal",
+    "metadata.internal",
+])
+
+
+def _is_private_host(host: str) -> bool:
+    """Return True if *host* is a private, loopback, link-local, or reserved address."""
+    try:
+        addr = ipaddress.ip_address(host)
+        return (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        )
+    except ValueError:
+        return host.lower() in _PRIVATE_HOSTNAMES
 
 
 class WebTool:
@@ -113,6 +136,16 @@ class WebTool:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             log.warning("scrape rejected non-http URL", event="scrape_invalid_url", url=url)
+            return ""
+
+        host = parsed.hostname or ""
+        if not host or _is_private_host(host):
+            log.warning(
+                "scrape rejected private/internal host",
+                event="scrape_private_host",
+                url=url,
+                host=host,
+            )
             return ""
 
         try:
