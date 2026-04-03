@@ -22,12 +22,24 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse
+from core.protocols import AgentEvent, AgentResponse, EventType
+from core.budget import ActionType, BudgetManager
 
 if TYPE_CHECKING:
     from agents.base import BaseAgent
 
 log = get_logger("bus")
+
+# Mapping from EventType to ActionType for budget classification
+_EVENT_TO_ACTION: dict[EventType, ActionType] = {
+    EventType.USER_MESSAGE: ActionType.REACTIVE,
+    EventType.SCHEDULED_TASK: ActionType.PROACTIVE,
+    EventType.HEARTBEAT_TICK: ActionType.PROACTIVE,
+    EventType.WEBHOOK_EVENT: ActionType.PROACTIVE,
+    EventType.APPROVAL_RESPONSE: ActionType.REACTIVE,
+    EventType.AGENT_MESSAGE: ActionType.PROACTIVE,
+}
+
 
 class MessageBus:
     def __init__(self) -> None:
@@ -35,12 +47,22 @@ class MessageBus:
         self._agents: dict[str, "BaseAgent"] = {}
         # Maps chat_id → last active agent name (for conversation continuity)
         self._chat_agent_map: dict[str, str] = {}
+        # Budget manager for proactive action limiting
+        self._budget: BudgetManager | None = None
 
     # ── Registration ──────────────────────────
 
     def register(self, agent: "BaseAgent") -> None:
         self._agents[agent.name] = agent
         log.info("Agent registered", event="agent_registered", agent=agent.name)
+
+    def set_budget(self, budget: BudgetManager) -> None:
+        """Set budget manager for proactive action limiting."""
+        self._budget = budget
+
+    def _get_action_type(self, event: AgentEvent) -> ActionType:
+        """Determine if an event is proactive or reactive for budget purposes."""
+        return _EVENT_TO_ACTION.get(event.type, ActionType.REACTIVE)
 
     # ── Publishing ────────────────────────────
 
@@ -55,8 +77,11 @@ class MessageBus:
         """
         agent = self._resolve_agent(event)
         if not agent:
-            log.warning("No agent found for event", event="routing_failed",
-                        agent_hint=event.agent_name)
+            log.warning(
+                "No agent found for event",
+                event="routing_failed",
+                agent_hint=event.agent_name,
+            )
             return None
 
         # Track which agent is handling this chat
@@ -100,11 +125,14 @@ class MessageBus:
         tasks = [agent.handle(event) for agent in self._agents.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         responses = []
-        
+
         for r in results:
             if isinstance(r, Exception):
-                log.error("Agent error during broadcast", event="bus_broadcast_error",
-                          error=str(r))
+                log.error(
+                    "Agent error during broadcast",
+                    event="bus_broadcast_error",
+                    error=str(r),
+                )
             else:
                 responses.append(r)
 
@@ -118,8 +146,12 @@ class MessageBus:
             try:
                 results[name] = await agent.health_check()
             except Exception as e:
-                log.error("Health check failed", event="health_check_error",
-                          agent=name, error=str(e))
+                log.error(
+                    "Health check failed",
+                    event="health_check_error",
+                    agent=name,
+                    error=str(e),
+                )
                 results[name] = False
         return results
 
@@ -148,8 +180,10 @@ class MessageBus:
         needing to access bus._agents directly.
         """
         if not self._agents:
-            log.warning("send_notification called but no agents registered",
-                        event="notify_no_agents")
+            log.warning(
+                "send_notification called but no agents registered",
+                event="notify_no_agents",
+            )
             return
         agent = next(iter(self._agents.values()))
         await agent.notifier.send(chat_id, text)

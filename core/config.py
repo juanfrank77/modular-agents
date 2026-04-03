@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 # Settings dataclass
 # ──────────────────────────────────────────────
 
+
 @dataclass
 class Settings:
     # Telegram
@@ -53,16 +54,24 @@ class Settings:
 
     # LLM retry / backoff
     llm_max_retries: int = 3
-    llm_retry_min_wait: int = 2   # seconds
+    llm_retry_min_wait: int = 2  # seconds
     llm_retry_max_wait: int = 60  # seconds
 
     # Approval timeouts per ActionType name (seconds)
     # Keys match ActionType enum names: WRITE_HIGH, EXECUTE, DESTRUCTIVE
-    approval_timeouts: dict[str, int] = field(default_factory=lambda: {
-        "WRITE_HIGH": 120,
-        "EXECUTE": 300,
-        "DESTRUCTIVE": 600,
-    })
+    approval_timeouts: dict[str, int] = field(
+        default_factory=lambda: {
+            "WRITE_HIGH": 120,
+            "EXECUTE": 300,
+            "DESTRUCTIVE": 600,
+        }
+    )
+
+    # Budget settings for proactive actions
+    budget_window_seconds: int = 15
+    budget_max_proactive_per_window: int = 2
+    budget_defer_threshold_seconds: int = 15
+    budget_max_retry_attempts: int = 3
 
     # Logging
     log_level: str = "INFO"
@@ -72,6 +81,7 @@ class Settings:
 # ──────────────────────────────────────────────
 # Loader
 # ──────────────────────────────────────────────
+
 
 def _require(key: str) -> str:
     val = os.getenv(key)
@@ -107,7 +117,11 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     allowed_ids = [i.strip() for i in raw_ids.split(",") if i.strip()]
 
     # Parse approval timeouts: "WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600"
-    approval_timeouts: dict[str, int] = {"WRITE_HIGH": 120, "EXECUTE": 300, "DESTRUCTIVE": 600}
+    approval_timeouts: dict[str, int] = {
+        "WRITE_HIGH": 120,
+        "EXECUTE": 300,
+        "DESTRUCTIVE": 600,
+    }
     raw_timeouts = _optional("APPROVAL_TIMEOUTS", "")
     if raw_timeouts:
         for pair in raw_timeouts.split(","):
@@ -142,6 +156,14 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
         approval_timeouts=approval_timeouts,
+        budget_window_seconds=int(_optional("BUDGET_WINDOW_SECONDS", "15")),
+        budget_max_proactive_per_window=int(
+            _optional("BUDGET_MAX_PROACTIVE_PER_WINDOW", "2")
+        ),
+        budget_defer_threshold_seconds=int(
+            _optional("BUDGET_DEFER_THRESHOLD_SECONDS", "15")
+        ),
+        budget_max_retry_attempts=int(_optional("BUDGET_MAX_RETRY_ATTEMPTS", "3")),
     )
 
 
