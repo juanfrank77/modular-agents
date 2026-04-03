@@ -182,7 +182,7 @@ class DevOpsAgent(BaseAgent):
             action_type_str = parts[0].strip().upper() if parts else ""
             description = parts[1].strip() if len(parts) > 1 else action_line
 
-            action_type = _ACTION_MAP.get(action_type_str, ActionType.WRITE_HIGH)
+            action_type = _ACTION_MAP.get(action_type_str, SafetyActionType.WRITE_HIGH)
 
             allowed = await self.safety.check_action(
                 chat_id=chat_id,
