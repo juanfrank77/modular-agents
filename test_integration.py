@@ -556,8 +556,61 @@ async def test_skill_loader(tmp_path: Path) -> None:
         fail("SkillLoader", traceback.format_exc())
 
 
+async def test_web_tool_private_host_blocked() -> None:
+    section("11. WebTool – private/internal host blocking")
+    try:
+        from core.web_tool import WebTool
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        tool = WebTool()
+
+        private_urls = [
+            "http://127.0.0.1/",
+            "http://0.0.0.0/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://192.168.1.1/admin",
+            "http://10.0.0.1/",
+            "http://172.16.0.1/",
+            "http://[::1]/",
+            "http://metadata.google.internal/",
+        ]
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock()
+
+        with patch("core.web_tool.httpx.AsyncClient", return_value=mock_client):
+            for url in private_urls:
+                result = await tool.scrape(url)
+                assert result == "", f"Expected '' for {url!r}, got {result!r}"
+
+        assert mock_client.get.call_count == 0, (
+            f"HTTP request was made {mock_client.get.call_count} time(s) for private hosts"
+        )
+        ok("Private/internal URLs are rejected before HTTP request")
+
+        # Public hostname must pass the host check and reach the HTTP layer
+        mock_response = MagicMock()
+        mock_response.is_redirect = False
+        mock_response.raise_for_status = MagicMock()
+        mock_response.text = "<html><body>Hello world</body></html>"
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("core.web_tool.httpx.AsyncClient", return_value=mock_client):
+            result = await tool.scrape("https://example.com")
+        assert "Hello world" in result
+        ok("Public hostname passes host check and reaches HTTP layer")
+
+    except Exception:
+        fail("WebTool private host blocking", traceback.format_exc())
+
+
 async def test_cli_runner() -> None:
-    section("11. CLI Runner")
+    section("12. CLI Runner")
     try:
         from agents.devops.tools.cli_runner import run_cli, ToolError, _assert_available
 
@@ -613,6 +666,7 @@ async def run_all() -> None:
         await test_scheduler(tmp_path)
         await test_devops_tools(tmp_path)
         await test_skill_loader(tmp_path)
+        await test_web_tool_private_host_blocked()
         await test_cli_runner()
 
     print(f"\n{'─' * 50}")
