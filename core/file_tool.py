@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from core.logger import get_logger
 
@@ -34,6 +35,7 @@ class FileTool:
 
     def __init__(self, allowed_paths: list[Path]) -> None:
         self._allowed = [p.resolve() for p in allowed_paths]
+        self._cache: dict[str, dict[str, Any]] = {}
         log.debug("FileTool initialised", count=len(self._allowed))
 
     # ------------------------------------------------------------------
@@ -88,7 +90,9 @@ class FileTool:
             if item.is_file():
                 results.append(str(item.relative_to(folder_path)))
         results.sort()
-        log.debug("list_files", folder=str(folder_path), pattern=pattern, count=len(results))
+        log.debug(
+            "list_files", folder=str(folder_path), pattern=pattern, count=len(results)
+        )
         return results
 
     def read_file(self, path: str | Path) -> str:
@@ -96,6 +100,9 @@ class FileTool:
 
         If the file exceeds 100 KB only the first 100 KB is returned and a
         truncation notice is appended.
+
+        Caching: Files are cached after reading. Subsequent reads check if the
+        file's mtime/size has changed - if not, the cached content is returned.
 
         Args:
             path: File to read.  Must be within an allowed path.
@@ -107,14 +114,39 @@ class FileTool:
         if not resolved.is_file():
             log.warning("read_file path is not a file", path=str(resolved))
             raise ValueError(f"Path is not a file: '{resolved}'")
+
+        resolved_str = str(resolved)
+        current_stat = resolved.stat()
+        current_mtime = current_stat.st_mtime
+        current_size = current_stat.st_size
+
+        if resolved_str in self._cache:
+            cached = self._cache[resolved_str]
+            if cached["mtime"] == current_mtime and cached["size"] == current_size:
+                log.debug("read_file cache hit", path=resolved_str)
+                return cached["content"]
+
         raw = resolved.read_bytes()
         if len(raw) > _MAX_READ_BYTES:
-            log.warning("read_file exceeds 100 KB, truncating", path=str(resolved), size=len(raw))
+            log.warning(
+                "read_file exceeds 100 KB, truncating",
+                path=str(resolved),
+                size=len(raw),
+            )
             content = raw[:_MAX_READ_BYTES].decode("utf-8", errors="replace")
             content += f"\n\n[... truncated: file is {len(raw)} bytes, only first {_MAX_READ_BYTES} bytes shown ...]"
-        else:
-            content = raw.decode("utf-8", errors="replace")
-        log.debug("read_file", path=str(resolved), chars=len(content))
+            log.debug("read_file", path=resolved_str, chars=len(content))
+            return content
+
+        content = raw.decode("utf-8", errors="replace")
+
+        self._cache[resolved_str] = {
+            "content": content,
+            "mtime": current_mtime,
+            "size": current_size,
+        }
+
+        log.debug("read_file", path=resolved_str, chars=len(content))
         return content
 
     def write_file(self, path: str | Path, content: str) -> None:
@@ -127,4 +159,7 @@ class FileTool:
         resolved = self._validate_path(Path(path))
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
-        log.debug("write_file", path=str(resolved), chars=len(content))
+        resolved_str = str(resolved)
+        if resolved_str in self._cache:
+            del self._cache[resolved_str]
+        log.debug("write_file", path=resolved_str, chars=len(content))
