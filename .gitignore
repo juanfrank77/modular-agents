@@ -54,6 +54,9 @@ instance/
 ## Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
+## Git worktrees
+.worktrees/
+
 ## Environment variables
 .env
 .venv
