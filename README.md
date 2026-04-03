@@ -112,7 +112,31 @@ source .venv/bin/activate
 python main.py
 ```
 
-The pairing code will be printed to the console. Send it to your bot on Telegram to authenticate.
+#### First time setup — pairing your chat
+
+When the bot starts, it prints a 6-digit pairing code to the console:
+
+```
+====================================================
+  PAIRING CODE:  483920
+  Send this code to the bot on Telegram to pair.
+====================================================
+```
+
+**To pair:**
+1. Open Telegram and find the bot you created with @BotFather
+2. Send it a message — any message — and it will reply asking for the pairing code
+3. Type the 6-digit code exactly as shown in the console and send it
+4. The bot will reply: `✅ Paired. You can now use the bot.`
+
+You only need to do this once per chat. The pairing persists across restarts.
+
+**Using systemd?** The pairing code is in the logs, not the terminal:
+```bash
+journalctl -u modular-agents | grep "PAIRING CODE"
+```
+
+**Can't find your bot on Telegram?** Search by the username you set in @BotFather (e.g. `@myagentbot`). If you haven't created a bot yet, open Telegram, search for `@BotFather`, send `/newbot`, and follow the prompts — it takes about 2 minutes.
 
 ### 5. Verify
 
