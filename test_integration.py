@@ -359,6 +359,54 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
         fail("Agent health checks", traceback.format_exc())
 
 
+async def test_devops_cli_health_check() -> None:
+    section("8b. DevOps agent CLI validation")
+    from unittest.mock import patch
+    from core.config import settings
+    from core.storage import Storage
+    import tempfile, pathlib
+
+    try:
+        storage = Storage(pathlib.Path(tempfile.mktemp(suffix=".db")))
+        await storage.init()
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(return_value="ok")
+        mock_llm.summarize = AsyncMock(return_value="summary")
+        mock_memory = AsyncMock()
+        mock_safety = MagicMock()
+        mock_notifier = AsyncMock()
+
+        from agents.devops.agent import DevOpsAgent
+        agent = DevOpsAgent(
+            settings=settings,
+            storage=storage,
+            notifier=mock_notifier,
+            llm=mock_llm,
+            memory=mock_memory,
+            safety=mock_safety,
+        )
+
+        # Simulate both CLIs missing
+        with patch("shutil.which", return_value=None):
+            result = await agent.health_check()
+            if result is False:
+                ok("DevOps health_check returns False when gh/railway missing")
+            else:
+                fail("DevOps health_check should return False when CLIs missing")
+
+        # Simulate both CLIs present
+        with patch("shutil.which", return_value="/usr/bin/gh"):
+            result = await agent.health_check()
+            if result is True:
+                ok("DevOps health_check returns True when CLIs present")
+            else:
+                fail("DevOps health_check should return True when CLIs present")
+
+    except Exception:
+        fail("DevOps CLI health check", traceback.format_exc())
+
+
 async def test_scheduler(tmp_path: Path) -> None:
     section("8. Scheduler")
     try:
@@ -561,6 +609,7 @@ async def run_all() -> None:
         await test_safety()
         await test_bus_and_echo(tmp_path)
         await test_agent_health_checks(tmp_path)
+        await test_devops_cli_health_check()
         await test_scheduler(tmp_path)
         await test_devops_tools(tmp_path)
         await test_skill_loader(tmp_path)

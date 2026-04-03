@@ -489,11 +489,23 @@ class DevOpsAgent(BaseAgent):
             )
 
     async def health_check(self) -> bool:
+        import shutil
         try:
             assert self.llm is not None, "LLM not injected"
             assert self.memory is not None, "Memory not injected"
             assert self.safety is not None, "Safety not injected"
             await self.storage.search_history("_health_", agent=self.name, limit=1)
+
+            missing = [cli for cli in ("gh", "railway") if not shutil.which(cli)]
+            if missing:
+                log.warning(
+                    "DevOps agent missing required CLI tools",
+                    event="health_cli_missing",
+                    missing=missing,
+                    hint="Install and authenticate the missing tools before using the DevOps agent.",
+                )
+                return False
+
             return True
         except Exception as e:
             log.error("Health check failed", event="health_check_error", error=str(e))
