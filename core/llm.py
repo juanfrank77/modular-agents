@@ -168,5 +168,14 @@ class AnthropicLLM:
 
 def get_llm_provider() -> LLMProvider:
     if settings.kilo_api_key:
+        log.info("LLM provider selected", event="llm_provider", provider="kilo")
         return KiloLLM(settings.kilo_api_key)
+    if not settings.anthropic_api_key:
+        print(
+            "[config] FATAL: neither KILO_API_KEY nor ANTHROPIC_API_KEY is set. "
+            "Set at least one in your .env file."
+        )
+        import sys
+        sys.exit(1)
+    log.info("LLM provider selected", event="llm_provider", provider="anthropic")
     return AnthropicLLM(settings.anthropic_api_key)

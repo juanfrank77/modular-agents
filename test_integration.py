@@ -107,6 +107,34 @@ async def test_config() -> None:
         fail("Config", str(e))
 
 
+async def test_llm_verify() -> None:
+    section("1b. LLM startup verification")
+    from core.protocols import Message
+
+    # Simulate successful LLM response
+    mock_llm = AsyncMock()
+    mock_llm.complete = AsyncMock(return_value="ok")
+    try:
+        from main import _verify_llm
+        await _verify_llm(mock_llm)
+        ok("LLM startup verify — passes when API responds")
+    except SystemExit:
+        fail("LLM startup verify — should not exit on success")
+    except Exception as e:
+        fail("LLM startup verify", str(e))
+
+    # Simulate API failure
+    mock_llm_fail = AsyncMock()
+    mock_llm_fail.complete = AsyncMock(side_effect=Exception("401 Unauthorized"))
+    try:
+        await _verify_llm(mock_llm_fail)
+        fail("LLM startup verify — should exit on API failure")
+    except SystemExit:
+        ok("LLM startup verify — exits cleanly when API key is invalid")
+    except Exception as e:
+        fail("LLM startup verify — unexpected exception", str(e))
+
+
 async def test_logger() -> None:
     section("2. Logger")
     try:
@@ -526,6 +554,7 @@ async def run_all() -> None:
         tmp_path = Path(tmp)
 
         await test_config()
+        await test_llm_verify()
         await test_logger()
         await test_storage(tmp_path)
         await test_memory(tmp_path)

@@ -77,6 +77,9 @@ async def bootstrap() -> tuple[
     # 4. LLM
     llm = get_llm_provider()
 
+    # 4b. Verify LLM key works before proceeding
+    await _verify_llm(llm)
+
     # 5. Agent creator
     creator = AgentCreator(llm=llm, project_root=Path("."))
 
@@ -174,6 +177,26 @@ async def _send_to_chat_bus(bus: MessageBus, chat_id: str, text: str) -> None:
     Used internally for pairing messages — avoids accessing bus._agents directly.
     """
     await bus.send_notification(chat_id, text)
+
+
+async def _verify_llm(llm: "LLMProvider") -> None:
+    """Make a minimal API call at startup to validate the LLM key works.
+    Exits with a clear message if the key is invalid or the service is unreachable."""
+    from core.protocols import Message
+    try:
+        await llm.complete(
+            messages=[Message(role="user", content="ping")],
+            system="Reply with one word: ok",
+            max_tokens=5,
+        )
+        log.info("LLM connectivity verified", event="llm_verified")
+    except Exception as e:
+        print(
+            f"\n[startup] FATAL: LLM API call failed — check your API key and connectivity.\n"
+            f"  Error: {e}\n"
+            f"  Set KILO_API_KEY (or ANTHROPIC_API_KEY) in your .env file.\n"
+        )
+        sys.exit(1)
 
 # ──────────────────────────────────────────────
 # Telegram handlers
