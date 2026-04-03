@@ -186,7 +186,13 @@ class MessageBus:
             )
             return
         agent = next(iter(self._agents.values()))
-        await agent.notifier.send(chat_id, text)
+        # System notifications treated as REACTIVE
+        await agent.notifier.send(
+            chat_id,
+            text,
+            action_type=ActionType.REACTIVE,
+            agent_name=agent.name,
+        )
 
     # ── Internal ─────────────────────────────
 

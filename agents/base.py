@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType
+from core.budget import ActionType
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -185,7 +186,12 @@ class BaseAgent(ABC):
 
     async def reply(self, event: AgentEvent, text: str) -> AgentResponse:
         """Send a message back to the user and return a response object."""
-        await self.notifier.send(event.chat_id, text)
+        await self.notifier.send(
+            event.chat_id,
+            text,
+            action_type=ActionType.REACTIVE,
+            agent_name=self.name,
+        )
         return AgentResponse(text=text, agent_name=self.name)
 
     def _is_authorized(self, chat_id: str) -> bool:

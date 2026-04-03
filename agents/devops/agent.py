@@ -29,7 +29,8 @@ from typing import TYPE_CHECKING, Any
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
-from core.safety import ActionType
+from core.safety import ActionType as SafetyActionType
+from core.budget import ActionType
 from agents.base import BaseAgent
 from agents.devops.tools import DevOpsTools, build_tools
 from agents.devops.tools.cli_runner import ToolError
@@ -63,19 +64,19 @@ Autonomy level: autonomous
 
 # Action types specific to DevOps — maps to safety.ActionType
 _ACTION_MAP = {
-    "DEPLOY_PROD": ActionType.DESTRUCTIVE,
-    "DEPLOY_STAGING": ActionType.WRITE_HIGH,
-    "DB_MIGRATE": ActionType.DESTRUCTIVE,
-    "DB_ROLLBACK": ActionType.DESTRUCTIVE,
-    "DELETE_RESOURCE": ActionType.DESTRUCTIVE,
-    "RESTART_SERVICE": ActionType.WRITE_HIGH,
-    "MERGE_PR": ActionType.WRITE_HIGH,
-    "CLOSE_ISSUE": ActionType.WRITE_LOW,
-    "CREATE_ISSUE": ActionType.WRITE_LOW,
-    "RUN_SCRIPT": ActionType.EXECUTE,
-    "READ": ActionType.READ,
-    "SEARCH": ActionType.READ,
-    "QUERY": ActionType.READ,
+    "DEPLOY_PROD": SafetyActionType.DESTRUCTIVE,
+    "DEPLOY_STAGING": SafetyActionType.WRITE_HIGH,
+    "DB_MIGRATE": SafetyActionType.DESTRUCTIVE,
+    "DB_ROLLBACK": SafetyActionType.DESTRUCTIVE,
+    "DELETE_RESOURCE": SafetyActionType.DESTRUCTIVE,
+    "RESTART_SERVICE": SafetyActionType.WRITE_HIGH,
+    "MERGE_PR": SafetyActionType.WRITE_HIGH,
+    "CLOSE_ISSUE": SafetyActionType.WRITE_LOW,
+    "CREATE_ISSUE": SafetyActionType.WRITE_LOW,
+    "RUN_SCRIPT": SafetyActionType.EXECUTE,
+    "READ": SafetyActionType.READ,
+    "SEARCH": SafetyActionType.READ,
+    "QUERY": SafetyActionType.READ,
 }
 
 
@@ -222,7 +223,12 @@ class DevOpsAgent(BaseAgent):
                 "Health check failures detected:\n"
                 + "\n".join(f"  • {f}" for f in failures)
             )
-            await self.notifier.send(event.chat_id, alert)
+            await self.notifier.send(
+                event.chat_id,
+                alert,
+                action_type=ActionType.PROACTIVE,
+                agent_name=self.name,
+            )
             log.warning(
                 "Health check failures", event="health_alert", failures=failures
             )
@@ -300,6 +306,8 @@ class DevOpsAgent(BaseAgent):
                 event.chat_id,
                 "\U0001f419 *GitHub Digest*\n\n\u26a0\ufe0f Could not fetch GitHub data: "
                 + str(e),
+                action_type=ActionType.PROACTIVE,
+                agent_name=self.name,
             )
             return AgentResponse(
                 text="GitHub fetch failed.", agent_name=self.name, success=False
@@ -365,7 +373,10 @@ class DevOpsAgent(BaseAgent):
         )
 
         await self.notifier.send(
-            event.chat_id, "\U0001f419 *GitHub Digest*\n\n" + digest
+            event.chat_id,
+            "\U0001f419 *GitHub Digest*\n\n" + digest,
+            action_type=ActionType.PROACTIVE,
+            agent_name=self.name,
         )
         log.info(
             "GitHub digest sent",
@@ -408,7 +419,12 @@ class DevOpsAgent(BaseAgent):
         if alerts:
             bullet_list = "\n".join(f"  \u2022 {a}" for a in alerts)
             message = f"\U0001f6a8 *Incident Watchdog*\n\n{bullet_list}"
-            await self.notifier.send(event.chat_id, message)
+            await self.notifier.send(
+                event.chat_id,
+                message,
+                action_type=ActionType.PROACTIVE,
+                agent_name=self.name,
+            )
             log.warning(
                 "Watchdog alerts fired", event="watchdog_alert", count=len(alerts)
             )

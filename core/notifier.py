@@ -89,7 +89,9 @@ class TelegramNotifier:
                     await self._action_queue.enqueue(
                         agent_name=agent_name,
                         action_data={"chat_id": chat_id, "text": text},
-                        callback=self._make_send_callback(chat_id, text),
+                        callback=self._make_send_callback(
+                            chat_id, text, agent_name, action_type
+                        ),
                         action_type=action_type,
                     )
                 return False
@@ -119,11 +121,13 @@ class TelegramNotifier:
 
         return True
 
-    def _make_send_callback(self, chat_id: str, text: str):
+    def _make_send_callback(
+        self, chat_id: str, text: str, agent_name: str, action_type: ActionType
+    ):
         """Create a callback for retrying a deferred message."""
 
         async def callback() -> None:
-            await self.send(chat_id, text)
+            await self.send(chat_id, text, action_type=action_type, agent_name=agent_name)
 
         return callback
 
