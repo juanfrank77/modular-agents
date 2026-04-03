@@ -14,12 +14,16 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.budget import ActionType, BudgetManager
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
+
+if TYPE_CHECKING:
+    from core.action_queue import ActionQueue
 
 log = get_logger("notifier")
 
@@ -31,16 +35,26 @@ class TelegramNotifier:
     """
     Implements the Notifier Protocol for Telegram.
     Handles long messages by splitting automatically.
-    Supports budget-aware sending for proactive messages.
+    Supports budget-aware sending for proactive messages with deferral.
     """
 
-    def __init__(self, token: str, budget_manager: BudgetManager | None = None):
+    def __init__(
+        self,
+        token: str,
+        budget_manager: BudgetManager | None = None,
+        action_queue: "ActionQueue | None" = None,
+    ):
         self._bot = Bot(token=token)
         self._budget = budget_manager
+        self._action_queue = action_queue
 
     def set_budget(self, budget: BudgetManager) -> None:
         """Set budget manager for proactive message limiting."""
         self._budget = budget
+
+    def set_action_queue(self, queue: "ActionQueue") -> None:
+        """Set action queue for deferred message retry."""
+        self._action_queue = queue
 
     async def send(
         self,
@@ -70,6 +84,14 @@ class TelegramNotifier:
                     agent=agent_name,
                     chat_id=chat_id,
                 )
+                # Try to enqueue for retry if action queue is available
+                if self._action_queue:
+                    await self._action_queue.enqueue(
+                        agent_name=agent_name,
+                        action_data={"chat_id": chat_id, "text": text},
+                        callback=self._make_send_callback(chat_id, text),
+                        action_type=action_type,
+                    )
                 return False
 
         start_time = 0.0
@@ -96,6 +118,14 @@ class TelegramNotifier:
             self._budget.record_action_end(agent_name, action_type, start_time)
 
         return True
+
+    def _make_send_callback(self, chat_id: str, text: str):
+        """Create a callback for retrying a deferred message."""
+
+        async def callback() -> None:
+            await self.send(chat_id, text)
+
+        return callback
 
     async def send_and_get_id(
         self,
@@ -148,12 +178,34 @@ class TelegramNotifier:
                 error=str(e),
             )
 
-    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+    async def send_media(
+        self,
+        chat_id: str,
+        path: str,
+        caption: str = "",
+        action_type: ActionType = ActionType.REACTIVE,
+        agent_name: str = "",
+    ) -> bool:
         """Send a file (photo, document, etc.) by local path."""
+        # Check budget for proactive messages
+        if action_type == ActionType.PROACTIVE and self._budget and agent_name:
+            if not self._budget.check_budget(agent_name, action_type):
+                log.info(
+                    "Proactive media deferred (budget)",
+                    event="media_deferred_budget",
+                    agent=agent_name,
+                    chat_id=chat_id,
+                )
+                return False
+
+        start_time = 0.0
+        if self._budget and agent_name and action_type == ActionType.PROACTIVE:
+            start_time = self._budget.record_action_start(agent_name, action_type)
+
         file_path = Path(path)
         if not file_path.exists():
             log.error("Media file not found", event="send_media_error", path=path)
-            return
+            return False
         try:
             suffix = file_path.suffix.lower()
             with open(file_path, "rb") as f:
@@ -167,14 +219,37 @@ class TelegramNotifier:
                     )
         except TelegramError as e:
             log.error("Failed to send media", event="send_media_error", error=str(e))
+            return False
+        finally:
+            if self._budget and start_time > 0 and agent_name:
+                self._budget.record_action_end(agent_name, action_type, start_time)
+
+        return True
 
     async def send_with_buttons(
         self,
         chat_id: str,
         text: str,
         buttons: list[tuple[str, str]],
-    ) -> None:
+        action_type: ActionType = ActionType.REACTIVE,
+        agent_name: str = "",
+    ) -> bool:
         """Send a message with inline keyboard buttons (used for approval gates)."""
+        # Check budget for proactive messages
+        if action_type == ActionType.PROACTIVE and self._budget and agent_name:
+            if not self._budget.check_budget(agent_name, action_type):
+                log.info(
+                    "Proactive message with buttons deferred (budget)",
+                    event="buttons_deferred_budget",
+                    agent=agent_name,
+                    chat_id=chat_id,
+                )
+                return False
+
+        start_time = 0.0
+        if self._budget and agent_name and action_type == ActionType.PROACTIVE:
+            start_time = self._budget.record_action_start(agent_name, action_type)
+
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton(label, callback_data=data)]
@@ -192,6 +267,12 @@ class TelegramNotifier:
             log.error(
                 "Failed to send buttons", event="send_buttons_error", error=str(e)
             )
+            return False
+        finally:
+            if self._budget and start_time > 0 and agent_name:
+                self._budget.record_action_end(agent_name, action_type, start_time)
+
+        return True
 
 
 def _split_message(text: str, limit: int = _MAX_MSG_LENGTH) -> list[str]:

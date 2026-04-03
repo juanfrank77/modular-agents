@@ -83,11 +83,15 @@ async def bootstrap() -> tuple[
     # 3. Budget manager (before notifier so we can inject it)
     budget = BudgetManager(settings)
 
-    # 4. Notifier
-    notifier = TelegramNotifier(token=settings.telegram_token, budget_manager=budget)
+    # 4. Notifier (budget will be set after queue is created)
+    notifier = TelegramNotifier(token=settings.telegram_token)
 
     # 5. Action queue
     action_queue = ActionQueue(budget, settings)
+
+    # 4b. Set budget and queue on notifier
+    notifier.set_budget(budget)
+    notifier.set_action_queue(action_queue)
 
     # 6. LLM
     llm = get_llm_provider()
