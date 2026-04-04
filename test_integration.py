@@ -625,6 +625,129 @@ async def test_web_tool_private_host_blocked() -> None:
         fail("WebTool private host blocking", traceback.format_exc())
 
 
+async def test_plan_mode(tmp_path: Path) -> None:
+    section("13. Plan Mode — dispatch() / _run_with_plan()")
+    try:
+        from core.storage import Storage
+        from core.safety import Safety
+        from core.protocols import AgentEvent, EventType, AgentResponse
+        from agents.echo.agent import EchoAgent
+
+        storage = Storage(tmp_path / "plan_test.db")
+        await storage.init()
+
+        notifier = make_mock_notifier()
+        mock_settings = MagicMock()
+        mock_settings.telegram_allowed_chat_ids = []
+
+        chat_id = "test_chat"
+
+        # ── dispatch() without plan_mode → delegates to handle() ──────────
+        echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        assert not echo.is_plan_mode(chat_id), "plan_mode should default to False"
+        ok("plan_mode defaults to False")
+
+        event = AgentEvent(
+            type=EventType.USER_MESSAGE,
+            agent_name="echo",
+            chat_id=chat_id,
+            text="hello plan",
+        )
+        response = await echo.dispatch(event)
+        assert response.success
+        assert "hello plan" in response.text
+        ok("dispatch() without plan_mode delegates to handle()")
+
+        # ── _run_with_plan() with no LLM → falls back to handle() ─────────
+        echo2 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        echo2.toggle_plan_mode(chat_id)
+        echo2.llm = None
+        response2 = await echo2.dispatch(event)
+        assert response2.success
+        assert "hello plan" in response2.text
+        ok("_run_with_plan() with no LLM falls back to handle()")
+
+        # ── _run_with_plan() approved path ────────────────────────────────
+        echo3 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        echo3.toggle_plan_mode(chat_id)
+        echo3.llm = make_mock_llm("1. Step one\n2. Step two")
+
+        mock_safety = MagicMock()
+        mock_safety.gate = MagicMock()
+        mock_safety.gate.request_approval = AsyncMock(return_value=True)
+        echo3.safety = mock_safety
+
+        response3 = await echo3.dispatch(event)
+        assert response3.success
+        assert "hello plan" in response3.text
+        mock_safety.gate.request_approval.assert_awaited_once()
+        ok("_run_with_plan() approved: executes handle() and returns its response")
+
+        # ── _run_with_plan() denied path ──────────────────────────────────
+        echo4 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        echo4.toggle_plan_mode(chat_id)
+        echo4.llm = make_mock_llm("1. Step one\n2. Step two")
+
+        mock_safety2 = MagicMock()
+        mock_safety2.gate = MagicMock()
+        mock_safety2.gate.request_approval = AsyncMock(return_value=False)
+        echo4.safety = mock_safety2
+
+        response4 = await echo4.dispatch(event)
+        assert response4.success == False
+        assert "not approved" in response4.text.lower() or "cancelled" in response4.text.lower()
+        ok("_run_with_plan() denied: returns cancellation message with success=False")
+
+        # ── /planmode toggle logic ────────────────────────────────────────
+        from core.bus import MessageBus
+
+        bus = MessageBus()
+        echo5 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        bus.register(echo5)
+
+        assert not echo5.is_plan_mode(chat_id)
+        # Toggle ON
+        for name in bus.registered_agents:
+            agent = bus.get_agent(name)
+            if agent:
+                agent.toggle_plan_mode(chat_id)
+        assert echo5.is_plan_mode(chat_id)
+        ok("/planmode toggles plan_mode ON for registered agent")
+
+        # Toggle OFF
+        for name in bus.registered_agents:
+            agent = bus.get_agent(name)
+            if agent:
+                agent.toggle_plan_mode(chat_id)
+        assert not echo5.is_plan_mode(chat_id)
+        ok("/planmode toggles plan_mode OFF for registered agent")
+
+        # Toggle a specific agent by name
+        echo6 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        echo6.name = "echo"
+        bus2 = MessageBus()
+        bus2.register(echo6)
+        target = "echo"
+        for name in bus2.registered_agents:
+            if name == target:
+                agent = bus2.get_agent(name)
+                if agent:
+                    agent.toggle_plan_mode(chat_id)
+        assert echo6.is_plan_mode(chat_id)
+        ok("/planmode with agent_name only toggles named agent")
+
+        # Non-existent agent name returns no toggled entries
+        toggled = []
+        for name in bus2.registered_agents:
+            if name == "nonexistent":
+                toggled.append(name)
+        assert toggled == []
+        ok("/planmode with unknown agent name yields empty toggled list")
+
+    except Exception:
+        fail("Plan Mode", traceback.format_exc())
+
+
 async def test_cli_runner() -> None:
     section("12. CLI Runner")
     try:
@@ -684,6 +807,7 @@ async def run_all() -> None:
         await test_skill_loader(tmp_path)
         await test_web_tool_private_host_blocked()
         await test_cli_runner()
+        await test_plan_mode(tmp_path)
 
     print(f"\n{'─' * 50}")
     total = passed + failed + skipped

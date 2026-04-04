@@ -311,6 +311,39 @@ def make_model_handler(safety: Safety):
     return on_model
 
 
+def make_planmode_handler(bus: MessageBus, safety: Safety):
+    async def on_planmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        if not safety.pairing.is_paired(chat_id):
+            await update.message.reply_text("🔒 Not paired.")
+            return
+
+        chat_id = str(update.message.chat_id)
+        args = context.args or []
+        agent_name = args[0].lower() if args else None
+
+        toggled = []
+        for name in bus.registered_agents:
+            if agent_name is None or name == agent_name:
+                agent = bus.get_agent(name)
+                if agent:
+                    new_state = agent.toggle_plan_mode(chat_id)
+                    state = "ON" if new_state else "OFF"
+                    toggled.append(f"{name}: Plan mode {state}")
+
+        if toggled:
+            await update.message.reply_text("\n".join(toggled))
+        else:
+            await update.message.reply_text(
+                f"No agent named '{agent_name}'. "
+                f"Available: {', '.join(bus.registered_agents)}"
+            )
+
+    return on_planmode
+
+
 def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -341,6 +374,7 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
                 (
                     "*Available commands*\n\n"
                     "/new-agent — create a new agent interactively\n"
+                    "/planmode [agent] — toggle plan mode for one or all agents\n"
                     "/help — show this message\n\n"
                     "Or just send a message to talk to your agents."
                 ),
@@ -373,6 +407,7 @@ async def main() -> None:
     )
     app.add_handler(CallbackQueryHandler(make_callback_handler(safety)))
     app.add_handler(CommandHandler("model", make_model_handler(safety)))
+    app.add_handler(CommandHandler("planmode", make_planmode_handler(bus, safety)))
     app.add_handler(
         CommandHandler(
             ["new-agent", "help"], make_command_handler(bus, safety, creator)

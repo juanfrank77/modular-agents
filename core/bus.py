@@ -73,7 +73,7 @@ class MessageBus:
 
         try:
             with log.timer() as t:
-                response = await agent.handle(event)
+                response = await agent.dispatch(event)
             log.info(
                 "Event handled",
                 event="bus_handled",
@@ -97,7 +97,7 @@ class MessageBus:
 
     async def publish_all(self, event: AgentEvent) -> list[AgentResponse]:
         """Broadcast an event to ALL registered agents (used for heartbeats)."""
-        tasks = [agent.handle(event) for agent in self._agents.values()]
+        tasks = [agent.dispatch(event) for agent in self._agents.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         responses = []
         
@@ -122,6 +122,9 @@ class MessageBus:
                           agent=name, error=str(e))
                 results[name] = False
         return results
+
+    def get_agent(self, name: str) -> "BaseAgent | None":
+        return self._agents.get(name)
 
     @property
     def registered_agents(self) -> list[str]:

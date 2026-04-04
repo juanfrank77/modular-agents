@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse, EventType
+from core.protocols import AgentEvent, AgentResponse, EventType, Message
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -31,6 +31,11 @@ if TYPE_CHECKING:
     from core.storage import Storage
 
 log = get_logger("base")
+
+_PLAN_PROMPT = (
+    "Before taking any action, output a numbered list of every step you "
+    "intend to perform. Do not execute anything yet."
+)
 
 class BaseAgent(ABC):
     # Every subclass must declare these at class level
@@ -56,14 +61,76 @@ class BaseAgent(ABC):
         self.memory = memory
         self.safety = safety
         self.skill_loader = skill_loader
-        self.bus = bus 
+        self.bus = bus
+        self._plan_mode_chats: set[str] = set()
+
+    def is_plan_mode(self, chat_id: str) -> bool:
+        return chat_id in self._plan_mode_chats
+
+    def toggle_plan_mode(self, chat_id: str) -> bool:
+        """Toggle plan mode for this chat. Returns the new state (True=ON)."""
+        if chat_id in self._plan_mode_chats:
+            self._plan_mode_chats.discard(chat_id)
+            return False
+        else:
+            self._plan_mode_chats.add(chat_id)
+            return True
 
     @abstractmethod
     async def handle(self, event: AgentEvent) -> AgentResponse:
         """
         Process an incoming event and return a response.
-        The bus calls this for every event routed to this agent.
+        Called by dispatch() for every event routed to this agent.
         """
+
+    async def dispatch(self, event: AgentEvent) -> AgentResponse:
+        """
+        Entry point called by the bus. Delegates to _run_with_plan when plan_mode
+        is active, otherwise calls handle() directly.
+        """
+        if self.is_plan_mode(event.chat_id):
+            return await self._run_with_plan(event)
+        return await self.handle(event)
+
+    async def _run_with_plan(self, event: AgentEvent) -> AgentResponse:
+        """
+        Two-phase plan-then-execute flow.
+
+        Phase 1: Ask the LLM to produce a numbered plan without executing anything.
+        Phase 2: Show the plan to the user with Approve/Deny buttons and, if approved,
+                 call handle(event); if denied, return a cancellation message.
+        """
+        # If no LLM is wired up, skip the planning phase entirely
+        if self.llm is None:
+            return await self.handle(event)
+
+        # Phase 1 — generate the plan
+        llm_response = await self.llm.complete(
+            messages=[Message(role="user", content=event.text)],
+            system=_PLAN_PROMPT,
+            max_tokens=512,
+        )
+        # llm.complete() returns a str per the LLMProvider protocol
+        plan_text = llm_response if isinstance(llm_response, str) else str(llm_response)
+
+        # Phase 2 — request user approval (requires safety.gate)
+        if not self.safety:
+            # No safety component: just run without approval
+            return await self.handle(event)
+
+        approved = await self.safety.gate.request_approval(
+            chat_id=event.chat_id,
+            description=plan_text,
+            action_type=None,
+        )
+
+        if approved:
+            return await self.handle(event)
+        return AgentResponse(
+            text="Action cancelled. Plan was not approved.",
+            agent_name=self.name,
+            success=False,
+        )
 
     async def register_schedules(self, bus: "MessageBus") -> None:
         """
