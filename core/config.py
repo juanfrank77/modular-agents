@@ -68,6 +68,19 @@ class Settings:
     log_level: str = "INFO"
     log_format: str = "json"  # "json" | "pretty"
 
+    # Local file access
+    local_file_paths: list[Path] = field(default_factory=list)
+
+    # Web tools
+    tavily_api_key: str = ""
+
+    # Extra blocked command patterns
+    extra_blocked_patterns: list[str] = field(default_factory=list)
+
+    # Composio
+    composio_api_key: str = ""
+    composio_user_id: str = "default"
+
 
 # ──────────────────────────────────────────────
 # Loader
@@ -142,6 +155,19 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
         approval_timeouts=approval_timeouts,
+        local_file_paths=[
+            Path(p.strip())
+            for p in _optional("LOCAL_FILE_PATHS", "").split(",")
+            if p.strip()
+        ],
+        tavily_api_key=_optional("TAVILY_API_KEY", ""),
+        extra_blocked_patterns=[
+            p.strip()
+            for p in _optional("EXTRA_BLOCKED_PATTERNS", "").split(",")
+            if p.strip()
+        ],
+        composio_api_key=_optional("COMPOSIO_API_KEY", ""),
+        composio_user_id=_optional("COMPOSIO_USER_ID", "default"),
     )
 
 
