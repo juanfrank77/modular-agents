@@ -123,6 +123,9 @@ class MessageBus:
                 results[name] = False
         return results
 
+    def get_agent(self, name: str) -> "BaseAgent | None":
+        return self._agents.get(name)
+
     @property
     def registered_agents(self) -> list[str]:
         return list(self._agents.keys())

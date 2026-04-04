@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 
 log = get_logger("base")
 
+_PLAN_PROMPT = (
+    "Before taking any action, output a numbered list of every step you "
+    "intend to perform. Do not execute anything yet."
+)
+
 class BaseAgent(ABC):
     # Every subclass must declare these at class level
     name: str           # unique identifier, e.g. "business"
@@ -57,13 +62,25 @@ class BaseAgent(ABC):
         self.safety = safety
         self.skill_loader = skill_loader
         self.bus = bus
-        self.plan_mode: bool = False
+        self._plan_mode_chats: set[str] = set()
+
+    def is_plan_mode(self, chat_id: str) -> bool:
+        return chat_id in self._plan_mode_chats
+
+    def toggle_plan_mode(self, chat_id: str) -> bool:
+        """Toggle plan mode for this chat. Returns the new state (True=ON)."""
+        if chat_id in self._plan_mode_chats:
+            self._plan_mode_chats.discard(chat_id)
+            return False
+        else:
+            self._plan_mode_chats.add(chat_id)
+            return True
 
     @abstractmethod
     async def handle(self, event: AgentEvent) -> AgentResponse:
         """
         Process an incoming event and return a response.
-        The bus calls this for every event routed to this agent.
+        Called by dispatch() for every event routed to this agent.
         """
 
     async def dispatch(self, event: AgentEvent) -> AgentResponse:
@@ -71,7 +88,7 @@ class BaseAgent(ABC):
         Entry point called by the bus. Delegates to _run_with_plan when plan_mode
         is active, otherwise calls handle() directly.
         """
-        if self.plan_mode:
+        if self.is_plan_mode(event.chat_id):
             return await self._run_with_plan(event)
         return await self.handle(event)
 
@@ -83,11 +100,6 @@ class BaseAgent(ABC):
         Phase 2: Show the plan to the user with Approve/Deny buttons and, if approved,
                  call handle(event); if denied, return a cancellation message.
         """
-        PLAN_PROMPT = (
-            "Before taking any action, output a numbered list of every step you "
-            "intend to perform. Do not execute anything yet."
-        )
-
         # If no LLM is wired up, skip the planning phase entirely
         if self.llm is None:
             return await self.handle(event)
@@ -95,7 +107,7 @@ class BaseAgent(ABC):
         # Phase 1 — generate the plan
         llm_response = await self.llm.complete(
             messages=[Message(role="user", content=event.text)],
-            system=PLAN_PROMPT,
+            system=_PLAN_PROMPT,
             max_tokens=512,
         )
         # llm.complete() returns a str per the LLMProvider protocol
@@ -117,6 +129,7 @@ class BaseAgent(ABC):
         return AgentResponse(
             text="Action cancelled. Plan was not approved.",
             agent_name=self.name,
+            success=False,
         )
 
     async def register_schedules(self, bus: "MessageBus") -> None:

@@ -624,15 +624,17 @@ async def test_plan_mode(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.telegram_allowed_chat_ids = []
 
+        chat_id = "test_chat"
+
         # ── dispatch() without plan_mode → delegates to handle() ──────────
         echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
-        assert echo.plan_mode is False, "plan_mode should default to False"
+        assert not echo.is_plan_mode(chat_id), "plan_mode should default to False"
         ok("plan_mode defaults to False")
 
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
             agent_name="echo",
-            chat_id="test_chat",
+            chat_id=chat_id,
             text="hello plan",
         )
         response = await echo.dispatch(event)
@@ -642,7 +644,7 @@ async def test_plan_mode(tmp_path: Path) -> None:
 
         # ── _run_with_plan() with no LLM → falls back to handle() ─────────
         echo2 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
-        echo2.plan_mode = True
+        echo2.toggle_plan_mode(chat_id)
         echo2.llm = None
         response2 = await echo2.dispatch(event)
         assert response2.success
@@ -651,7 +653,7 @@ async def test_plan_mode(tmp_path: Path) -> None:
 
         # ── _run_with_plan() approved path ────────────────────────────────
         echo3 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
-        echo3.plan_mode = True
+        echo3.toggle_plan_mode(chat_id)
         echo3.llm = make_mock_llm("1. Step one\n2. Step two")
 
         mock_safety = MagicMock()
@@ -667,7 +669,7 @@ async def test_plan_mode(tmp_path: Path) -> None:
 
         # ── _run_with_plan() denied path ──────────────────────────────────
         echo4 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
-        echo4.plan_mode = True
+        echo4.toggle_plan_mode(chat_id)
         echo4.llm = make_mock_llm("1. Step one\n2. Step two")
 
         mock_safety2 = MagicMock()
@@ -676,9 +678,9 @@ async def test_plan_mode(tmp_path: Path) -> None:
         echo4.safety = mock_safety2
 
         response4 = await echo4.dispatch(event)
-        assert not response4.success or "cancelled" in response4.text.lower()
+        assert response4.success == False
         assert "not approved" in response4.text.lower() or "cancelled" in response4.text.lower()
-        ok("_run_with_plan() denied: returns cancellation message")
+        ok("_run_with_plan() denied: returns cancellation message with success=False")
 
         # ── /planmode toggle logic ────────────────────────────────────────
         from core.bus import MessageBus
@@ -687,17 +689,21 @@ async def test_plan_mode(tmp_path: Path) -> None:
         echo5 = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
         bus.register(echo5)
 
-        assert echo5.plan_mode is False
+        assert not echo5.is_plan_mode(chat_id)
         # Toggle ON
-        for name, agent in bus._agents.items():
-            agent.plan_mode = not agent.plan_mode
-        assert echo5.plan_mode is True
+        for name in bus.registered_agents:
+            agent = bus.get_agent(name)
+            if agent:
+                agent.toggle_plan_mode(chat_id)
+        assert echo5.is_plan_mode(chat_id)
         ok("/planmode toggles plan_mode ON for registered agent")
 
         # Toggle OFF
-        for name, agent in bus._agents.items():
-            agent.plan_mode = not agent.plan_mode
-        assert echo5.plan_mode is False
+        for name in bus.registered_agents:
+            agent = bus.get_agent(name)
+            if agent:
+                agent.toggle_plan_mode(chat_id)
+        assert not echo5.is_plan_mode(chat_id)
         ok("/planmode toggles plan_mode OFF for registered agent")
 
         # Toggle a specific agent by name
@@ -706,15 +712,17 @@ async def test_plan_mode(tmp_path: Path) -> None:
         bus2 = MessageBus()
         bus2.register(echo6)
         target = "echo"
-        for name, agent in bus2._agents.items():
+        for name in bus2.registered_agents:
             if name == target:
-                agent.plan_mode = not agent.plan_mode
-        assert echo6.plan_mode is True
+                agent = bus2.get_agent(name)
+                if agent:
+                    agent.toggle_plan_mode(chat_id)
+        assert echo6.is_plan_mode(chat_id)
         ok("/planmode with agent_name only toggles named agent")
 
         # Non-existent agent name returns no toggled entries
         toggled = []
-        for name, agent in bus2._agents.items():
+        for name in bus2.registered_agents:
             if name == "nonexistent":
                 toggled.append(name)
         assert toggled == []

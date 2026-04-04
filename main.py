@@ -319,15 +319,18 @@ def make_planmode_handler(bus: MessageBus, safety: Safety):
             await update.message.reply_text("🔒 Not paired.")
             return
 
+        chat_id = str(update.message.chat_id)
         args = context.args or []
         agent_name = args[0].lower() if args else None
 
         toggled = []
-        for name, agent in bus._agents.items():
+        for name in bus.registered_agents:
             if agent_name is None or name == agent_name:
-                agent.plan_mode = not agent.plan_mode
-                state = "ON" if agent.plan_mode else "OFF"
-                toggled.append(f"{name}: Plan mode {state}")
+                agent = bus.get_agent(name)
+                if agent:
+                    new_state = agent.toggle_plan_mode(chat_id)
+                    state = "ON" if new_state else "OFF"
+                    toggled.append(f"{name}: Plan mode {state}")
 
         if toggled:
             await update.message.reply_text("\n".join(toggled))
