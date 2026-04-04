@@ -28,12 +28,13 @@ class EventType(Enum):
     APPROVAL_RESPONSE = auto()
     AGENT_MESSAGE = auto()
 
+
 @dataclass
 class AgentEvent:
     type: EventType
     agent_name: str  # which agent should handle this
     chat_id: str  # telegram chat_id to reply to
-    origin_agent: str = "" # which agent originated the call
+    origin_agent: str = ""  # which agent originated the call
     text: str = ""
     data: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -45,6 +46,7 @@ class AgentResponse:
     agent_name: str
     success: bool = True
     data: dict[str, Any] = field(default_factory=dict)
+    deferred: bool = False
 
 
 @dataclass

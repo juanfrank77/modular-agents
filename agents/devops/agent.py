@@ -111,11 +111,11 @@ class DevOpsAgent(BaseAgent):
             return AgentResponse(
                 text="Unauthorized.", agent_name=self.name, success=False
             )
-        
+
         # Cross-agent messages handling
         if event.type == EventType.AGENT_MESSAGE:
             return await self._handle_agent_message(event)
-        
+
         if event.type == EventType.HEARTBEAT_TICK:
             return await self._heartbeat(event)
 
@@ -223,7 +223,7 @@ class DevOpsAgent(BaseAgent):
                 "Health check failures detected:\n"
                 + "\n".join(f"  • {f}" for f in failures)
             )
-            await self.notifier.send(
+            sent = await self.notifier.send(
                 event.chat_id,
                 alert,
                 action_type=ActionType.PROACTIVE,
@@ -232,8 +232,26 @@ class DevOpsAgent(BaseAgent):
             log.warning(
                 "Health check failures", event="health_alert", failures=failures
             )
+            if not sent:
+                await self.notifier.notify_deferred(
+                    event.chat_id,
+                    alert,
+                    self.name,
+                )
             return AgentResponse(
-                text=alert, agent_name=self.name, data={"failures": failures}
+                text=alert,
+                agent_name=self.name,
+                data={"failures": failures},
+                deferred=not sent,
+            )
+            log.warning(
+                "Health check failures", event="health_alert", failures=failures
+            )
+            return AgentResponse(
+                text=alert,
+                agent_name=self.name,
+                data={"failures": failures},
+                deferred=not sent,
             )
 
         log.info("All systems healthy", event="heartbeat_ok")
@@ -302,7 +320,7 @@ class DevOpsAgent(BaseAgent):
             log.error(
                 "GitHub fetch failed for digest", event="digest_error", error=str(e)
             )
-            await self.notifier.send(
+            sent = await self.notifier.send(
                 event.chat_id,
                 "\U0001f419 *GitHub Digest*\n\n\u26a0\ufe0f Could not fetch GitHub data: "
                 + str(e),
@@ -310,7 +328,10 @@ class DevOpsAgent(BaseAgent):
                 agent_name=self.name,
             )
             return AgentResponse(
-                text="GitHub fetch failed.", agent_name=self.name, success=False
+                text="GitHub fetch failed.",
+                agent_name=self.name,
+                success=False,
+                deferred=not sent,
             )
 
         NL = "\n"
@@ -372,7 +393,7 @@ class DevOpsAgent(BaseAgent):
             system=system,
         )
 
-        await self.notifier.send(
+        sent = await self.notifier.send(
             event.chat_id,
             "\U0001f419 *GitHub Digest*\n\n" + digest,
             action_type=ActionType.PROACTIVE,
@@ -384,7 +405,7 @@ class DevOpsAgent(BaseAgent):
             open_prs=len(open_prs),
             failing_ci=len(failing_ci),
         )
-        return AgentResponse(text=digest, agent_name=self.name)
+        return AgentResponse(text=digest, agent_name=self.name, deferred=not sent)
 
     async def _incident_watchdog(self, event: AgentEvent) -> AgentResponse:
         """
@@ -419,7 +440,7 @@ class DevOpsAgent(BaseAgent):
         if alerts:
             bullet_list = "\n".join(f"  \u2022 {a}" for a in alerts)
             message = f"\U0001f6a8 *Incident Watchdog*\n\n{bullet_list}"
-            await self.notifier.send(
+            sent = await self.notifier.send(
                 event.chat_id,
                 message,
                 action_type=ActionType.PROACTIVE,
@@ -428,8 +449,26 @@ class DevOpsAgent(BaseAgent):
             log.warning(
                 "Watchdog alerts fired", event="watchdog_alert", count=len(alerts)
             )
+            if not sent:
+                await self.notifier.notify_deferred(
+                    event.chat_id,
+                    message,
+                    self.name,
+                )
             return AgentResponse(
-                text=message, agent_name=self.name, data={"alerts": alerts}
+                text=message,
+                agent_name=self.name,
+                data={"alerts": alerts},
+                deferred=not sent,
+            )
+            log.warning(
+                "Watchdog alerts fired", event="watchdog_alert", count=len(alerts)
+            )
+            return AgentResponse(
+                text=message,
+                agent_name=self.name,
+                data={"alerts": alerts},
+                deferred=not sent,
             )
 
         log.info("Watchdog: all clear", event="watchdog_ok")
@@ -506,6 +545,7 @@ class DevOpsAgent(BaseAgent):
 
     async def health_check(self) -> bool:
         import shutil
+
         try:
             assert self.llm is not None, "LLM not injected"
             assert self.memory is not None, "Memory not injected"
@@ -529,6 +569,7 @@ class DevOpsAgent(BaseAgent):
 
 
 # ── Helpers ───────────────────────────────────
+
 
 def _looks_like_solution(question: str, answer: str) -> bool:
     """
@@ -555,6 +596,7 @@ def _looks_like_solution(question: str, answer: str) -> bool:
 def _slugify(text: str) -> str:
     """Convert a string to a safe filename slug."""
     import re
+
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s_-]+", "-", text)

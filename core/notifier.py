@@ -127,7 +127,9 @@ class TelegramNotifier:
         """Create a callback for retrying a deferred message."""
 
         async def callback() -> None:
-            await self.send(chat_id, text, action_type=action_type, agent_name=agent_name)
+            await self.send(
+                chat_id, text, action_type=action_type, agent_name=agent_name
+            )
 
         return callback
 
@@ -276,6 +278,43 @@ class TelegramNotifier:
             if self._budget and start_time > 0 and agent_name:
                 self._budget.record_action_end(agent_name, action_type, start_time)
 
+        return True
+
+    async def notify_deferred(
+        self,
+        chat_id: str,
+        original_message: str,
+        agent_name: str,
+    ) -> bool:
+        """
+        Send a notification that a critical message was deferred.
+        Uses REACTIVE type to bypass budget limits.
+        """
+        truncated = (
+            original_message[:100] + "..."
+            if len(original_message) > 100
+            else original_message
+        )
+        text = f"⏰ *Message Deferred*\n\nYour {agent_name} message was queued for delivery when budget is available:\n\n_{truncated}_"
+
+        chunks = _split_message(text)
+        for chunk in chunks:
+            try:
+                await self._bot.send_message(
+                    chat_id=int(chat_id),
+                    text=chunk,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except TelegramError:
+                try:
+                    await self._bot.send_message(chat_id=int(chat_id), text=chunk)
+                except TelegramError as e:
+                    log.error(
+                        "Failed to send deferred notification",
+                        event="deferred_notification_error",
+                        error=str(e),
+                    )
+                    return False
         return True
 
 

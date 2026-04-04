@@ -85,7 +85,7 @@ class BusinessAgent(BaseAgent):
         # Cross-agent messages handling
         if event.type == EventType.AGENT_MESSAGE:
             return await self._handle_agent_message(event)
-        
+
         # Heartbeat: just confirm alive
         if event.type == EventType.HEARTBEAT_TICK:
             log.info("Heartbeat", event="heartbeat")
@@ -224,14 +224,20 @@ class BusinessAgent(BaseAgent):
             system=system,
         )
 
-        await self.notifier.send(
+        sent = await self.notifier.send(
             event.chat_id,
             f"🌅 *Morning Briefing*\n\n{briefing}",
             action_type=ActionType.PROACTIVE,
             agent_name=self.name,
         )
         log.info("Morning briefing sent", event="briefing_sent")
-        return AgentResponse(text=briefing, agent_name=self.name)
+        if not sent:
+            await self.notifier.notify_deferred(
+                event.chat_id,
+                f"Morning Briefing: {briefing[:50]}...",
+                self.name,
+            )
+        return AgentResponse(text=briefing, agent_name=self.name, deferred=not sent)
 
     async def _weekly_review(self, event: AgentEvent) -> AgentResponse:
         """Generate and send the weekly review."""
@@ -258,14 +264,20 @@ class BusinessAgent(BaseAgent):
             system=system,
         )
 
-        await self.notifier.send(
+        sent = await self.notifier.send(
             event.chat_id,
             f"📋 *Weekly Review*\n\n{review}",
             action_type=ActionType.PROACTIVE,
             agent_name=self.name,
         )
         log.info("Weekly review sent", event="review_sent")
-        return AgentResponse(text=review, agent_name=self.name)
+        if not sent:
+            await self.notifier.notify_deferred(
+                event.chat_id,
+                f"Weekly Review: {review[:50]}...",
+                self.name,
+            )
+        return AgentResponse(text=review, agent_name=self.name, deferred=not sent)
 
     # ── System prompt builder ─────────────────
 
@@ -311,7 +323,8 @@ class BusinessAgent(BaseAgent):
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,
                     chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
+                    if self.settings.telegram_allowed_chat_ids
+                    else "",
                     data={"task": "morning_briefing"},
                 ),
                 bus=bus,
@@ -324,7 +337,8 @@ class BusinessAgent(BaseAgent):
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,
                     chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
+                    if self.settings.telegram_allowed_chat_ids
+                    else "",
                     data={"task": "weekly_review"},
                 ),
                 bus=bus,
@@ -355,6 +369,7 @@ class BusinessAgent(BaseAgent):
 
 # ── Helpers ───────────────────────────────────
 
+
 def _parse_action_type(raw: str) -> SafetyActionType:
     mapping = {
         "SEND_EMAIL": SafetyActionType.WRITE_HIGH,
@@ -367,4 +382,6 @@ def _parse_action_type(raw: str) -> SafetyActionType:
         "DELETE": SafetyActionType.DESTRUCTIVE,
         "EXECUTE": SafetyActionType.EXECUTE,
     }
-    return mapping.get(raw, SafetyActionType.WRITE_HIGH)  # default to high for unknown types
+    return mapping.get(
+        raw, SafetyActionType.WRITE_HIGH
+    )  # default to high for unknown types
