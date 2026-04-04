@@ -14,8 +14,6 @@ Run:
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,8 +53,8 @@ class TestComposioToolInit:
         monkeypatch.setattr(mod, "ComposioToolSet", MagicMock(return_value=fake_toolset))
 
         tool = mod.ComposioTool(api_key="key123", user_id="alice")
-        assert tool._api_key == "key123"
         assert tool._user_id == "alice"
+        mod.ComposioToolSet.assert_called_once_with(api_key="key123", entity_id="alice")
 
 
 class TestComposioToolExecute:
@@ -107,11 +105,13 @@ class TestComposioToolGetTools:
         fake_toolset.get_tools.assert_called_once_with(apps=["gmail"])
 
     @pytest.mark.asyncio
-    async def test_get_tools_returns_empty_on_error(self, composio):
+    async def test_get_tools_returns_error_sentinel_on_error(self, composio):
         tool, fake_toolset = composio
         fake_toolset.get_tools.side_effect = RuntimeError("network error")
         result = await tool.get_tools(["gmail"])
-        assert result == []
+        assert len(result) == 1
+        assert "error" in result[0]
+        assert "network error" in result[0]["error"]
 
 
 class TestComposioToolSearchTools:
@@ -138,11 +138,13 @@ class TestComposioToolSearchTools:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_search_tools_returns_empty_on_error(self, composio):
+    async def test_search_tools_returns_error_sentinel_on_error(self, composio):
         tool, fake_toolset = composio
         fake_toolset.find_actions_by_use_case.side_effect = RuntimeError("API down")
         result = await tool.search_tools("send email")
-        assert result == []
+        assert len(result) == 1
+        assert "error" in result[0]
+        assert "API down" in result[0]["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +154,8 @@ class TestComposioToolSearchTools:
 @pytest.fixture()
 def mock_composio():
     """Return an AsyncMock that behaves like ComposioTool."""
-    composio = MagicMock()
+    from core.composio_tool import ComposioTool
+    composio = MagicMock(spec=ComposioTool)
     composio.execute = AsyncMock(return_value={"success": True})
     return composio
 

@@ -86,6 +86,34 @@ class CalendarTool:
         )
         return events
 
+    async def _create_event_raw(
+        self,
+        title: str,
+        start: str,
+        end: str,
+        description: str = "",
+    ) -> dict:
+        """Private helper that calls the Composio create-event action directly.
+
+        Args:
+            title: Event title / summary (already formatted by the caller).
+            start: Start datetime in ISO 8601 format.
+            end: End datetime in ISO 8601 format.
+            description: Optional event description.  Defaults to ``""``.
+
+        Returns:
+            Result dict from Composio (contains ``"id"`` on success,
+            or ``"error"`` on failure).
+        """
+        result = await self._composio.execute(
+            "GOOGLECALENDAR_CREATE_EVENT",
+            summary=title,
+            start=start,
+            end=end,
+            description=description,
+        )
+        return result
+
     async def create_event(
         self,
         title: str,
@@ -112,13 +140,7 @@ class CalendarTool:
             start=start,
             end=end,
         )
-        result = await self._composio.execute(
-            "GOOGLECALENDAR_CREATE_EVENT",
-            summary=title,
-            start=start,
-            end=end,
-            description=description,
-        )
+        result = await self._create_event_raw(title, start, end, description)
         if "error" in result:
             log.warning(
                 "create_event failed",
@@ -157,13 +179,7 @@ class CalendarTool:
             start=start,
             end=end,
         )
-        result = await self._composio.execute(
-            "GOOGLECALENDAR_CREATE_EVENT",
-            summary=blocked_title,
-            start=start,
-            end=end,
-            description="",
-        )
+        result = await self._create_event_raw(blocked_title, start, end)
         if "error" in result:
             log.warning(
                 "block_time failed",
