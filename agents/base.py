@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType
+from core.budget import ActionType
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -32,11 +33,12 @@ if TYPE_CHECKING:
 
 log = get_logger("base")
 
+
 class BaseAgent(ABC):
     # Every subclass must declare these at class level
-    name: str           # unique identifier, e.g. "business"
-    description: str    # used by bus for routing decisions
-    autonomy_level: str # "read_only" | "supervised" | "autonomous"
+    name: str  # unique identifier, e.g. "business"
+    description: str  # used by bus for routing decisions
+    autonomy_level: str  # "read_only" | "supervised" | "autonomous"
 
     def __init__(
         self,
@@ -47,7 +49,7 @@ class BaseAgent(ABC):
         memory: "Memory | None" = None,
         safety: "Safety | None" = None,
         skill_loader: "SkillLoader | None" = None,
-        bus: "MessageBus | None" = None
+        bus: "MessageBus | None" = None,
     ) -> None:
         self.settings = settings
         self.storage = storage
@@ -56,7 +58,7 @@ class BaseAgent(ABC):
         self.memory = memory
         self.safety = safety
         self.skill_loader = skill_loader
-        self.bus = bus 
+        self.bus = bus
 
     @abstractmethod
     async def handle(self, event: AgentEvent) -> AgentResponse:
@@ -84,11 +86,7 @@ class BaseAgent(ABC):
     # ── Cross-agent notifications ─────────────
 
     async def emit(
-        self,
-        agent_name: str,
-        event: str,
-        data: dict | None = None,
-        context: str = ""
+        self, agent_name: str, event: str, data: dict | None = None, context: str = ""
     ) -> "AgentResponse | None":
         """
         Send a notification to another agent.
@@ -106,10 +104,10 @@ class BaseAgent(ABC):
                 "emit called before bus was stored — call register_schedules first",
                 event="notify_no_bus",
                 from_agent=self.name,
-                to_agent=agent_name
+                to_agent=agent_name,
             )
             return
-        
+
         message = AgentEvent(
             type=EventType.AGENT_MESSAGE,
             origin_agent=self.name,
@@ -120,9 +118,9 @@ class BaseAgent(ABC):
                 "from_agent": self.name,
                 "event": event,
                 **(data or {}),
-            }
+            },
         )
-        
+
         response = await self.bus.publish(message)
 
         log.info(
@@ -131,11 +129,11 @@ class BaseAgent(ABC):
             from_agent=self.name,
             to_agent=agent_name,
             message_event=event,
-            success=response.success if response else None
+            success=response.success if response else None,
         )
 
         return response
-    
+
     async def _handle_agent_message(self, event: AgentEvent) -> AgentResponse:
         """
         Default handler for AGENT_MESSAGE events.
@@ -157,7 +155,7 @@ class BaseAgent(ABC):
             event="agent_message_received",
             agent=self.name,
             from_agent=from_agent,
-            message_event=message_event
+            message_event=message_event,
         )
 
         # Store in memory so future responses can use it
@@ -177,20 +175,23 @@ class BaseAgent(ABC):
                 log.warning(
                     "Failed to store agent message in memory",
                     event="message_memory_error",
-                    error=str(e)
+                    error=str(e),
                 )
 
         return AgentResponse(
-            text="",
-            agent_name=self.name,
-            data={"notification_received": True}
+            text="", agent_name=self.name, data={"notification_received": True}
         )
 
     # ── Helpers available to all agents ───────
 
     async def reply(self, event: AgentEvent, text: str) -> AgentResponse:
         """Send a message back to the user and return a response object."""
-        await self.notifier.send(event.chat_id, text)
+        await self.notifier.send(
+            event.chat_id,
+            text,
+            action_type=ActionType.REACTIVE,
+            agent_name=self.name,
+        )
         return AgentResponse(text=text, agent_name=self.name)
 
     def _is_authorized(self, chat_id: str) -> bool:

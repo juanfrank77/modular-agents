@@ -41,12 +41,14 @@ from core.llm import get_llm_provider
 from core.logger import configure_logging, get_logger
 from core.memory import Memory
 from core.notifier import TelegramNotifier
-from core.protocols import AgentEvent, EventType
+from core.protocols import AgentEvent, EventType, LLMProvider
 from core.safety import Safety
 from core.scheduler import Scheduler, scheduler as _scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
 from core.agent_creator import AgentCreator
+from core.budget import BudgetManager
+from core.action_queue import ActionQueue
 from agents.business.agent import BusinessAgent
 from agents.devops.agent import DevOpsAgent
 from agents.echo.agent import EchoAgent
@@ -58,10 +60,17 @@ log = get_logger("main")
 # Bootstrap
 # ──────────────────────────────────────────────
 
+
 async def bootstrap() -> tuple[
-    MessageBus, TelegramNotifier, Safety, Scheduler, "AgentCreator"
+    MessageBus,
+    TelegramNotifier,
+    Safety,
+    Scheduler,
+    "AgentCreator",
+    BudgetManager,
+    ActionQueue,
 ]:
-    """Initialise all components and return the wired-up bus, notifier, safety, scheduler, and creator."""
+    """Initialise all components and return the wired-up bus, notifier, safety, scheduler, creator, budget, and queue."""
 
     # 1. Logging
     configure_logging(level=settings.log_level, fmt=settings.log_format)
@@ -71,19 +80,29 @@ async def bootstrap() -> tuple[
     storage = Storage(settings.db_path)
     await storage.init()
 
-    # 3. Notifier
+    # 3. Budget manager (before notifier so we can inject it)
+    budget = BudgetManager(settings)
+
+    # 4. Notifier (budget will be set after queue is created)
     notifier = TelegramNotifier(token=settings.telegram_token)
 
-    # 4. LLM
+    # 5. Action queue
+    action_queue = ActionQueue(budget, settings)
+
+    # 4b. Set budget and queue on notifier
+    notifier.set_budget(budget)
+    notifier.set_action_queue(action_queue)
+
+    # 6. LLM
     llm = get_llm_provider()
 
-    # 4b. Verify LLM key works before proceeding
+    # 6b. Verify LLM key works before proceeding
     await _verify_llm(llm)
 
-    # 5. Agent creator
+    # 7. Agent creator
     creator = AgentCreator(llm=llm, project_root=Path("."))
 
-    # 6. Memory
+    # 8. Memory
     memory = Memory(storage=storage, llm=llm, settings=settings)
 
     # 9. Safety
@@ -96,14 +115,18 @@ async def bootstrap() -> tuple[
     # 10. Skill loader
     skill_loader = SkillLoader()
 
-    # 13. Scheduler — configure the module-level singleton so agents can import it
+    # 11. Scheduler — configure the module-level singleton so agents can import it
     _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
 
-    # 14. Message bus
+    # 12. Message bus
     bus = MessageBus()
+    bus.set_budget(budget)
     _scheduler.set_bus(bus)
 
-    # 17. Instantiate and register agents
+    # 13. Start action queue
+    await action_queue.start()
+
+    # 14. Instantiate and register agents
     business = BusinessAgent(
         settings=settings,
         storage=storage,
@@ -112,7 +135,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(business)
 
@@ -124,7 +147,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(devops)
 
@@ -166,7 +189,8 @@ async def bootstrap() -> tuple[
         event="startup_complete",
         agents=bus.registered_agents,
     )
-    return bus, notifier, safety, _scheduler, creator
+    return bus, notifier, safety, _scheduler, creator, budget, action_queue
+
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -183,6 +207,7 @@ async def _verify_llm(llm: "LLMProvider") -> None:
     """Make a minimal API call at startup to validate the LLM key works.
     Exits with a clear message if the key is invalid or the service is unreachable."""
     from core.protocols import Message
+
     try:
         await llm.complete(
             messages=[Message(role="user", content="ping")],
@@ -198,9 +223,11 @@ async def _verify_llm(llm: "LLMProvider") -> None:
         )
         sys.exit(1)
 
+
 # ──────────────────────────────────────────────
 # Telegram handlers
 # ──────────────────────────────────────────────
+
 
 def make_message_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -348,12 +375,14 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 
     return on_command
 
+
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
 
+
 async def main() -> None:
-    bus, notifier, safety, scheduler, creator = await bootstrap()
+    bus, notifier, safety, scheduler, creator, budget, action_queue = await bootstrap()
     assert creator is not None
 
     # Print pairing code prominently — this is how new chats authenticate
@@ -403,6 +432,7 @@ async def main() -> None:
             pass
         finally:
             log.info("Shutting down", event="shutdown_start")
+            await action_queue.stop()
             scheduler.stop()
             await app.updater.stop()
             await app.stop()
