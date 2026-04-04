@@ -191,13 +191,17 @@ class Safety:
         notifier: "TelegramNotifier",
         allowed_ids: list[str],
         approval_timeouts: dict[str, int] | None = None,
-        extra_patterns: list[str] = [],
+        extra_patterns: list[str] | None = None,
     ) -> None:
         self.pairing = PairingManager(allowed_ids)
         self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
-        self._blocked_patterns = _BLOCKED_PATTERNS + [
-            re.compile(p, re.IGNORECASE) for p in extra_patterns
-        ]
+        compiled_extra = []
+        for p in (extra_patterns or []):
+            try:
+                compiled_extra.append(re.compile(p, re.IGNORECASE))
+            except re.error as e:
+                log.warning("Invalid extra blocked pattern, skipping", pattern=p, error=str(e))
+        self._blocked_patterns = _BLOCKED_PATTERNS + compiled_extra
 
     def is_command_blocked(self, text: str) -> bool:
         """Check if text contains a blocked dangerous command pattern (including extra patterns)."""

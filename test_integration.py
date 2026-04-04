@@ -257,6 +257,11 @@ async def test_safety() -> None:
         assert not safety_ext.is_command_blocked("SELECT * FROM users")
         ok("Safety.is_command_blocked() respects extra_patterns")
 
+        # check_action() must return False when description matches an extra pattern
+        result = await safety_ext.check_action("123", ActionType.EXECUTE, "autonomous", "DROP TABLE users")
+        assert result is False, "check_action() should return False for a blocked extra pattern"
+        ok("check_action() returns False when description matches extra_patterns")
+
         # Autonomy levels
         result = await safety.check_action("123", ActionType.READ, "read_only", "ls")
         assert result is True

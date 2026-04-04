@@ -91,6 +91,7 @@ async def bootstrap() -> tuple[
         notifier=notifier,
         allowed_ids=settings.telegram_allowed_chat_ids,
         approval_timeouts=settings.approval_timeouts,
+        extra_patterns=settings.extra_blocked_patterns,
     )
 
     # 10. Skill loader
