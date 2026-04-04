@@ -191,9 +191,21 @@ class Safety:
         notifier: "TelegramNotifier",
         allowed_ids: list[str],
         approval_timeouts: dict[str, int] | None = None,
+        extra_patterns: list[str] = [],
     ) -> None:
         self.pairing = PairingManager(allowed_ids)
         self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
+        self._blocked_patterns = _BLOCKED_PATTERNS + [
+            re.compile(p, re.IGNORECASE) for p in extra_patterns
+        ]
+
+    def is_command_blocked(self, text: str) -> bool:
+        """Check if text contains a blocked dangerous command pattern (including extra patterns)."""
+        for pattern in self._blocked_patterns:
+            if pattern.search(text):
+                log.warning("Blocked command detected", event="command_blocked", pattern=pattern.pattern)
+                return True
+        return False
 
     async def check_action(
         self,
@@ -210,7 +222,7 @@ class Safety:
             return False
 
         # Command blocklist — always enforced
-        if is_blocked_command(description):
+        if self.is_command_blocked(description):
             return False
 
         # Autonomous agents skip approval gate
