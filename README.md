@@ -224,6 +224,48 @@ DEVOPS_AGENT_AUTONOMY=autonomous     # acts freely, asks for destructive ops
 
 Options: `read_only` | `supervised` | `autonomous`
 
+### Giving agents access to local files
+
+Set `LOCAL_FILE_PATHS` in `.env` to a comma-separated list of directories agents are allowed to read and write:
+
+```
+LOCAL_FILE_PATHS=/home/user/projects/drafts,/home/user/notes
+```
+
+Then pass a `FileTool` instance to your agent:
+
+```python
+from core.file_tool import FileTool
+from pathlib import Path
+
+file_tool = FileTool(allowed_paths=[Path("/home/user/projects/drafts")])
+# pass file_tool to your agent's __init__
+```
+
+`FileTool` exposes `list_files(folder, pattern)`, `read_file(path)`, and `write_file(path, content)`. All paths are validated against `allowed_paths` — attempts to access files outside the allowed roots raise `PermissionError`.
+
+### Giving agents web access
+
+`WebTool` provides web search (via Tavily) and page scraping.
+
+Set `TAVILY_API_KEY` in `.env` for search (scraping works without a key):
+
+```
+TAVILY_API_KEY=tvly-...
+```
+
+Use it in an agent:
+
+```python
+from core.web_tool import WebTool
+
+web_tool = WebTool(search_api_key=settings.tavily_api_key)
+results = await web_tool.search("latest Python releases", max_results=5)
+page_text = await web_tool.scrape("https://example.com")
+```
+
+`search()` returns a list of `{title, url, content}` dicts. `scrape()` returns plain text capped at 20 KB with scripts and styles stripped.
+
 ### Configuring approval timeouts
 
 When a supervised agent requests approval for a consequential action, it waits for you to tap Approve or Deny in Telegram. The timeout before auto-denying is configurable per action type:
@@ -242,6 +284,79 @@ If you don't set `APPROVAL_TIMEOUTS`, the defaults above apply. Any action type 
 
 ---
 
+## Connecting external apps (Composio)
+
+[Composio](https://composio.dev) gives agents access to 1000+ integrations — Gmail, Google Calendar, Slack, Notion, and more — through a single Python SDK.
+
+### Setup
+
+```bash
+uv pip install composio-anthropic
+composio login
+composio link gmail        # one-time OAuth per service
+composio link googlecalendar
+```
+
+Set `COMPOSIO_API_KEY` in `.env`:
+```
+COMPOSIO_API_KEY=your_composio_api_key_here
+```
+
+### Using ComposioTool in an agent
+
+```python
+from core.composio_tool import ComposioTool
+
+composio = ComposioTool(api_key=settings.composio_api_key)
+result = await composio.execute("GMAIL_FETCH_EMAILS", max_results=10)
+```
+
+The Business Agent includes ready-made `GmailTool` and `CalendarTool` wrappers in `agents/business/tools/` that map to common Composio slugs. Instantiate them with a `ComposioTool` instance.
+
+---
+
+## Permissions and safety
+
+The system enforces four independent layers of access control:
+
+**1. Chat-level** — `TELEGRAM_ALLOWED_CHAT_IDS`
+
+Only the listed chat IDs can interact with the bot. Any other chat receives no response. Leave empty in development to allow all chats.
+
+**2. Agent-level** — autonomy mode
+
+Each agent runs in one of three autonomy modes (set per-agent in `.env`):
+
+| Mode | Behaviour |
+|------|-----------|
+| `read_only` | May only perform read actions — no writes, no execution |
+| `supervised` | Read and low-risk writes are automatic; high-risk actions require inline Approve/Deny |
+| `autonomous` | Acts freely; only checks the hardcoded command blocklist |
+
+**3. Command-level** — blocklist
+
+A hardcoded blocklist always blocks dangerous shell patterns (`rm -rf /`, fork bombs, disk-write commands, etc.) regardless of autonomy level.
+
+Extend it without code changes using `EXTRA_BLOCKED_PATTERNS` in `.env`:
+```
+EXTRA_BLOCKED_PATTERNS=my-org/secret-repo,DROP TABLE
+```
+Values are compiled as case-insensitive regex patterns and merged with the hardcoded list at startup.
+
+**4. Action-level** — `ActionType`
+
+Actions are classified by risk. In `supervised` mode, anything above `WRITE_LOW` requires explicit approval:
+
+| ActionType | Risk | Example |
+|------------|------|---------|
+| `READ` | None | Fetch emails, list files, search |
+| `WRITE_LOW` | Low | Save a draft, update a local note |
+| `WRITE_HIGH` | Medium | Send email, write calendar event |
+| `EXECUTE` | High | Run a script, deploy a service |
+| `DESTRUCTIVE` | Critical | Delete data, force-push, drop table |
+
+---
+
 ## Project structure
 
 ```
@@ -251,6 +366,7 @@ modular-agents/
 │   ├── echo/                    ← minimal example agent
 │   ├── business/                ← productivity agent
 │   │   ├── agent.py
+│   │   ├── tools/               ← GmailTool, CalendarTool (via Composio)
 │   │   └── skills/              ← Markdown skill files
 │   └── devops/                  ← infrastructure agent
 │       ├── agent.py
@@ -259,12 +375,15 @@ modular-agents/
 ├── core/                        ← shared infrastructure (don't modify unless extending)
 │   ├── agent_creator.py         ← interactive agent creation wizard
 │   ├── bus.py                   ← message routing
+│   ├── composio_tool.py         ← Composio SDK wrapper (external app integrations)
 │   ├── config.py                ← environment and settings
+│   ├── file_tool.py             ← local filesystem access with path allowlist
 │   ├── llm.py                   ← LLM provider (Kilo primary, Anthropic fallback)
 │   ├── memory.py                ← enhanced two-layer memory system
 │   ├── safety.py                ← approval gates and blocklist
 │   ├── scheduler.py             ← cron jobs and heartbeat
-│   └── skill_loader.py          ← discovers and injects skill files
+│   ├── skill_loader.py          ← discovers and injects skill files
+│   └── web_tool.py              ← web search (Tavily) and page scraping
 ├── memory/
 │   ├── context/                 ← your preferences, personal context, projects
 │   └── solutions/               ← agent-learned patterns (auto-generated)
@@ -289,9 +408,12 @@ python test_integration.py              # run the test suite
 
 ### Telegram Commands
 
-- `/model <model-id>` — Change the default LLM model
-- `/new-agent` — Start interactive wizard to create a new agent
-- `/help` — Show available commands
+| Command | Description |
+|---------|-------------|
+| `/model <model-id>` | Change the default LLM model for this session |
+| `/new-agent` | Start interactive wizard to create a new agent |
+| `/planmode [agent]` | Toggle plan mode: agent shows a numbered action plan and waits for Approve/Deny before executing. Optionally target a specific agent by name. |
+| `/help` | Show available commands |
 
 ---
 
