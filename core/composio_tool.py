@@ -53,7 +53,6 @@ class ComposioTool:
                 "composio-anthropic is not installed. "
                 "Run: uv pip install composio-anthropic"
             )
-        self._api_key = api_key
         self._user_id = user_id
         self._toolset: Any = ComposioToolSet(api_key=api_key, entity_id=user_id)
         log.debug(
@@ -141,13 +140,13 @@ class ComposioTool:
             )
             return schemas
         except Exception as exc:
-            log.warning(
+            log.error(
                 "get_tools failed",
                 event="composio_get_tools_error",
                 toolkits=toolkits,
                 error=str(exc),
             )
-            return []
+            return [{"error": str(exc)}]
 
     async def search_tools(self, query: str) -> list[dict]:
         """Semantic search over all available Composio tools.
@@ -188,10 +187,10 @@ class ComposioTool:
             )
             return results
         except Exception as exc:
-            log.warning(
+            log.error(
                 "search_tools failed",
                 event="composio_search_tools_error",
                 query=query,
                 error=str(exc),
             )
-            return []
+            return [{"error": str(exc)}]

@@ -90,6 +90,8 @@ class GmailTool:
             Result dict from Composio (contains ``"messageId"`` on success,
             or ``"error"`` on failure).
         """
+        if not to.strip() or not subject.strip() or not body.strip():
+            raise ValueError("send_email requires non-empty to, subject, and body")
         log.debug(
             "send_email",
             event="gmail_send_email",
