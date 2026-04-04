@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse, EventType
+from core.protocols import AgentEvent, AgentResponse, EventType, Message
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -56,7 +56,8 @@ class BaseAgent(ABC):
         self.memory = memory
         self.safety = safety
         self.skill_loader = skill_loader
-        self.bus = bus 
+        self.bus = bus
+        self.plan_mode: bool = False
 
     @abstractmethod
     async def handle(self, event: AgentEvent) -> AgentResponse:
@@ -64,6 +65,59 @@ class BaseAgent(ABC):
         Process an incoming event and return a response.
         The bus calls this for every event routed to this agent.
         """
+
+    async def dispatch(self, event: AgentEvent) -> AgentResponse:
+        """
+        Entry point called by the bus. Delegates to _run_with_plan when plan_mode
+        is active, otherwise calls handle() directly.
+        """
+        if self.plan_mode:
+            return await self._run_with_plan(event)
+        return await self.handle(event)
+
+    async def _run_with_plan(self, event: AgentEvent) -> AgentResponse:
+        """
+        Two-phase plan-then-execute flow.
+
+        Phase 1: Ask the LLM to produce a numbered plan without executing anything.
+        Phase 2: Show the plan to the user with Approve/Deny buttons and, if approved,
+                 call handle(event); if denied, return a cancellation message.
+        """
+        PLAN_PROMPT = (
+            "Before taking any action, output a numbered list of every step you "
+            "intend to perform. Do not execute anything yet."
+        )
+
+        # If no LLM is wired up, skip the planning phase entirely
+        if self.llm is None:
+            return await self.handle(event)
+
+        # Phase 1 — generate the plan
+        llm_response = await self.llm.complete(
+            messages=[Message(role="user", content=event.text)],
+            system=PLAN_PROMPT,
+            max_tokens=512,
+        )
+        # llm.complete() returns a str per the LLMProvider protocol
+        plan_text = llm_response if isinstance(llm_response, str) else str(llm_response)
+
+        # Phase 2 — request user approval (requires safety.gate)
+        if not self.safety:
+            # No safety component: just run without approval
+            return await self.handle(event)
+
+        approved = await self.safety.gate.request_approval(
+            chat_id=event.chat_id,
+            description=plan_text,
+            action_type=None,
+        )
+
+        if approved:
+            return await self.handle(event)
+        return AgentResponse(
+            text="Action cancelled. Plan was not approved.",
+            agent_name=self.name,
+        )
 
     async def register_schedules(self, bus: "MessageBus") -> None:
         """
