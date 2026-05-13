@@ -297,9 +297,12 @@ composio link gmail        # one-time OAuth per service
 composio link googlecalendar
 ```
 
-Set `COMPOSIO_API_KEY` in `.env`:
+<<<<<<< HEAD
+Set `COMPOSIO_API_KEY` and optionally `COMPOSIO_USER_ID` in `.env`:
 ```
 COMPOSIO_API_KEY=your_composio_api_key_here
+# Optional: for multi-user deployments, specify the user entity ID
+COMPOSIO_USER_ID=your_composio_user_id_here
 ```
 
 ### Using ComposioTool in an agent
