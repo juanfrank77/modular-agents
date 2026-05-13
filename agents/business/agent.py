@@ -26,10 +26,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.composio_tool import ComposioTool
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
 from core.safety import ActionType
 from agents.base import BaseAgent
+from agents.business.tools.calendar import CalendarTool
+from agents.business.tools.gmail import GmailTool
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -69,6 +72,41 @@ class BusinessAgent(BaseAgent):
     )
     autonomy_level = "supervised"
 
+    # ── Tool accessors ──────────────────────────
+
+    @property
+    def _composio(self) -> ComposioTool | None:
+        """Lazily create ComposioTool instance from settings."""
+        if not self.settings.composio_api_key:
+            return None
+        # Store on self to avoid recreating
+        if not hasattr(self, "_cached_composio"):
+            self._cached_composio = ComposioTool(
+                api_key=self.settings.composio_api_key,
+                user_id=self.settings.composio_user_id,
+            )
+        return self._cached_composio
+
+    @property
+    def gmail(self) -> GmailTool | None:
+        """Lazily create GmailTool from ComposioTool."""
+        composio = self._composio
+        if composio is None:
+            return None
+        if not hasattr(self, "_cached_gmail"):
+            self._cached_gmail = GmailTool(composio=composio)
+        return self._cached_gmail
+
+    @property
+    def calendar(self) -> CalendarTool | None:
+        """Lazily create CalendarTool from ComposioTool."""
+        composio = self._composio
+        if composio is None:
+            return None
+        if not hasattr(self, "_cached_calendar"):
+            self._cached_calendar = CalendarTool(composio=composio)
+        return self._cached_calendar
+
     # ── Main handler ──────────────────────────
 
     async def handle(self, event: AgentEvent) -> AgentResponse:
@@ -84,7 +122,7 @@ class BusinessAgent(BaseAgent):
         # Cross-agent messages handling
         if event.type == EventType.AGENT_MESSAGE:
             return await self._handle_agent_message(event)
-        
+
         # Heartbeat: just confirm alive
         if event.type == EventType.HEARTBEAT_TICK:
             log.info("Heartbeat", event="heartbeat")
@@ -300,7 +338,8 @@ class BusinessAgent(BaseAgent):
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,
                     chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
+                    if self.settings.telegram_allowed_chat_ids
+                    else "",
                     data={"task": "morning_briefing"},
                 ),
                 bus=bus,
@@ -313,7 +352,8 @@ class BusinessAgent(BaseAgent):
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,
                     chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
+                    if self.settings.telegram_allowed_chat_ids
+                    else "",
                     data={"task": "weekly_review"},
                 ),
                 bus=bus,
@@ -343,6 +383,7 @@ class BusinessAgent(BaseAgent):
 
 
 # ── Helpers ───────────────────────────────────
+
 
 def _parse_action_type(raw: str) -> ActionType:
     mapping = {
