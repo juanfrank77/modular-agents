@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 # Settings dataclass
 # ──────────────────────────────────────────────
 
+
 @dataclass
 class Settings:
     # Telegram
@@ -53,16 +54,25 @@ class Settings:
 
     # LLM retry / backoff
     llm_max_retries: int = 3
-    llm_retry_min_wait: int = 2   # seconds
+    llm_retry_min_wait: int = 2  # seconds
     llm_retry_max_wait: int = 60  # seconds
 
     # Approval timeouts per ActionType name (seconds)
     # Keys match ActionType enum names: WRITE_HIGH, EXECUTE, DESTRUCTIVE
-    approval_timeouts: dict[str, int] = field(default_factory=lambda: {
-        "WRITE_HIGH": 120,
-        "EXECUTE": 300,
-        "DESTRUCTIVE": 600,
-    })
+    approval_timeouts: dict[str, int] = field(
+        default_factory=lambda: {
+            "WRITE_HIGH": 120,
+            "EXECUTE": 300,
+            "DESTRUCTIVE": 600,
+        }
+    )
+
+    # Composio (optional — for Gmail/Calendar tools)
+    composio_api_key: str = ""
+    composio_user_id: str = ""
+
+    # Command blocklist — additional patterns beyond core defaults
+    extra_blocked_patterns: list[str] = field(default_factory=list)
 
     # Logging
     log_level: str = "INFO"
@@ -85,6 +95,7 @@ class Settings:
 # ──────────────────────────────────────────────
 # Loader
 # ──────────────────────────────────────────────
+
 
 def _require(key: str) -> str:
     val = os.getenv(key)
@@ -120,7 +131,11 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     allowed_ids = [i.strip() for i in raw_ids.split(",") if i.strip()]
 
     # Parse approval timeouts: "WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600"
-    approval_timeouts: dict[str, int] = {"WRITE_HIGH": 120, "EXECUTE": 300, "DESTRUCTIVE": 600}
+    approval_timeouts: dict[str, int] = {
+        "WRITE_HIGH": 120,
+        "EXECUTE": 300,
+        "DESTRUCTIVE": 600,
+    }
     raw_timeouts = _optional("APPROVAL_TIMEOUTS", "")
     if raw_timeouts:
         for pair in raw_timeouts.split(","):
@@ -131,6 +146,10 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
                     approval_timeouts[k.strip().upper()] = int(v.strip())
                 except ValueError:
                     pass  # ignore malformed entries
+
+    # Parse extra blocked patterns (comma-separated in .env)
+    raw_patterns = _optional("EXTRA_BLOCKED_PATTERNS", "")
+    extra_patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()]
 
     return Settings(
         # Required
@@ -161,13 +180,11 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
             if p.strip()
         ],
         tavily_api_key=_optional("TAVILY_API_KEY", ""),
-        extra_blocked_patterns=[
-            p.strip()
-            for p in _optional("EXTRA_BLOCKED_PATTERNS", "").split(",")
-            if p.strip()
-        ],
+        # Composio
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
-        composio_user_id=_optional("COMPOSIO_USER_ID", "default"),
+        composio_user_id=_optional("COMPOSIO_USER_ID", ""),
+        # Extra blocked patterns
+        extra_blocked_patterns=extra_patterns,
     )
 
 
