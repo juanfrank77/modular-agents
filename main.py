@@ -58,6 +58,7 @@ log = get_logger("main")
 # Bootstrap
 # ──────────────────────────────────────────────
 
+
 async def bootstrap() -> tuple[
     MessageBus, TelegramNotifier, Safety, Scheduler, "AgentCreator"
 ]:
@@ -91,6 +92,7 @@ async def bootstrap() -> tuple[
         notifier=notifier,
         allowed_ids=settings.telegram_allowed_chat_ids,
         approval_timeouts=settings.approval_timeouts,
+        extra_blocked_patterns=settings.extra_blocked_patterns,
     )
 
     # 10. Skill loader
@@ -112,7 +114,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(business)
 
@@ -124,7 +126,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(devops)
 
@@ -168,6 +170,7 @@ async def bootstrap() -> tuple[
     )
     return bus, notifier, safety, _scheduler, creator
 
+
 # ──────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────
@@ -183,6 +186,7 @@ async def _verify_llm(llm: "LLMProvider") -> None:
     """Make a minimal API call at startup to validate the LLM key works.
     Exits with a clear message if the key is invalid or the service is unreachable."""
     from core.protocols import Message
+
     try:
         await llm.complete(
             messages=[Message(role="user", content="ping")],
@@ -198,9 +202,11 @@ async def _verify_llm(llm: "LLMProvider") -> None:
         )
         sys.exit(1)
 
+
 # ──────────────────────────────────────────────
 # Telegram handlers
 # ──────────────────────────────────────────────
+
 
 def make_message_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -310,6 +316,38 @@ def make_model_handler(safety: Safety):
     return on_model
 
 
+def make_planmode_handler(bus: MessageBus, safety: Safety):
+    async def on_planmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        if not safety.pairing.is_paired(chat_id):
+            await update.message.reply_text("🔒 Not paired.")
+            return
+
+        args = context.args or []
+        agent_name = args[0].lower() if args else None
+
+        toggled = []
+        for name in bus.registered_agents:
+            if agent_name is None or name == agent_name:
+                agent = bus.get_agent(name)
+                if agent:
+                    new_state = agent.toggle_plan_mode(chat_id)
+                    state = "ON" if new_state else "OFF"
+                    toggled.append(f"{name}: Plan mode {state}")
+
+        if toggled:
+            await update.message.reply_text("\n".join(toggled))
+        else:
+            await update.message.reply_text(
+                f"No agent named '{agent_name}'. "
+                f"Available: {', '.join(bus.registered_agents)}"
+            )
+
+    return on_planmode
+
+
 def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -348,9 +386,11 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 
     return on_command
 
+
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
+
 
 async def main() -> None:
     bus, notifier, safety, scheduler, creator = await bootstrap()
