@@ -242,6 +242,81 @@ If you don't set `APPROVAL_TIMEOUTS`, the defaults above apply. Any action type 
 
 ---
 
+## Connecting external apps (Composio)
+
+[Composio](https://composio.dev) gives agents access to 1000+ integrations — Gmail, Google Calendar, Slack, Notion, and more — through a single Python SDK.
+
+### Setup
+
+```bash
+uv pip install composio-anthropic
+composio login
+composio link gmail        # one-time OAuth per service
+composio link googlecalendar
+```
+
+Set `COMPOSIO_API_KEY` and optionally `COMPOSIO_USER_ID` in `.env`:
+```
+COMPOSIO_API_KEY=your_composio_api_key_here
+# Optional: for multi-user deployments, specify the user entity ID
+COMPOSIO_USER_ID=your_composio_user_id_here
+```
+
+### Using ComposioTool in an agent
+
+```python
+from core.composio_tool import ComposioTool
+
+composio = ComposioTool(api_key=settings.composio_api_key)
+result = await composio.execute("GMAIL_FETCH_EMAILS", max_results=10)
+```
+
+The Business Agent includes ready-made `GmailTool` and `CalendarTool` wrappers in `agents/business/tools/` that map to common Composio slugs. Instantiate them with a `ComposioTool` instance.
+
+---
+
+## Permissions and safety
+
+The system enforces four independent layers of access control:
+
+**1. Chat-level** — `TELEGRAM_ALLOWED_CHAT_IDS`
+
+Only the listed chat IDs can interact with the bot. Any other chat receives no response. Leave empty in development to allow all chats.
+
+**2. Agent-level** — autonomy mode
+
+Each agent runs in one of three autonomy modes (set per-agent in `.env`):
+
+| Mode | Behaviour |
+|------|-----------|
+| `read_only` | May only perform read actions — no writes, no execution |
+| `supervised` | Read and low-risk writes are automatic; high-risk actions require inline Approve/Deny |
+| `autonomous` | Acts freely; only checks the hardcoded command blocklist |
+
+**3. Command-level** — blocklist
+
+A hardcoded blocklist always blocks dangerous shell patterns (`rm -rf /`, fork bombs, disk-write commands, etc.) regardless of autonomy level.
+
+Extend it without code changes using `EXTRA_BLOCKED_PATTERNS` in `.env`:
+```
+EXTRA_BLOCKED_PATTERNS=my-org/secret-repo,DROP TABLE
+```
+Values are compiled as case-insensitive regex patterns and merged with the hardcoded list at startup.
+
+**4. Action-level** — `ActionType`
+
+Actions are classified by risk. In `supervised` mode, anything above `WRITE_LOW` requires explicit approval:
+
+| ActionType | Risk | Example |
+|------------|------|---------|
+| `READ` | None | Fetch emails, list files, search |
+| `WRITE_LOW` | Low | Save a draft, update a local note |
+| `WRITE_HIGH` | Medium | Send email, write calendar event |
+| `EXECUTE` | High | Run a script, deploy a service |
+| `DESTRUCTIVE` | Critical | Delete data, force-push, drop table |
+
+---
+
 ## Project structure
 
 ```
