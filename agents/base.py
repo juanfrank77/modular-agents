@@ -33,15 +33,17 @@ if TYPE_CHECKING:
 log = get_logger("base")
 
 _PLAN_PROMPT = (
-    "Before taking any action, output a numbered list of every step you "
+    "You are an AI assistant that creates step-by-step plans for user requests. "
+    "Given a user message, output a clear, numbered plan of actions you "
     "intend to perform. Do not execute anything yet."
 )
 
+
 class BaseAgent(ABC):
     # Every subclass must declare these at class level
-    name: str           # unique identifier, e.g. "business"
-    description: str    # used by bus for routing decisions
-    autonomy_level: str # "read_only" | "supervised" | "autonomous"
+    name: str  # unique identifier, e.g. "business"
+    description: str  # used by bus for routing decisions
+    autonomy_level: str  # "read_only" | "supervised" | "autonomous"
 
     def __init__(
         self,
@@ -52,7 +54,7 @@ class BaseAgent(ABC):
         memory: "Memory | None" = None,
         safety: "Safety | None" = None,
         skill_loader: "SkillLoader | None" = None,
-        bus: "MessageBus | None" = None
+        bus: "MessageBus | None" = None,
     ) -> None:
         self.settings = settings
         self.storage = storage
@@ -62,6 +64,7 @@ class BaseAgent(ABC):
         self.safety = safety
         self.skill_loader = skill_loader
         self.bus = bus
+        # Per-chat set so toggling plan mode for one user doesn't affect others.
         self._plan_mode_chats: set[str] = set()
 
     def is_plan_mode(self, chat_id: str) -> bool:
@@ -104,18 +107,33 @@ class BaseAgent(ABC):
         if self.llm is None:
             return await self.handle(event)
 
+        # Build system prompt: include agent's identity + plan instruction
+        # Agents can override _system_prompt class attribute for identity/skills
+        agent_system = getattr(self, "_system_prompt", "") or ""
+        combined_system = _PLAN_PROMPT + ("\n\n" + agent_system if agent_system else "")
+
         # Phase 1 — generate the plan
         llm_response = await self.llm.complete(
             messages=[Message(role="user", content=event.text)],
-            system=_PLAN_PROMPT,
+            system=combined_system,
             max_tokens=512,
         )
         # llm.complete() returns a str per the LLMProvider protocol
         plan_text = llm_response if isinstance(llm_response, str) else str(llm_response)
 
+        # Guard: truncate plan text to fit Telegram's 4096-char limit
+        MAX_TELEGRAM = 3800  # leave room for "Approval Required\n\n" prefix
+        if len(plan_text) > MAX_TELEGRAM:
+            plan_text = plan_text[:MAX_TELEGRAM] + "…"
+
         # Phase 2 — request user approval (requires safety.gate)
         if not self.safety:
             # No safety component: just run without approval
+            log.warning(
+                "Plan mode active but no safety instance — executing without approval",
+                event="plan_mode_no_safety",
+                agent=self.name,
+            )
             return await self.handle(event)
 
         approved = await self.safety.gate.request_approval(
@@ -151,11 +169,7 @@ class BaseAgent(ABC):
     # ── Cross-agent notifications ─────────────
 
     async def emit(
-        self,
-        agent_name: str,
-        event: str,
-        data: dict | None = None,
-        context: str = ""
+        self, agent_name: str, event: str, data: dict | None = None, context: str = ""
     ) -> "AgentResponse | None":
         """
         Send a notification to another agent.
@@ -173,10 +187,10 @@ class BaseAgent(ABC):
                 "emit called before bus was stored — call register_schedules first",
                 event="notify_no_bus",
                 from_agent=self.name,
-                to_agent=agent_name
+                to_agent=agent_name,
             )
             return
-        
+
         message = AgentEvent(
             type=EventType.AGENT_MESSAGE,
             origin_agent=self.name,
@@ -187,9 +201,9 @@ class BaseAgent(ABC):
                 "from_agent": self.name,
                 "event": event,
                 **(data or {}),
-            }
+            },
         )
-        
+
         response = await self.bus.publish(message)
 
         log.info(
@@ -198,11 +212,11 @@ class BaseAgent(ABC):
             from_agent=self.name,
             to_agent=agent_name,
             message_event=event,
-            success=response.success if response else None
+            success=response.success if response else None,
         )
 
         return response
-    
+
     async def _handle_agent_message(self, event: AgentEvent) -> AgentResponse:
         """
         Default handler for AGENT_MESSAGE events.
@@ -224,7 +238,7 @@ class BaseAgent(ABC):
             event="agent_message_received",
             agent=self.name,
             from_agent=from_agent,
-            message_event=message_event
+            message_event=message_event,
         )
 
         # Store in memory so future responses can use it
@@ -244,13 +258,11 @@ class BaseAgent(ABC):
                 log.warning(
                     "Failed to store agent message in memory",
                     event="message_memory_error",
-                    error=str(e)
+                    error=str(e),
                 )
 
         return AgentResponse(
-            text="",
-            agent_name=self.name,
-            data={"notification_received": True}
+            text="", agent_name=self.name, data={"notification_received": True}
         )
 
     # ── Helpers available to all agents ───────
