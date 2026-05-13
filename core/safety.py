@@ -44,6 +44,7 @@ class ActionType(Enum):
 # Pairing Manager
 # ──────────────────────────────────────────────
 
+
 class PairingManager:
     """
     Generates a 6-digit pairing code at startup.
@@ -94,10 +95,27 @@ _BLOCKED_PATTERNS = [
 
 
 def is_blocked_command(text: str) -> bool:
-    """Check if text contains a blocked dangerous command pattern."""
+    """Check if text contains a blocked dangerous command pattern.
+
+    .. deprecated::
+        Use :meth:`Safety.is_command_blocked` instead, which includes
+        extra patterns from settings.
+    """
+    import warnings
+
+    warnings.warn(
+        "is_blocked_command() is deprecated — use Safety.is_command_blocked() "
+        "to include extra_blocked_patterns from settings",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     for pattern in _BLOCKED_PATTERNS:
         if pattern.search(text):
-            log.warning("Blocked command detected", event="command_blocked", pattern=pattern.pattern)
+            log.warning(
+                "Blocked command detected",
+                event="command_blocked",
+                pattern=pattern.pattern,
+            )
             return True
     return False
 
@@ -175,13 +193,18 @@ class ApprovalGate:
         event = self._pending.get(approval_id)
         if event:
             event.set()
-            log.info("Approval resolved", event="approval_resolved",
-                     approval_id=approval_id, approved=approved)
+            log.info(
+                "Approval resolved",
+                event="approval_resolved",
+                approval_id=approval_id,
+                approved=approved,
+            )
 
 
 # ──────────────────────────────────────────────
 # Safety Coordinator
 # ──────────────────────────────────────────────
+
 
 class Safety:
     """Orchestrates all safety checks."""
@@ -191,9 +214,38 @@ class Safety:
         notifier: "TelegramNotifier",
         allowed_ids: list[str],
         approval_timeouts: dict[str, int] | None = None,
+        extra_blocked_patterns: list[str] | None = None,
     ) -> None:
         self.pairing = PairingManager(allowed_ids)
         self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
+        # Compile extra patterns from settings
+        self._extra_patterns = []
+        if extra_blocked_patterns:
+            for p in extra_blocked_patterns:
+                try:
+                    self._extra_patterns.append(re.compile(p))
+                except re.error:
+                    log.warning(
+                        "Invalid extra blocked pattern, ignoring",
+                        event="invalid_pattern",
+                        pattern=p,
+                    )
+
+    def is_command_blocked(self, text: str) -> bool:
+        """Check if text matches any blocked pattern (built-in + extra)."""
+        # Check built-in patterns
+        if is_blocked_command(text):
+            return True
+        # Check extra patterns
+        for pattern in self._extra_patterns:
+            if pattern.search(text):
+                log.warning(
+                    "Blocked command detected (extra pattern)",
+                    event="command_blocked",
+                    pattern=pattern.pattern,
+                )
+                return True
+        return False
 
     async def check_action(
         self,
@@ -209,8 +261,8 @@ class Safety:
         if not self.pairing.is_paired(chat_id):
             return False
 
-        # Command blocklist — always enforced
-        if is_blocked_command(description):
+        # Command blocklist — always enforced (includes extra patterns)
+        if self.is_command_blocked(description):
             return False
 
         # Autonomous agents skip approval gate
@@ -226,6 +278,8 @@ class Safety:
             if action_type in (ActionType.READ, ActionType.WRITE_LOW):
                 return True
             # High-risk actions need explicit approval
-            return await self.gate.request_approval(chat_id, description, action_type=action_type)
+            return await self.gate.request_approval(
+                chat_id, description, action_type=action_type
+            )
 
         return False
