@@ -58,6 +58,7 @@ log = get_logger("main")
 # Bootstrap
 # ──────────────────────────────────────────────
 
+
 async def bootstrap() -> tuple[
     MessageBus, TelegramNotifier, Safety, Scheduler, "AgentCreator"
 ]:
@@ -113,7 +114,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(business)
 
@@ -125,7 +126,7 @@ async def bootstrap() -> tuple[
         memory=memory,
         safety=safety,
         skill_loader=skill_loader,
-        bus=bus
+        bus=bus,
     )
     bus.register(devops)
 
@@ -169,6 +170,7 @@ async def bootstrap() -> tuple[
     )
     return bus, notifier, safety, _scheduler, creator
 
+
 # ──────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────
@@ -184,6 +186,7 @@ async def _verify_llm(llm: "LLMProvider") -> None:
     """Make a minimal API call at startup to validate the LLM key works.
     Exits with a clear message if the key is invalid or the service is unreachable."""
     from core.protocols import Message
+
     try:
         await llm.complete(
             messages=[Message(role="user", content="ping")],
@@ -199,9 +202,11 @@ async def _verify_llm(llm: "LLMProvider") -> None:
         )
         sys.exit(1)
 
+
 # ──────────────────────────────────────────────
 # Telegram handlers
 # ──────────────────────────────────────────────
+
 
 def make_message_handler(bus: MessageBus, safety: Safety, creator: AgentCreator):
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -320,7 +325,6 @@ def make_planmode_handler(bus: MessageBus, safety: Safety):
             await update.message.reply_text("🔒 Not paired.")
             return
 
-        chat_id = str(update.message.chat_id)
         args = context.args or []
         agent_name = args[0].lower() if args else None
 
@@ -383,9 +387,11 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
 
     return on_command
 
+
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
+
 
 async def main() -> None:
     bus, notifier, safety, scheduler, creator = await bootstrap()
