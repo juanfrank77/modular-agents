@@ -73,6 +73,26 @@ class Settings:
 
     # Command blocklist — additional patterns beyond core defaults
     extra_blocked_patterns: list[str] = field(default_factory=list)
+    # Quiet hours gating
+    quiet_hours_enabled: bool = True
+    quiet_hours_morning_start: str = "07:00"
+    quiet_hours_morning_end: str = "09:30"
+    quiet_hours_morning_allowed: list[str] = field(
+        default_factory=lambda: ["wellbeing-nudge"]
+    )
+    quiet_hours_evening_start: str = "19:30"
+    quiet_hours_evening_end: str = "07:00"
+    quiet_hours_evening_allowed: list[str] = field(
+        default_factory=lambda: ["wellbeing-nudge", "emergency"]
+    )
+    emergency_keywords: list[str] = field(
+        default_factory=lambda: ["server_down", "security", "data_loss", "payment_failure"]
+    )
+
+    # Wellbeing nudge
+    wellbeing_location: str = ""
+    wellbeing_wake_time: str = "07:00"
+    wellbeing_bedtime: str = "23:00"
 
     # Logging
     log_level: str = "INFO"
@@ -179,6 +199,31 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
             for p in _optional("LOCAL_FILE_PATHS", "").split(",")
             if p.strip()
         ],
+        quiet_hours_enabled=_optional("QUIET_HOURS_ENABLED", "true").lower() == "true",
+        quiet_hours_morning_start=_optional("QUIET_HOURS_MORNING_START", "07:00"),
+        quiet_hours_morning_end=_optional("QUIET_HOURS_MORNING_END", "09:30"),
+        quiet_hours_morning_allowed=[
+            x.strip()
+            for x in _optional("QUIET_HOURS_MORNING_ALLOWED", "wellbeing-nudge").split(",")
+            if x.strip()
+        ],
+        quiet_hours_evening_start=_optional("QUIET_HOURS_EVENING_START", "19:30"),
+        quiet_hours_evening_end=_optional("QUIET_HOURS_EVENING_END", "07:00"),
+        quiet_hours_evening_allowed=[
+            x.strip()
+            for x in _optional("QUIET_HOURS_EVENING_ALLOWED", "wellbeing-nudge,emergency").split(",")
+            if x.strip()
+        ],
+        emergency_keywords=[
+            x.strip()
+            for x in _optional(
+                "EMERGENCY_KEYWORDS", "server_down,security,data_loss,payment_failure"
+            ).split(",")
+            if x.strip()
+        ],
+        wellbeing_location=_optional("WELLBEING_LOCATION", ""),
+        wellbeing_wake_time=_optional("WELLBEING_WAKE_TIME", "07:00"),
+        wellbeing_bedtime=_optional("WELLBEING_BEDTIME", "23:00"),
         tavily_api_key=_optional("TAVILY_API_KEY", ""),
         # Composio
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
