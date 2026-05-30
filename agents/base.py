@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
+from datetime import datetime
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
 
 if TYPE_CHECKING:
@@ -279,3 +280,15 @@ class BaseAgent(ABC):
         if not allowed:
             return True
         return chat_id in allowed
+
+    def should_notify(
+        self, tag: str, is_emergency: bool = False, _now: "datetime | None" = None
+    ) -> bool:
+        """Check quiet hours before sending a notification.
+
+        Returns True if the message is allowed through.
+        Pass is_emergency=True to bypass quiet hours (e.g. server crash).
+        _now is a test seam — leave it None in production.
+        """
+        from core.quiet_hours import should_notify
+        return should_notify(self.settings, tag=tag, is_emergency=is_emergency, now=_now)

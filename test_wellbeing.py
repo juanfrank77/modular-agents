@@ -97,3 +97,28 @@ class TestShouldNotify:
         settings = _make_settings(enabled=False)
         now = datetime(2024, 1, 1, 8, 0, 0)
         assert should_notify(settings, tag="deploy-alert", now=now) is True
+
+# ── BaseAgent.should_notify tests ─────────────────────────────────────────
+
+class TestBaseAgentShouldNotify:
+    def _make_agent(self, **setting_overrides):
+        from agents.echo.agent import EchoAgent
+        settings = _make_settings(**setting_overrides)
+        storage = MagicMock()
+        notifier = MagicMock()
+        return EchoAgent(settings=settings, storage=storage, notifier=notifier)
+
+    def test_midday_returns_true(self):
+        agent = self._make_agent()
+        now = datetime(2024, 1, 1, 14, 0, 0)
+        assert agent.should_notify("deploy-alert", _now=now) is True
+
+    def test_morning_quiet_blocks_non_allowed(self):
+        agent = self._make_agent()
+        now = datetime(2024, 1, 1, 8, 0, 0)
+        assert agent.should_notify("deploy-alert", _now=now) is False
+
+    def test_emergency_flag_always_passes(self):
+        agent = self._make_agent()
+        now = datetime(2024, 1, 1, 8, 0, 0)
+        assert agent.should_notify("anything", is_emergency=True, _now=now) is True
