@@ -97,7 +97,8 @@ ok "Dependencies installed"
 # ── 4. Environment file ───────────────────────────────────────────────────────
 section "4. Environment file"
 
-REQUIRED_KEYS=("TELEGRAM_BOT_TOKEN" "ANTHROPIC_API_KEY")
+LLM_KEYS=("KILO_API_KEY" "ANTHROPIC_API_KEY" "OPENROUTER_API_KEY" "OLLAMA_BASE_URL")
+LLM_CONFIGURED=false
 MISSING_KEYS=()
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -111,12 +112,38 @@ if [ ! -f "$ENV_FILE" ]; then
     fi
 fi
 
-for key in "${REQUIRED_KEYS[@]}"; do
+for key in "${LLM_KEYS[@]}"; do
     value=$(grep -E "^${key}=" "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
-    if [ -z "$value" ] || [[ "$value" == *"your_"* ]]; then
-        MISSING_KEYS+=("$key")
+    # Skip placeholder values
+    if [[ "$value" == *"your_"* ]]; then
+        continue
+    fi
+    # For OLLAMA_BASE_URL, 'localhost' is valid (default local setup)
+    if [ "$key" = "OLLAMA_BASE_URL" ] && [[ "$value" == *"localhost"* ]]; then
+        LLM_CONFIGURED=true
+        break
+    fi
+    # For API keys, check if there's a value
+    if [ -n "$value" ]; then
+        LLM_CONFIGURED=true
+        break
     fi
 done
+
+if [ "$LLM_CONFIGURED" = false ]; then
+    warn "No LLM provider configured — set at least one of:"
+    echo "       - KILO_API_KEY"
+    echo "       - ANTHROPIC_API_KEY"
+    echo "       - OPENROUTER_API_KEY"
+    echo "       - OLLAMA_BASE_URL"
+    warn "Add your preferred LLM provider to .env before starting the bot"
+fi
+
+# Check Telegram token specifically
+value=$(grep -E "^TELEGRAM_BOT_TOKEN=" "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+if [ -z "$value" ] || [[ "$value" == *"your_"* ]]; then
+    MISSING_KEYS+=("TELEGRAM_BOT_TOKEN")
+fi
 
 if [ ${#MISSING_KEYS[@]} -gt 0 ]; then
     fail "Missing or placeholder values in .env:"

@@ -31,12 +31,12 @@ class Settings:
     telegram_token: str
     telegram_allowed_chat_ids: list[str]
 
-    # Required
-    kilo_api_key: str
+    # LLM providers
+    kilo_api_key: str = ""
     kilo_base_url: str = "https://api.kilo.ai/api/gateway"
-
-    # LLM — optional fallback if Kilo is unavailable
     anthropic_api_key: str = ""
+    openrouter_api_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
     default_model: str = "claude-sonnet-4.6"
     default_max_tokens: int = 2048
 
@@ -69,10 +69,11 @@ class Settings:
 
     # Composio (optional — for Gmail/Calendar tools)
     composio_api_key: str = ""
-    composio_user_id: str = ""
+    composio_user_id: str = "default"
 
     # Command blocklist — additional patterns beyond core defaults
     extra_blocked_patterns: list[str] = field(default_factory=list)
+
     # Quiet hours gating
     quiet_hours_enabled: bool = True
     quiet_hours_morning_start: str = "07:00"
@@ -103,13 +104,6 @@ class Settings:
 
     # Web tools
     tavily_api_key: str = ""
-
-    # Extra blocked command patterns
-    extra_blocked_patterns: list[str] = field(default_factory=list)
-
-    # Composio
-    composio_api_key: str = ""
-    composio_user_id: str = "default"
 
 
 # ──────────────────────────────────────────────
@@ -174,9 +168,12 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     return Settings(
         # Required
         telegram_token=_require("TELEGRAM_BOT_TOKEN"),
-        kilo_api_key=_require("KILO_API_KEY"),
-        anthropic_api_key=_optional("ANTHROPIC_API_KEY", ""),
         telegram_allowed_chat_ids=allowed_ids,
+        # LLM providers (at least one must be configured, validated in main.py)
+        kilo_api_key=_optional("KILO_API_KEY", ""),
+        anthropic_api_key=_optional("ANTHROPIC_API_KEY", ""),
+        openrouter_api_key=_optional("OPENROUTER_API_KEY", ""),
+        ollama_base_url=_optional("OLLAMA_BASE_URL", "http://localhost:11434"),
         # Optional with defaults
         default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
@@ -225,10 +222,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         wellbeing_wake_time=_optional("WELLBEING_WAKE_TIME", "07:00"),
         wellbeing_bedtime=_optional("WELLBEING_BEDTIME", "23:00"),
         tavily_api_key=_optional("TAVILY_API_KEY", ""),
-        # Composio
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
         composio_user_id=_optional("COMPOSIO_USER_ID", ""),
-        # Extra blocked patterns
         extra_blocked_patterns=extra_patterns,
     )
 

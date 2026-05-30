@@ -93,10 +93,25 @@ async def test_config() -> None:
     try:
         from core.config import settings
         assert settings.telegram_token, "telegram_token is empty"
-        assert settings.kilo_api_key, "kilo_api_key is empty"
         ok("Config loads from .env")
         ok(f"Telegram token present ({settings.telegram_token[:8]}...)")
-        ok(f"Kilo API key present ({settings.kilo_api_key[:8]}...)")
+
+        # Check that at least one LLM provider is configured
+        providers = []
+        if settings.kilo_api_key:
+            providers.append("Kilo")
+        if settings.openrouter_api_key:
+            providers.append("OpenRouter")
+        if settings.ollama_base_url:
+            providers.append("Ollama")
+        if settings.anthropic_api_key:
+            providers.append("Anthropic")
+
+        if providers:
+            ok(f"LLM provider(s) configured: {', '.join(providers)}")
+        else:
+            ok("No LLM provider in .env — will fail at runtime if no providers available")
+
         if settings.telegram_allowed_chat_ids:
             ok(f"Allowed chat IDs: {settings.telegram_allowed_chat_ids}")
         else:

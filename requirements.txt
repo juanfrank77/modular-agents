@@ -1,6 +1,7 @@
 # Core
 python-dotenv==1.2.2
 aiosqlite==0.22.1
+httpx==0.27.2
 
 # Telegram
 python-telegram-bot==22.7
