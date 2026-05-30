@@ -16,6 +16,13 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Calendar management and time-blocking
 - Weekly reviews
 
+**Wellbeing Agent** — your wellbeing assistant
+- Morning nudges with weather-based activity suggestions (run or yoga)
+- Evening wind-down reminders to step away from screens
+- Bedtime reminders for better sleep
+- Weekly check-ins tracking morning routine consistency
+- Respects quiet hours with emergency override support
+
 **DevOps Agent** — your infrastructure assistant
 - GitHub digest: open PRs, failing CI, stale branches
 - Deployment pipeline via Railway CLI
@@ -224,6 +231,23 @@ DEVOPS_AGENT_AUTONOMY=autonomous     # acts freely, asks for destructive ops
 
 Options: `read_only` | `supervised` | `autonomous`
 
+### Quiet hours configuration
+
+The Wellbeing Agent respects quiet hours to avoid sending nudges at inconvenient times. Configure in `.env`:
+
+```
+QUIET_HOURS_ENABLED=true                    # toggle quiet hours on/off
+QUIET_HOURS_MORNING_START=07:00             # morning routine window start
+QUIET_HOURS_MORNING_END=09:30               # morning routine window end
+QUIET_HOURS_MORNING_ALLOWED=wellbeing-nudge # allowed during morning quiet hours
+QUIET_HOURS_EVENING_START=19:30             # evening wind-down start
+QUIET_HOURS_EVENING_END=07:00               # overnight window (spans midnight)
+QUIET_HOURS_EVENING_ALLOWED=wellbeing-nudge,emergency  # allowed during evening
+EMERGENCY_KEYWORDS=server_down,security,data_loss,payment_failure  # bypass all quiet hours
+```
+
+The Wellbeing Agent is autonomous but will skip nudges if they fall within quiet hours. Emergency keywords (e.g., `server_down`) always bypass quiet hours.
+
 ### Giving agents access to local files
 
 Set `LOCAL_FILE_PATHS` in `.env` to a comma-separated list of directories agents are allowed to read and write:
@@ -370,6 +394,8 @@ modular-agents/
 │   │   ├── agent.py
 │   │   ├── tools/               ← GmailTool, CalendarTool (via Composio)
 │   │   └── skills/              ← Markdown skill files
+│   ├── wellbeing/               ← wellbeing agent
+│   │   └── agent.py             ← scheduled nudges (morning, evening, bedtime)
 │   └── devops/                  ← infrastructure agent
 │       ├── agent.py
 │       ├── skills/
@@ -382,6 +408,7 @@ modular-agents/
 │   ├── file_tool.py             ← local filesystem access with path allowlist
 │   ├── llm.py                   ← LLM provider (Kilo primary, Anthropic fallback)
 │   ├── memory.py                ← enhanced two-layer memory system
+│   ├── quiet_hours.py           ← quiet hours gating logic
 │   ├── safety.py                ← approval gates and blocklist
 │   ├── scheduler.py             ← cron jobs and heartbeat
 │   ├── skill_loader.py          ← discovers and injects skill files
