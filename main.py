@@ -50,6 +50,7 @@ from core.agent_creator import AgentCreator
 from agents.business.agent import BusinessAgent
 from agents.devops.agent import DevOpsAgent
 from agents.echo.agent import EchoAgent
+from agents.wellbeing.agent import WellbeingAgent
 
 log = get_logger("main")
 
@@ -134,9 +135,11 @@ async def bootstrap() -> tuple[
     echo = EchoAgent(settings=settings, storage=storage, notifier=notifier)
     bus.register(echo)
 
+    wellbeing = WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
+    bus.register(wellbeing)
     # 18. Register each agent's scheduled jobs
     # Must happen AFTER scheduler.set_bus() and agent registration
-    for agent in [business, devops, echo]:
+    for agent in [business, devops, echo, wellbeing]:
         try:
             await agent.register_schedules(bus)
         except Exception as e:

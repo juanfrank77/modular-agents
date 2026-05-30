@@ -122,3 +122,150 @@ class TestBaseAgentShouldNotify:
         agent = self._make_agent()
         now = datetime(2024, 1, 1, 8, 0, 0)
         assert agent.should_notify("anything", is_emergency=True, _now=now) is True
+# ── WellbeingAgent tests ──────────────────────────────────────────────────────
+
+class TestWellbeingAgentHelpers:
+    def _make_agent(self, **setting_overrides):
+        from agents.wellbeing.agent import WellbeingAgent
+        settings = _make_settings(**setting_overrides)
+        storage = MagicMock()
+        notifier = MagicMock()
+        notifier.send = AsyncMock()
+        return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
+
+    def test_already_sent_today_false_when_empty(self):
+        agent = self._make_agent()
+        assert agent._already_sent_today({}, "morning_nudge_sent_at") is False
+
+    def test_already_sent_today_true_for_todays_timestamp(self):
+        agent = self._make_agent()
+        state = {"morning_nudge_sent_at": datetime.now().isoformat()}
+        assert agent._already_sent_today(state, "morning_nudge_sent_at") is True
+
+    def test_already_sent_today_false_for_yesterday(self):
+        from datetime import date, timedelta
+        agent = self._make_agent()
+        yesterday = (date.today() - timedelta(days=1)).isoformat() + "T09:00:00"
+        state = {"morning_nudge_sent_at": yesterday}
+        assert agent._already_sent_today(state, "morning_nudge_sent_at") is False
+
+    def test_pick_message_returns_one_of_the_options(self):
+        agent = self._make_agent()
+        messages = ["A", "B", "C"]
+        result = agent._pick_message(messages)
+        assert result in messages
+
+    def test_suggest_activity_no_weather(self):
+        agent = self._make_agent()
+        assert agent._suggest_activity(None) == "run or yoga"
+
+    def test_suggest_activity_rainy_returns_yoga(self):
+        agent = self._make_agent()
+        assert agent._suggest_activity({"rainy": True, "temp": 15}) == "yoga"
+
+    def test_suggest_activity_cold_returns_yoga(self):
+        agent = self._make_agent()
+        assert agent._suggest_activity({"rainy": False, "temp": -10}) == "yoga"
+
+    def test_suggest_activity_good_weather_returns_run(self):
+        agent = self._make_agent()
+        assert agent._suggest_activity({"rainy": False, "temp": 18}) == "run"
+
+    def test_build_morning_message_weekend_no_weather(self):
+        agent = self._make_agent()
+        with patch.object(agent, "_get_weather", return_value=None):
+            msg = agent._build_morning_message(is_weekend=True)
+        assert "Routine when you're ready" in msg
+
+    def test_build_morning_message_weekday_no_weather(self):
+        agent = self._make_agent()
+        with patch.object(agent, "_get_weather", return_value=None):
+            msg = agent._build_morning_message(is_weekend=False)
+        assert "Good day for" in msg
+
+    def test_build_morning_message_weekday_with_weather(self):
+        agent = self._make_agent()
+        weather = {"temp": 12, "desc": "partly cloudy", "rainy": False}
+        with patch.object(agent, "_get_weather", return_value=weather):
+            msg = agent._build_morning_message(is_weekend=False)
+        assert "12C" in msg
+        assert "run" in msg
+
+    def test_get_weather_no_location_returns_none(self):
+        agent = self._make_agent(location="")
+        assert agent._get_weather() is None
+
+
+class TestWellbeingAgentHandle:
+    def _make_agent(self, **setting_overrides):
+        from agents.wellbeing.agent import WellbeingAgent
+        settings = _make_settings(**setting_overrides)
+        storage = MagicMock()
+        notifier = MagicMock()
+        notifier.send = AsyncMock()
+        return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
+
+    def _make_event(self, task: str):
+        from core.protocols import AgentEvent, EventType
+        return AgentEvent(
+            type=EventType.SCHEDULED_TASK,
+            agent_name="wellbeing",
+            chat_id="123",
+            data={"task": task},
+        )
+
+    async def test_morning_nudge_sends_message(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_morning_weekday")
+        with (
+            patch.object(agent, "_load_state", return_value={}),
+            patch.object(agent, "_save_state"),
+            patch.object(agent, "_get_weather", return_value=None),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            response = await agent.handle(event)
+        agent.notifier.send.assert_called_once()
+        assert response.agent_name == "wellbeing"
+
+    async def test_morning_nudge_skips_if_already_sent(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_morning_weekday")
+        state = {"morning_nudge_sent_at": datetime.now().isoformat()}
+        with (
+            patch.object(agent, "_load_state", return_value=state),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            await agent.handle(event)
+        agent.notifier.send.assert_not_called()
+
+    async def test_morning_nudge_skips_during_quiet_hours(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_morning_weekday")
+        with (
+            patch.object(agent, "_load_state", return_value={}),
+            patch.object(agent, "should_notify", return_value=False),
+        ):
+            await agent.handle(event)
+        agent.notifier.send.assert_not_called()
+
+    async def test_weekly_checkin_resets_stats(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_weekly")
+        state = {"weekly_stats": {"routine_days": ["2024-01-01"], "streak": 3}}
+        saved = {}
+
+        def capture_save(s):
+            saved.update(s)
+
+        with (
+            patch.object(agent, "_load_state", return_value=state),
+            patch.object(agent, "_save_state", side_effect=capture_save),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            await agent.handle(event)
+
+        assert saved.get("weekly_stats", {}).get("routine_days") == []
+
+    async def test_health_check_returns_true(self):
+        agent = self._make_agent()
+        assert await agent.health_check() is True
