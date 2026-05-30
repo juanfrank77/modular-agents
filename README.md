@@ -56,9 +56,19 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 - Python 3.11+
 - A [Telegram bot token](https://core.telegram.org/bots#botfather) (free, takes 2 minutes)
-- A [Kilo API key](https://app.kilo.ai/users/sign_in?callbackPath=/profile)
-- An [Anthropic API key](https://console.anthropic.com/) (optional fallback if Kilo is unavailable)
+- At least one LLM provider configured (see below)
 - For DevOps agent: [`gh` CLI](https://cli.github.com/) and [`railway` CLI](https://docs.railway.app/develop/cli) installed and authenticated
+
+### LLM Provider Options
+
+| Provider | Environment Variable | Description |
+|----------|---------------------|-------------|
+| **Kilo** | `KILO_API_KEY` | Primary provider (default) |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (fallback) |
+| **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one API |
+| **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Llama, No-Lama, etc.) |
+
+Configure at least one provider. Provider priority: Kilo → OpenRouter → Ollama → Anthropic.
 
 ---
 
@@ -66,9 +76,14 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 ### 1. Clone and set up
 
+> **Important**: Fill out your `.env` file before running `setup.sh` so the script can validate your configuration.
+
 ```bash
 git clone https://github.com/juanfrank77/modular-agents.git
 cd modular-agents
+cp .env.example .env
+chmod 600 .env
+nano .env   # add your tokens and provider configuration, then save before continuing
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -82,19 +97,54 @@ SKIP_SYSTEMD=1 ./setup.sh
 
 ### 2. Configure your environment
 
-```bash
-cp .env.example .env
-chmod 600 .env
-nano .env   # add your tokens
-```
-
 Required keys:
 ```
 TELEGRAM_BOT_TOKEN=your_token_here
-KILO_API_KEY=your_key_here
-ANTHROPIC_API_KEY=your_key_here  # optional fallback
+```
+
+LLM Provider (configure at least one):
+```
+KILO_API_KEY=your_key_here              # Kilo (default primary)
+# OR
+OPENROUTER_API_KEY=your_key_here          # OpenRouter
+# OR
+OLLAMA_BASE_URL=http://localhost:11434  # Ollama for local models
+# OR
+ANTHROPIC_API_KEY=your_key_here         # Anthropic (fallback)
+```
+
+Telegram access control:
+```
 TELEGRAM_ALLOWED_CHAT_IDS=your_chat_id   # get this from @userinfobot on Telegram
 ```
+
+#### Using Ollama (self-hosted models)
+
+If you want to use local/self-hosted models like Llama or No-Lama:
+
+1. **Install Ollama** from https://ollama.com or run:
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Pull your model**:
+   ```bash
+   ollama pull llama3      # or ollama pull no-lama
+   ollama pull small-lama  # any model available in Ollama
+   ```
+
+3. **Configure in `.env`** (default URL works for local installation):
+   ```
+   OLLAMA_BASE_URL=http://localhost:11434
+   DEFAULT_MODEL=llama3    # or your preferred model name
+   ```
+
+4. **Start the Ollama service** (if not auto-started):
+   ```bash
+   ollama serve
+   ```
+
+The system will connect to Ollama automatically. No API key required.
 
 ### 3. Fill in your context
 
@@ -406,7 +456,7 @@ modular-agents/
 │   ├── composio_tool.py         ← Composio SDK wrapper (external app integrations)
 │   ├── config.py                ← environment and settings
 │   ├── file_tool.py             ← local filesystem access with path allowlist
-│   ├── llm.py                   ← LLM provider (Kilo primary, Anthropic fallback)
+│   ├── llm.py                   ← LLM providers (Kilo/OpenRouter/Ollama/Anthropic)
 │   ├── memory.py                ← enhanced two-layer memory system
 │   ├── quiet_hours.py           ← quiet hours gating logic
 │   ├── safety.py                ← approval gates and blocklist

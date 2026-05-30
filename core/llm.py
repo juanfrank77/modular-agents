@@ -2,14 +2,17 @@
 core/llm.py
 -----------
 Wraps AsyncAnthropic and AsyncOpenAI behind the LLMProvider Protocol.
+Supports multiple LLM providers: Kilo, Anthropic, OpenRouter, and Ollama.
 
 Usage:
-    from core.llm import KiloLLM
-    llm = KiloLLM(api_key=settings.kilo_api_key)
+    from core.llm import get_llm_provider
+    llm = get_llm_provider()
     response = await llm.complete(messages, system="You are helpful.")
 """
 
 from __future__ import annotations
+
+import httpx
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -29,7 +32,11 @@ log = get_logger("llm")
 
 def _is_retryable(exc: BaseException) -> bool:
     """Return True for transient HTTP errors worth retrying (429, 503, 529)."""
-    return getattr(exc, "status_code", None) in (429, 503, 529)
+    # Handle httpx and openai/anthropic exceptions
+    status = getattr(exc, "status_code", None)
+    if status is None and hasattr(exc, "response"):
+        status = getattr(exc.response, "status_code", None)
+    return status in (429, 503, 529)
 
 
 def _log_retry(retry_state) -> None:
@@ -166,14 +173,159 @@ class AnthropicLLM:
         )
         return await self.complete(messages, system=system, max_tokens=512)
 
+class OpenRouterLLM:
+    """Implements LLMProvider using OpenRouter's OpenAI-compatible endpoint."""
+
+    def __init__(self, api_key: str) -> None:
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+
+    @_llm_retry
+    async def complete(
+        self,
+        messages: list[Message],
+        system: str,
+        model: str = "",
+        max_tokens: int = 0,
+    ) -> str:
+        model = model or settings.default_model
+        max_tokens = max_tokens or settings.default_max_tokens
+
+        api_messages = [{"role": "system", "content": system}] + [
+            {"role": m.role, "content": m.content}
+            for m in messages
+            if m.role in ("user", "assistant")
+        ]
+
+        with log.timer() as t:
+            response = await self._client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=api_messages,
+                extra_headers={
+                    "HTTP-Referer": "https://github.com/juanfrank77/modular-agents",
+                    "X-Title": "Modular Agents",
+                },
+            )
+
+        text = response.choices[0].message.content or "" if response.choices else ""
+        usage = response.usage
+        log.info(
+            "LLM call complete",
+            event="llm_complete",
+            provider="openrouter",
+            model=model,
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
+            duration_ms=t.ms,
+        )
+        return text
+
+    async def summarize(self, messages: list[Message]) -> str:
+        """Summarize a conversation for session compaction."""
+        system = (
+            "You are a conversation summarizer. Condense the following conversation "
+            "into a brief summary that preserves key facts, decisions, and context. "
+            "Be concise but retain important details the user mentioned."
+        )
+        return await self.complete(messages, system=system, max_tokens=512)
+
+# ──────────────────────────────────────────────
+# Retry decorator for OpenAI-compatible APIs
+# ──
+# Note: Ollama uses httpx directly and may not raise retryable HTTP errors
+# in the same way. Users can wrap calls in their own retry logic if needed.
+# ──────────────────────────────────────────────
+
+_ollama_no_retry = retry(
+    retry=retry_if_exception(lambda exc: False),  # never retry for Ollama (local)
+    reraise=True,
+)
+
+
+class OllamaLLM:
+    """Implements LLMProvider using Ollama's local API."""
+
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=120.0)
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        await self._client.aclose()
+
+    @_ollama_no_retry
+    async def complete(
+        self,
+        messages: list[Message],
+        system: str,
+        model: str = "",
+        max_tokens: int = 0,
+    ) -> str:
+        model = model or settings.default_model or "llama3"
+        max_tokens = max_tokens or settings.default_max_tokens
+
+        ollama_messages = [
+            {"role": "system", "content": system}
+        ] + [
+            {"role": m.role, "content": m.content}
+            for m in messages
+            if m.role in ("user", "assistant")
+        ]
+
+        with log.timer() as t:
+            response = await self._client.post(
+                "/api/chat",
+                json={
+                    "model": model,
+                    "messages": ollama_messages,
+                    "stream": False,
+                    "options": {"num_predict": max_tokens},
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        text = data.get("message", {}).get("content", "")
+        log.info(
+            "LLM call complete",
+            event="llm_complete",
+            provider="ollama",
+            model=model,
+            duration_ms=t.ms,
+        )
+        return text
+
+    async def summarize(self, messages: list[Message]) -> str:
+        """Summarize a conversation for session compaction."""
+        system = (
+            "You are a conversation summarizer. Condense the following conversation "
+            "into a brief summary that preserves key facts, decisions, and context. "
+            "Be concise but retain important details the user mentioned."
+        )
+        return await self.complete(messages, system=system, max_tokens=512)
+
+
 def get_llm_provider() -> LLMProvider:
+    """Return the first available LLM provider based on configuration priority."""
     if settings.kilo_api_key:
         log.info("LLM provider selected", event="llm_provider", provider="kilo")
         return KiloLLM(settings.kilo_api_key)
+    if settings.openrouter_api_key:
+        log.info("LLM provider selected", event="llm_provider", provider="openrouter")
+        return OpenRouterLLM(settings.openrouter_api_key)
+    if settings.ollama_base_url:
+        log.info("LLM provider selected", event="llm_provider", provider="ollama")
+        return OllamaLLM(settings.ollama_base_url)
     if not settings.anthropic_api_key:
         print(
-            "[config] FATAL: neither KILO_API_KEY nor ANTHROPIC_API_KEY is set. "
-            "Set at least one in your .env file."
+            "[config] FATAL: No LLM provider configured. Set at least one of:\n"
+            "  - KILO_API_KEY\n"
+            "  - OPENROUTER_API_KEY\n"
+            "  - OLLAMA_BASE_URL (for local models)\n"
+            "  - ANTHROPIC_API_KEY (fallback)\n"
         )
         import sys
         sys.exit(1)
