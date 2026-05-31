@@ -259,7 +259,7 @@ To add a new skill: create a new `.md` file in the relevant skills folder follow
 
 **Option 1: Interactive Wizard (Recommended)**
 
-Use the `/new-agent` command in Telegram to create a new agent interactively. The wizard will guide you through defining the agent's purpose, autonomy level, skills, and generate the necessary code and files automatically.
+Use the `/newagent` command in Telegram to create a new agent interactively. The wizard will guide you through defining the agent's purpose, autonomy level, skills, and generate the necessary code and files automatically.
 
 **Option 2: Manual Creation**
 
@@ -490,7 +490,7 @@ python test_integration.py              # run the test suite
 | Command | Description |
 |---------|-------------|
 | `/model <model-id>` | Change the default LLM model for this session |
-| `/new-agent` | Start interactive wizard to create a new agent |
+| `/newagent` | Start interactive wizard to create a new agent |
 | `/planmode [agent]` | Toggle plan mode: agent shows a numbered action plan and waits for Approve/Deny before executing. Optionally target a specific agent by name. |
 | `/help` | Show available commands |
 

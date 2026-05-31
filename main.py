@@ -367,8 +367,8 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
             )
             return
 
-        # /new-agent — start or continue the wizard
-        if command.startswith("/new-agent") or creator.is_active(chat_id):
+        # /newagent — start or continue the wizard
+        if command.startswith("/newagent") or creator.is_active(chat_id):
             log.info("Agent creator command", event="new_agent_cmd", chat_id=chat_id)
             response = await creator.handle(chat_id, command)
             await bus.send_notification(chat_id, response)
@@ -380,7 +380,7 @@ def make_command_handler(bus: MessageBus, safety: Safety, creator: AgentCreator)
                 chat_id,
                 (
                     "*Available commands*\n\n"
-                    "/new-agent — create a new agent interactively\n"
+                    "/newagent — create a new agent interactively\n"
                     "/planmode [agent] — toggle plan mode for one or all agents\n"
                     "/help — show this message\n\n"
                     "Or just send a message to talk to your agents."
@@ -419,11 +419,11 @@ async def main() -> None:
     app.add_handler(CommandHandler("planmode", make_planmode_handler(bus, safety)))
     app.add_handler(
         CommandHandler(
-            ["new-agent", "help"], make_command_handler(bus, safety, creator)
+            ["newagent", "help"], make_command_handler(bus, safety, creator)
         )
     )
 
-    # Also handle /new-agent continuation messages (non-command text during wizard)
+    # Also handle /newagent continuation messages (non-command text during wizard)
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,

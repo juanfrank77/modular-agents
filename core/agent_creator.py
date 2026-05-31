@@ -1,11 +1,11 @@
 """
 core/agent_creator.py
 ---------------------
-The agent creator wizard. Drives the /new-agent conversation,
+The agent creator wizard. Drives the /newagent conversation,
 collects requirements, calls the LLM to generate code and skills,
 writes files to disk, and patches main.py.
 
-Each chat that starts /new-agent gets its own WizardSession stored
+Each chat that starts /newagent gets its own WizardSession stored
 in an in-memory dict. Sessions expire after 10 minutes of inactivity.
 
 Usage (from Telegram handler):
@@ -318,7 +318,7 @@ class AgentCreator:
 
     async def handle(self, chat_id: str, text: str) -> str:
         """
-        Process a message from a user in the /new-agent wizard.
+        Process a message from a user in the /newagent wizard.
         Returns the response string to send back via Telegram.
         """
         # Clean up expired sessions
@@ -326,15 +326,15 @@ class AgentCreator:
 
         text = text.strip()
 
-        # Start a new session on /new-agent
-        if text.lower() in ("/new-agent", "new-agent"):
+        # Start a new session on /newagent
+        if text.lower() in ("/newagent", "newagent"):
             session = WizardSession(chat_id=chat_id)
             self._sessions[chat_id] = session
             return self._ask_name()
 
         # No active session
         if chat_id not in self._sessions:
-            return "No active agent creation session.\nSend /new-agent to start."
+            return "No active agent creation session.\nSend /newagent to start."
 
         session = self._sessions[chat_id]
         session.touch()
@@ -365,7 +365,7 @@ class AgentCreator:
             return self._handle_tools(session, text)
         if session.step == "ask_skills":
             return await self._handle_skills(session, text)
-        return "Something went wrong. Send /new-agent to start over."
+        return "Something went wrong. Send /newagent to start over."
 
     # ── Step handlers ─────────────────────────
 
@@ -498,7 +498,7 @@ class AgentCreator:
             return (
                 "❌ Generation failed — the LLM returned something unexpected.\n"
                 f"Error: {e}\n\n"
-                "Please try /new-agent again."
+                "Please try /newagent again."
             )
 
         # Write files
