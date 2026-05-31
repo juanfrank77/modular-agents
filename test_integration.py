@@ -267,15 +267,15 @@ async def test_safety() -> None:
         ok("Safety.is_command_blocked() works (base patterns)")
 
         # Extra patterns via constructor
-        safety_ext = Safety(notifier=notifier, allowed_ids=["123"], extra_patterns=[r"DROP TABLE"])
+        safety_ext = Safety(notifier=notifier, allowed_ids=["123"], extra_blocked_patterns=[r"DROP TABLE"])
         assert safety_ext.is_command_blocked("DROP TABLE users")
         assert not safety_ext.is_command_blocked("SELECT * FROM users")
-        ok("Safety.is_command_blocked() respects extra_patterns")
+        ok("Safety.is_command_blocked() respects extra_blocked_patterns")
 
         # check_action() must return False when description matches an extra pattern
         result = await safety_ext.check_action("123", ActionType.EXECUTE, "autonomous", "DROP TABLE users")
         assert result is False, "check_action() should return False for a blocked extra pattern"
-        ok("check_action() returns False when description matches extra_patterns")
+        ok("check_action() returns False when description matches extra_blocked_patterns")
 
         # Autonomy levels
         result = await safety.check_action("123", ActionType.READ, "read_only", "ls")
