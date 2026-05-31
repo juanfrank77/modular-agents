@@ -232,7 +232,7 @@ else
     SYSTEMD_TARGET="/etc/systemd/system/${SERVICE_NAME}.service"
 
     if [ ! -f "$SERVICE_FILE" ]; then
-        warn "modular-agents.service not found in project root — skipping"
+        warn "modular-agents.service not found in project root — this file should be included in the repo"
     else
         # Substitute real username and path into the service file
         USERNAME="$(whoami)"
