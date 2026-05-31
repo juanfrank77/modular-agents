@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from core.config import Settings
     from core.protocols import LLMProvider
     from core.memory import Memory
-    from core.notifier import TelegramNotifier
+    from core.protocols import Notifier
     from core.safety import Safety
     from core.skill_loader import SkillLoader
     from core.storage import Storage
@@ -50,7 +50,7 @@ class BaseAgent(ABC):
         self,
         settings: "Settings",
         storage: "Storage",
-        notifier: "TelegramNotifier",
+        notifier: "Notifier",
         llm: "LLMProvider | None" = None,
         memory: "Memory | None" = None,
         safety: "Safety | None" = None,

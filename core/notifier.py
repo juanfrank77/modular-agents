@@ -140,3 +140,111 @@ def _split_message(text: str, limit: int = _MAX_MSG_LENGTH) -> list[str]:
         chunks.append(text[:split_at])
         text = text[split_at:].lstrip("\n")
     return chunks
+
+
+class CLINotifier:
+    """Notifier that prints to stdout — used by CLIInterface."""
+
+    async def send(self, chat_id: str, text: str) -> None:
+        print(f"\n{text}\n> ", end="", flush=True)
+
+    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+        msg = f"[media: {path}]" + (f" {caption}" if caption else "")
+        await self.send(chat_id, msg)
+
+    async def send_with_buttons(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[tuple[str, str]],
+    ) -> None:
+        await self.send(chat_id, text)
+
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
+        await self.send(chat_id, text)
+        return None
+
+    async def delete_message(self, chat_id: str, message_id: int) -> None:
+        pass
+
+
+class HTTPNotifier:
+    """
+    Notifier that buffers messages per chat_id — used by HTTPInterface.
+    The HTTP handler calls get_and_clear(chat_id) after bus.publish() returns.
+    """
+
+    def __init__(self) -> None:
+        self._buffers: dict[str, list[str]] = {}
+
+    async def send(self, chat_id: str, text: str) -> None:
+        self._buffers.setdefault(chat_id, []).append(text)
+
+    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+        msg = f"[media: {path}]" + (f" {caption}" if caption else "")
+        await self.send(chat_id, msg)
+
+    async def send_with_buttons(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[tuple[str, str]],
+    ) -> None:
+        await self.send(chat_id, text)
+
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
+        await self.send(chat_id, text)
+        return None
+
+    async def delete_message(self, chat_id: str, message_id: int) -> None:
+        pass
+
+    def get_and_clear(self, chat_id: str) -> str:
+        """Return all buffered messages joined by double newline, then clear."""
+        messages = self._buffers.pop(chat_id, [])
+        return "\n\n".join(messages)
+
+
+class RouterNotifier:
+    """
+    Dispatches all Notifier calls to the correct backing notifier
+    based on chat_id prefix.
+
+    Usage:
+        router = RouterNotifier(default=telegram_notifier)
+        router.register_prefix("cli", cli_notifier)
+        router.register_prefix("http_", http_notifier)
+    """
+
+    def __init__(self, default: "TelegramNotifier") -> None:
+        self._default = default
+        self._prefixes: list[tuple[str, object]] = []  # (prefix, notifier), checked in order
+
+    def register_prefix(self, prefix: str, notifier: object) -> None:
+        self._prefixes.append((prefix, notifier))
+
+    def _resolve(self, chat_id: str) -> object:
+        for prefix, notifier in self._prefixes:
+            if chat_id.startswith(prefix):
+                return notifier
+        return self._default
+
+    async def send(self, chat_id: str, text: str) -> None:
+        await self._resolve(chat_id).send(chat_id, text)
+
+    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+        await self._resolve(chat_id).send_media(chat_id, path, caption)
+
+    async def send_with_buttons(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[tuple[str, str]],
+    ) -> None:
+        await self._resolve(chat_id).send_with_buttons(chat_id, text, buttons)
+
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
+        return await self._resolve(chat_id).send_and_get_id(chat_id, text)
+
+    async def delete_message(self, chat_id: str, message_id: int) -> None:
+        await self._resolve(chat_id).delete_message(chat_id, message_id)

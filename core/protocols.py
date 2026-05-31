@@ -79,6 +79,17 @@ class Notifier(Protocol):
 
     async def send_media(self, chat_id: str, path: str, caption: str = "") -> None: ...
 
+    async def send_with_buttons(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[tuple[str, str]],
+    ) -> None: ...
+
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None: ...
+
+    async def delete_message(self, chat_id: str, message_id: int) -> None: ...
+
 
 @runtime_checkable
 class MemoryStore(Protocol):

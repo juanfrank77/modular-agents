@@ -99,6 +99,10 @@ class Settings:
     log_level: str = "INFO"
     log_format: str = "json"  # "json" | "pretty"
 
+    # HTTP interface
+    http_host: str = "127.0.0.1"
+    http_port: int = 8080
+
     # Local file access
     local_file_paths: list[Path] = field(default_factory=list)
 
@@ -225,6 +229,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
         composio_user_id=_optional("COMPOSIO_USER_ID", ""),
         extra_blocked_patterns=extra_patterns,
+        http_host=_optional("HTTP_HOST", "127.0.0.1"),
+        http_port=int(_optional("HTTP_PORT", "8080")),
     )
 
 
