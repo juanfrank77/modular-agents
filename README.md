@@ -88,7 +88,7 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-`setup.sh` handles everything: creates a virtual environment, installs dependencies, validates your `.env`, sets up directories, and runs the test suite.
+`setup.sh` handles everything: creates a virtual environment, installs dependencies, validates your `.env`, sets up directories, installs the systemd service file (now bundled in the repo), and runs the test suite.
 
 On WSL2 without systemd:
 ```bash
