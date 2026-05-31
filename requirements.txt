@@ -4,6 +4,10 @@ aiosqlite==0.22.1
 httpx==0.28.1
 beautifulsoup4==4.14.3
 
+# HTTP interface
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+
 # Telegram
 python-telegram-bot==22.7
 

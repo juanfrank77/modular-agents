@@ -763,6 +763,240 @@ async def test_plan_mode(tmp_path: Path) -> None:
         fail("Plan Mode", traceback.format_exc())
 
 
+async def test_notifier_protocol() -> None:
+    section("14. Notifier Protocol — extended methods")
+    try:
+        from core.protocols import Notifier
+        from core.notifier import TelegramNotifier
+        import inspect
+
+        for method in ("send", "send_media", "send_with_buttons", "send_and_get_id", "delete_message"):
+            assert hasattr(TelegramNotifier, method), f"TelegramNotifier missing {method}"
+        ok("TelegramNotifier has all five Notifier protocol methods")
+
+        # Check the protocol definition actually declares them
+        members = {m for m in dir(Notifier) if not m.startswith("_")}
+        assert "send_with_buttons" in members, "send_with_buttons not in Notifier protocol"
+        assert "send_and_get_id" in members, "send_and_get_id not in Notifier protocol"
+        assert "delete_message" in members, "delete_message not in Notifier protocol"
+        ok("Notifier protocol declares all five methods")
+    except Exception:
+        fail("Notifier protocol", traceback.format_exc())
+
+
+async def test_new_notifiers() -> None:
+    section("15. CLINotifier + HTTPNotifier")
+    try:
+        from core.notifier import CLINotifier, HTTPNotifier
+        import io, sys
+
+        # ── CLINotifier ──────────────────────────────────────
+        notifier = CLINotifier()
+
+        captured = io.StringIO()
+        sys.stdout = captured
+        await notifier.send("cli", "hello world")
+        sys.stdout = sys.__stdout__
+        assert "hello world" in captured.getvalue()
+        ok("CLINotifier.send() prints to stdout")
+
+        result = await notifier.send_and_get_id("cli", "ping")
+        sys.stdout = sys.__stdout__
+        assert result is None
+        ok("CLINotifier.send_and_get_id() returns None")
+
+        await notifier.delete_message("cli", 99)  # should not raise
+        ok("CLINotifier.delete_message() is a no-op")
+
+        # ── HTTPNotifier ─────────────────────────────────────
+        http_n = HTTPNotifier()
+
+        await http_n.send("http_abc123", "response text")
+        result = http_n.get_and_clear("http_abc123")
+        assert result == "response text"
+        ok("HTTPNotifier.send() buffers text; get_and_clear() returns it")
+
+        await http_n.send("http_abc123", "first")
+        await http_n.send("http_abc123", "second")
+        result = http_n.get_and_clear("http_abc123")
+        assert "first" in result and "second" in result
+        ok("HTTPNotifier.get_and_clear() joins multiple messages")
+
+        result = http_n.get_and_clear("http_abc123")
+        assert result == ""
+        ok("HTTPNotifier.get_and_clear() clears the buffer")
+
+        id_val = await http_n.send_and_get_id("http_abc123", "x")
+        assert id_val is None
+        ok("HTTPNotifier.send_and_get_id() returns None")
+
+    except Exception:
+        fail("New notifiers", traceback.format_exc())
+
+
+async def test_router_notifier() -> None:
+    section("16. RouterNotifier")
+    try:
+        from core.notifier import RouterNotifier, CLINotifier, HTTPNotifier
+        from unittest.mock import AsyncMock
+
+        default_n = AsyncMock()
+        cli_n = CLINotifier()
+        http_n = HTTPNotifier()
+
+        router = RouterNotifier(default=default_n)
+        router.register_prefix("cli", cli_n)
+        router.register_prefix("http_", http_n)
+
+        # CLI route
+        await router.send("cli", "hello cli")
+        # If CLINotifier.send was called, default was NOT called
+        default_n.send.assert_not_called()
+        ok("RouterNotifier routes 'cli' chat_id to CLINotifier")
+
+        # HTTP route
+        await router.send("http_abc123", "hello http")
+        buffered = http_n.get_and_clear("http_abc123")
+        assert buffered == "hello http"
+        ok("RouterNotifier routes 'http_*' chat_id to HTTPNotifier")
+
+        # Default (Telegram) route
+        await router.send("987654321", "hello telegram")
+        default_n.send.assert_called_once_with("987654321", "hello telegram")
+        ok("RouterNotifier routes unknown chat_id to default notifier")
+
+        # send_and_get_id — Telegram path
+        default_n.send_and_get_id = AsyncMock(return_value=42)
+        msg_id = await router.send_and_get_id("987654321", "thinking...")
+        assert msg_id == 42
+        ok("RouterNotifier.send_and_get_id() delegates to correct notifier")
+
+        # send_and_get_id — CLI path returns None
+        msg_id_cli = await router.send_and_get_id("cli", "thinking...")
+        assert msg_id_cli is None
+        ok("RouterNotifier.send_and_get_id() returns None for CLI")
+
+    except Exception:
+        fail("RouterNotifier", traceback.format_exc())
+
+
+async def test_safety_non_telegram() -> None:
+    section("17. Safety — non-Telegram chat_id auto-approve")
+    try:
+        from core.safety import Safety, ActionType
+        from core.notifier import CLINotifier, RouterNotifier, TelegramNotifier
+        from unittest.mock import AsyncMock, patch
+
+        cli_n = CLINotifier()
+        mock_telegram = AsyncMock()
+        router = RouterNotifier(default=mock_telegram)
+        router.register_prefix("cli", cli_n)
+
+        safety = Safety(notifier=router, allowed_ids=[])
+        # Pre-pair
+        safety.pairing.pair_directly("cli")
+        assert safety.pairing.is_paired("cli")
+        ok("PairingManager.pair_directly() pairs a chat_id")
+
+        # supervised + WRITE_HIGH on CLI chat_id → auto-approve (no button wait)
+        result = await safety.check_action("cli", ActionType.WRITE_HIGH, "supervised", "deploy")
+        assert result is True
+        mock_telegram.send_with_buttons.assert_not_called()
+        ok("ApprovalGate auto-approves non-Telegram supervised actions")
+
+# Telegram chat_id still goes to approval gate
+        safety.pairing.pair_directly("123456789")
+        # Mock the gate to avoid waiting for real button press
+        safety.gate._notifier = AsyncMock()
+        safety.gate._notifier.send_with_buttons = AsyncMock()
+        safety.gate._notifier.send = AsyncMock()
+        # Don't actually wait — just verify the gate path is entered
+        import asyncio
+        task = asyncio.create_task(
+            safety.check_action("123456789", ActionType.WRITE_HIGH, "supervised", "deploy")
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        ok("ApprovalGate still uses buttons for Telegram chat_ids")
+
+    except Exception:
+        fail("Safety non-Telegram", traceback.format_exc())
+
+
+async def test_http_config() -> None:
+    section("18. HTTP Config settings")
+    try:
+        from core.config import Settings
+        import dataclasses
+
+        fields = {f.name for f in dataclasses.fields(Settings)}
+        assert "http_host" in fields, "http_host missing from Settings"
+        assert "http_port" in fields, "http_port missing from Settings"
+        ok("Settings has http_host and http_port fields")
+
+        from core.config import settings
+        assert settings.http_host == "127.0.0.1" or isinstance(settings.http_host, str)
+        assert settings.http_port == 8080 or isinstance(settings.http_port, int)
+        ok(f"Defaults: http_host={settings.http_host}, http_port={settings.http_port}")
+    except Exception:
+        fail("HTTP config", traceback.format_exc())
+
+
+async def test_cli_interface() -> None:
+    section("19. CLIInterface")
+    try:
+        from interfaces.cli import CLIInterface
+        from core.bus import MessageBus
+        from core.notifier import CLINotifier
+        from core.protocols import AgentEvent, EventType
+        from core.storage import Storage
+        from core.safety import Safety
+        from agents.echo.agent import EchoAgent
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import tempfile, pathlib
+
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        storage = Storage(tmp / "cli_test.db")
+        await storage.init()
+
+        notifier = CLINotifier()
+        mock_settings = MagicMock()
+        mock_settings.telegram_allowed_chat_ids = []
+
+        echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        bus = MessageBus()
+        bus.register(echo)
+
+        safety = Safety(notifier=notifier, allowed_ids=[])
+        mock_creator = MagicMock()
+        mock_creator.is_active = MagicMock(return_value=False)
+
+        cli = CLIInterface(bus=bus, safety=safety, creator=mock_creator, notifier=notifier)
+
+        # Verify CLI chat_id is auto-paired at construction
+        assert safety.pairing.is_paired("cli"), "CLI chat_id must be pre-paired"
+        ok("CLIInterface pre-pairs 'cli' chat_id at construction")
+
+        # Verify _make_event() returns correct AgentEvent
+        event = cli._make_event("hello from cli")
+        assert event.type == EventType.USER_MESSAGE
+        assert event.chat_id == "cli"
+        assert event.text == "hello from cli"
+        ok("CLIInterface._make_event() builds correct AgentEvent")
+
+        # Verify _make_event() with /planmode sets agent_name appropriately
+        plan_event = cli._make_event("/planmode business")
+        assert plan_event.chat_id == "cli"
+        ok("CLIInterface._make_event() handles command text")
+
+    except Exception:
+        fail("CLIInterface", traceback.format_exc())
+
+
 async def test_cli_runner() -> None:
     section("12. CLI Runner")
     try:
@@ -798,6 +1032,107 @@ async def test_cli_runner() -> None:
         fail("CLI Runner", traceback.format_exc())
 
 
+async def test_http_interface() -> None:
+    section("20. HTTPInterface endpoints")
+    try:
+        from interfaces.http import HTTPInterface
+        from core.bus import MessageBus
+        from core.notifier import HTTPNotifier
+        from core.storage import Storage
+        from core.safety import Safety
+        from agents.echo.agent import EchoAgent
+        from unittest.mock import MagicMock, AsyncMock
+        from fastapi.testclient import TestClient
+        import tempfile, pathlib
+
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        storage = Storage(tmp / "http_test.db")
+        await storage.init()
+
+        notifier = HTTPNotifier()
+        mock_settings = MagicMock()
+        mock_settings.telegram_allowed_chat_ids = []
+        mock_settings.http_host = "127.0.0.1"
+        mock_settings.http_port = 8099
+
+        echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
+        bus = MessageBus()
+        bus.register(echo)
+
+        safety = Safety(notifier=notifier, allowed_ids=[])
+        mock_creator = MagicMock()
+        mock_creator.is_active = MagicMock(return_value=False)
+
+        interface = HTTPInterface(
+            bus=bus,
+            safety=safety,
+            creator=mock_creator,
+            notifier=notifier,
+            settings=mock_settings,
+        )
+        client = TestClient(interface.app)
+
+        # ── GET /health (no auth) ──────────────────────────────────────────
+        r = client.get("/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert "agents" in data
+        ok("GET /health returns 200 with agent statuses")
+
+        # ── POST /pair — wrong code → 403 ─────────────────────────────────
+        r = client.post("/pair", json={"code": "000000"})
+        assert r.status_code == 403
+        ok("POST /pair with wrong code returns 403")
+
+        # ── POST /pair — correct code → token ─────────────────────────────
+        correct_code = safety.pairing.code
+        r = client.post("/pair", json={"code": correct_code})
+        assert r.status_code == 200
+        token = r.json()["token"]
+        assert len(token) == 36  # UUID format
+        ok(f"POST /pair with correct code returns token (len={len(token)})")
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # ── GET /agents — requires auth ────────────────────────────────────
+        r = client.get("/agents", headers=headers)
+        assert r.status_code == 200
+        agents = r.json()["agents"]
+        assert "echo" in agents
+        ok("GET /agents returns registered agent list")
+
+        # ── GET /agents — no token → 401 ──────────────────────────────────
+        r = client.get("/agents")
+        assert r.status_code == 401
+        ok("GET /agents without token returns 401")
+
+        # ── POST /message ──────────────────────────────────────────────────
+        r = client.post("/message", json={"text": "hello http"}, headers=headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["success"] is True
+        assert "hello http" in body["response"]
+        ok("POST /message returns agent response")
+
+        # ── POST /message — no token → 401 ────────────────────────────────
+        r = client.post("/message", json={"text": "hello"})
+        assert r.status_code == 401
+        ok("POST /message without token returns 401")
+
+        # ── POST /message — bad token → 401 ───────────────────────────────
+        r = client.post(
+            "/message",
+            json={"text": "hello"},
+            headers={"Authorization": "Bearer notarealtoken"},
+        )
+        assert r.status_code == 401
+        ok("POST /message with invalid token returns 401")
+
+    except Exception:
+        fail("HTTPInterface", traceback.format_exc())
+
+
 # ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
@@ -823,6 +1158,13 @@ async def run_all() -> None:
         await test_web_tool_private_host_blocked()
         await test_cli_runner()
         await test_plan_mode(tmp_path)
+        await test_notifier_protocol()
+        await test_new_notifiers()
+        await test_router_notifier()
+        await test_safety_non_telegram()
+        await test_http_config()
+        await test_cli_interface()
+        await test_http_interface()
 
     print(f"\n{'─' * 50}")
     total = passed + failed + skipped

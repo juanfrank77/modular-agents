@@ -511,3 +511,36 @@ Recommended build order. Each phase produces working, testable output before the
 
 > **Starting point recommendation**  
 > Begin with Phase 1 + the "hello world" echo agent. This validates the entire stack — config, bus, notifier, logger — before adding any domain logic. Then complete Phase 2 fully before writing either real agent. A well-built core makes Phases 3 and 4 straightforward.
+
+## HTTP API Interface
+
+The HTTP interface (`interfaces/http.py`) exposes the agent bus as a REST API using FastAPI + uvicorn. It runs simultaneously with Telegram and CLI from a single `python main.py`.
+
+### Use Cases
+
+- **Remote / VM deployment**: run the stack headless on a server, call agents from any client on the network via HTTP
+- **External agent integration**: an AI orchestrator (LangChain, CrewAI, custom Claude agent) can `POST /message` to delegate sub-tasks to specialised agents
+- **Scripts & automation**: cron jobs or CI pipelines send messages and receive structured text responses
+- **Multi-stack composition**: multiple instances of this stack can call each other's HTTP APIs to coordinate across agent sets
+
+### Pairing Flow
+
+The HTTP API reuses the same pairing code printed at startup. Callers must first `POST /pair` with the code to receive a session token (UUID). The token is then sent as `Authorization: Bearer <token>` on all subsequent requests. Tokens are in-memory only and cleared on restart.
+
+### Security Considerations
+
+- **Default bind to `127.0.0.1`**: prevents remote access unless `HTTP_HOST=0.0.0.0` is set in `.env`. Only expose on a trusted or firewalled network.
+- **Pairing code as shared secret**: transmit it securely (SSH, encrypted channel) — never over plain HTTP on an untrusted network.
+- **Token lifetime**: tokens persist until the server restarts. There is no built-in expiry. A leaked token grants access until restart.
+- **No HTTPS by default**: for local use, HTTP is fine. For network-exposed deployments, run behind a reverse proxy (nginx, Caddy) with TLS.
+- **Rate limiting**: not included in v1. For network-exposed deployments, add rate limiting at the reverse proxy layer.
+
+### Interface Routing
+
+Agents and `Safety` receive a `RouterNotifier` that dispatches notifications to the correct interface based on `chat_id` prefix:
+
+| chat_id pattern | Interface | Notifier |
+|---|---|---|
+| All digits (e.g. `987654321`) | Telegram | `TelegramNotifier` |
+| `"cli"` | Terminal REPL | `CLINotifier` |
+| `"http_<token[:8]>"` | HTTP API | `HTTPNotifier` |

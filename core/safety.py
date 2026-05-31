@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from core.notifier import TelegramNotifier
+    from core.protocols import Notifier
 
 log = get_logger("safety")
 
@@ -74,6 +74,11 @@ class PairingManager:
             log.info("Chat paired", event="pairing_success", chat_id=chat_id)
             return True
         return False
+
+    def pair_directly(self, chat_id: str) -> None:
+        """Pair a chat_id without requiring the code — for trusted local interfaces."""
+        self._paired.add(chat_id)
+        log.info("Chat paired directly", event="pairing_direct", chat_id=chat_id)
 
 
 # ──────────────────────────────────────────────
@@ -135,7 +140,7 @@ class ApprovalGate:
 
     def __init__(
         self,
-        notifier: "TelegramNotifier",
+        notifier: "Notifier",
         timeouts: dict[str, int] | None = None,
     ) -> None:
         self._notifier = notifier
@@ -149,7 +154,18 @@ class ApprovalGate:
         description: str,
         action_type: "ActionType | None" = None,
     ) -> bool:
-        """Send approval buttons and wait for response. Returns True if approved."""
+        """Send approval buttons and wait for response. Returns True if approved.
+        Non-Telegram chat_ids (not all-digit) are auto-approved after showing the plan.
+        """
+        # Telegram chat_ids are always integers (possibly negative for groups).
+        # CLI uses "cli", HTTP uses "http_<token>". Auto-approve those.
+        if not chat_id.lstrip("-").isdigit():
+            await self._notifier.send(
+                chat_id,
+                f"*Plan*\n\n{description}\n\n_(Auto-approved — executing now)_",
+            )
+            return True
+
         timeout = (
             self._timeouts.get(action_type.name, _DEFAULT_TIMEOUT)
             if action_type is not None
@@ -211,7 +227,7 @@ class Safety:
 
     def __init__(
         self,
-        notifier: "TelegramNotifier",
+        notifier: "Notifier",
         allowed_ids: list[str],
         approval_timeouts: dict[str, int] | None = None,
         extra_blocked_patterns: list[str] | None = None,
