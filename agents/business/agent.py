@@ -24,7 +24,7 @@ Lifecycle per message:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
@@ -68,6 +68,10 @@ class BusinessAgent(BaseAgent):
         "morning briefings, weekly reviews, and project tracking."
     )
     autonomy_level = "supervised"
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.autonomy_level = self.settings.business_agent_autonomy
 
     # ── Main handler ──────────────────────────
 
@@ -293,9 +297,9 @@ class BusinessAgent(BaseAgent):
         try:
             from core.scheduler import scheduler
 
-            # Morning briefing — weekdays at 7am
+            # Morning briefing — weekdays at 8am
             scheduler.add_cron_job(
-                cron="0 7 * * 1-5",
+                cron="0 8 * * 1-5",
                 event=AgentEvent(
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,

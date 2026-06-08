@@ -281,8 +281,15 @@ class Safety:
         if self.is_command_blocked(description):
             return False
 
-        # Autonomous agents skip approval gate
+        # Autonomous agents skip the approval gate for everything EXCEPT
+        # destructive actions. Destructive (DEPLOY_PROD, DB_MIGRATE,
+        # DELETE_RESOURCE, etc.) always require explicit approval regardless
+        # of autonomy level.
         if autonomy_level == "autonomous":
+            if action_type == ActionType.DESTRUCTIVE:
+                return await self.gate.request_approval(
+                    chat_id, description, action_type=action_type
+                )
             return True
 
         # Read-only agents can only read

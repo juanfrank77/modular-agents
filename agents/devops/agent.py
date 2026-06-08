@@ -89,6 +89,7 @@ class DevOpsAgent(BaseAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.autonomy_level = self.settings.devops_agent_autonomy
         self._tools: DevOpsTools | None = None
 
     @property
