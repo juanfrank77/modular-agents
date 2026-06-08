@@ -27,7 +27,7 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - GitHub digest: open PRs, failing CI, stale branches
 - Deployment pipeline via Railway CLI
 - Incident detection and response guidance
-- Automated health checks every 15 minutes
+- Automated health checks every hour
 
 Each agent has its own skills (defined in plain Markdown files), its own memory, and its own autonomy level — the Business Agent asks before sending anything, the DevOps Agent acts autonomously on safe operations and asks only for destructive ones.
 

@@ -7,9 +7,9 @@ mode — reads and most writes execute immediately. Only truly destructive
 operations (production deploys, deletions) require explicit approval.
 
 Scheduled jobs (registered at startup):
-  - Health check:        every 30 minutes (heartbeat)
+  - Health check:        hourly (heartbeat)
   - GitHub digest:       weekdays at 9am
-  - Incident watchdog:   every 15 minutes
+  - Incident watchdog:   hourly
 
 Lifecycle per message:
   1. Authorize chat
@@ -466,9 +466,9 @@ class DevOpsAgent(BaseAgent):
                 bus=bus,
             )
 
-            # Incident watchdog — every 15 minutes
+            # Incident watchdog — hourly
             scheduler.add_cron_job(
-                cron="*/15 * * * *",
+                cron="0 * * * *",
                 event=AgentEvent(
                     type=EventType.SCHEDULED_TASK,
                     agent_name=self.name,
