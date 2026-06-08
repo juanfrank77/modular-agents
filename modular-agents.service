@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/modular-agents
-Environment="PATH=/home/YOUR_USERNAME/modular-agents/.venv/bin"
+Environment="PATH=/home/YOUR_USERNAME/modular-agents/.venv/bin:/home/YOUR_USERNAME/.local/bin:/home/YOUR_USERNAME/.railway/bin:/usr/local/bin:/usr/bin"
 ExecStart=/home/YOUR_USERNAME/modular-agents/.venv/bin/python /home/YOUR_USERNAME/modular-agents/main.py
 Restart=on-failure
 RestartSec=10
