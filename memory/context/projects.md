@@ -8,7 +8,7 @@
 - Type: Co-created with business partner
 - Goal: Build an AI full-time employee that streamlines and automates tasks to help business owners focus on growth.
 - repo: whiteelephants-alpha/nina-next
-- railway-service: api
+- railway-service: genuine-creation 
 - railway-environment: production
 
 ### Newsletter 

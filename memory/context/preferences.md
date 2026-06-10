@@ -4,4 +4,4 @@
 - Preferred name: Juan
 - Communication tone: direct and concise
 - Language: English (Spanish for informal messages is fine)
-- Work hours: Mon–Fri, 10am–1pm and 7pm-11pm Bogota time
+- Work hours: Mon–Fri, 9am–1pm and 8pm-11pm Bogota time
