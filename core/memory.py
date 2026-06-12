@@ -6,7 +6,7 @@ Three-layer memory system:
   Layer 2 (Markdown): Context files - index always loaded, topic files on-demand
   Layer 3 (grep):     Session transcripts searched with targeted queries only
 
-Key design principles: 
+Key design principles:
   - MEMORY.md is an index of pointers, not a content dump. Always injected.
   - Topic files (preferences, personal, projects, solutions) loaded on-demand
     based on relevance to the current task — not all at once.
@@ -14,6 +14,9 @@ Key design principles:
     the index after every write.
   - consolidate() rewrites memory files in the background — merges duplicates,
     removes contradictions, prunes stale content. Never blocks a response.
+  - All loaded content (skills, context, solutions) is wrapped in XML
+    delimiters to prevent prompt injection. LLM is instructed that content
+    inside <skill>, <context>, <solution> tags is DATA, not instructions.
 
 Usage:
     from core.memory import Memory
@@ -64,6 +67,14 @@ _TOPIC_KEYWORDS: dict[str, list[str]] = {
                     "newsletter", "saas", "priority", "task", "status", "deadline"]
 }
 
+_CONTEXT_XML_TEMPLATE = """<context>
+{content}
+</context>"""
+
+_SOLUTION_XML_TEMPLATE = """<solution>
+{content}
+</solution>"""
+
 class Memory:
     def __init__(self, storage: "Storage", llm: "LLMProvider", settings: "Settings") -> None:
         self._storage = storage
@@ -112,6 +123,7 @@ class Memory:
         then loads additional topic files only if the task is relevant to them.
 
         This replaces the old "load everything" approach in build_context().
+        All context is wrapped in <context> XML delimiters.
         """
         parts: list[str] = []
 
@@ -120,19 +132,21 @@ class Memory:
         if index.strip():
             parts.append(f"## Memory index\n{index.strip()}")
 
-        # Always load: preferences
+        # Always load: preferences (wrapped)
         for key in _ALWAYS_LOAD:
             content = await self.get_context(key)
             if content.strip():
-                parts.append(f"## {key.title()}\n{content.strip()}")
+                wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
+                parts.append(f"## {key.title()}\n{wrapped}")
 
-        # Conditionally load: other topic files
+        # Conditionally load: other topic files (wrapped)
         task_lower = task.lower()
         for topic, keywords in _TOPIC_KEYWORDS.items():
             if any(kw in task_lower for kw in keywords):
                 content = await self.get_context(topic)
                 if content.strip():
-                    parts.append(f"## {topic.title()}\n{content.strip()}")
+                    wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
+                    parts.append(f"## {topic.title()}\n{wrapped}")
                     log.info(
                         "Topic file loaded",
                         event="topic_loaded",
@@ -150,7 +164,7 @@ class Memory:
     async def save_solution(self, agent: str, topic: str, content: str) -> None:
         """
         Save a solution file with size enforcement and index update.
- 
+  
         Write discipline:
           1. Truncate content to _MAX_SOLUTION_CHARS if needed
           2. Write to agents/<agent>/<topic>.md
@@ -190,6 +204,7 @@ class Memory:
         """
         Load solution files whose filenames or first lines match the task.
         Returns concatenated content of matching solutions, or empty string.
+        All solutions are wrapped in <solution> XML delimiters.
         """
         if not self._solutions_dir.exists():
             return ""
@@ -203,13 +218,14 @@ class Memory:
             if task_words & file_words:  # any overlap
                 content = solution_file.read_text(encoding="utf-8").strip()
                 if content:
-                    matched.append(
-                        f"### {solution_file.stem}\n{content}"
+                    wrapped = _SOLUTION_XML_TEMPLATE.format(
+                        content=f"### {solution_file.stem}\n{content}"
                     )
+                    matched.append(wrapped)
 
         return "\n\n".join(matched[:3])  # max 3 solutions per call
     # ── Index management ─────────────────────
- 
+
     async def _update_index_entry(self, key: str, summary: str) -> None:
         """
         Update or insert a single entry in MEMORY.md.
@@ -219,40 +235,40 @@ class Memory:
         index_path = self._context_dir / _INDEX_FILE
         summary_short = summary[:150].replace("\n", " ").strip()
         new_entry = f"- {key}: {summary_short}"
- 
+
         if not index_path.exists():
             index_path.write_text(
                 f"# Memory index\n_Last updated: {_now()}_\n\n{new_entry}\n",
                 encoding="utf-8",
             )
             return
- 
+
         content = index_path.read_text(encoding="utf-8")
- 
+
         # Update existing entry or append new one
         pattern = re.compile(rf"^- {re.escape(key)}:.*$", re.MULTILINE)
         if pattern.search(content):
             content = pattern.sub(new_entry, content)
         else:
             content = content.rstrip() + f"\n{new_entry}\n"
- 
+
         # Update timestamp
         content = re.sub(
             r"_Last updated:.*_",
             f"_Last updated: {_now()}_",
             content,
         )
- 
+
         index_path.write_text(content, encoding="utf-8")
         log.info("Index updated", event="index_update", key=key)
- 
+
     async def rebuild_index(self) -> None:
         """
         Rebuild MEMORY.md from scratch by scanning all context and solution files.
         Called at the end of consolidate() to ensure the index stays accurate.
         """
         entries: list[str] = []
- 
+
         # Index context files
         if self._context_dir.exists():
             for md_file in sorted(self._context_dir.glob("*.md")):
@@ -262,7 +278,7 @@ class Memory:
                 if content:
                     summary = _extract_summary(content)
                     entries.append(f"- context/{md_file.stem}: {summary[:150]}")
- 
+
         # Index solution files
         if self._solutions_dir.exists():
             for sol_file in sorted(self._solutions_dir.rglob("*.md")):
@@ -276,7 +292,7 @@ class Memory:
                         key = f"solutions/{sol_file.stem}"
                     summary = _extract_summary(content)
                     entries.append(f"- {key}: {summary[:150]}")
- 
+
         index_content = (
             f"# Memory index\n"
             f"_Last updated: {_now()}_\n"
@@ -284,7 +300,7 @@ class Memory:
             + "\n".join(entries)
             + "\n"
         )
- 
+
         index_path = self._context_dir / _INDEX_FILE
         index_path.write_text(index_content, encoding="utf-8")
         log.info(
@@ -292,29 +308,29 @@ class Memory:
             event="index_rebuilt",
             entries=len(entries),
         )
- 
+
     # ── Consolidation ─────────────────────────
- 
+
     async def consolidate(self, agent: str, force: bool = False) -> bool:
         """
         Background memory rewrite — fires after sufficient sessions have
         accumulated. Merges duplicates, removes contradictions, prunes stale
         content, converts vague entries to specific ones.
- 
+
         Runs in the background (fire-and-forget from agents). Never blocks
         a response. Uses a lock to prevent concurrent runs.
- 
+
         Returns True if consolidation ran, False if skipped.
         """
         if self._consolidation_lock.locked():
             log.info("Consolidation already running", event="consolidate_skip")
             return False
- 
+
         if not force:
             should_run = await self._should_consolidate(agent)
             if not should_run:
                 return False
- 
+
         async with self._consolidation_lock:
             log.info("Consolidation starting", event="consolidate_start", agent=agent)
             try:
@@ -330,7 +346,7 @@ class Memory:
                     error=str(e),
                 )
                 return False
- 
+
     async def _should_consolidate(self, agent: str) -> bool:
         """
         Check if consolidation should run based on session count and
@@ -342,7 +358,7 @@ class Memory:
         )
         if len(recent) < _CONSOLIDATION_MIN_SESSIONS:
             return False
- 
+
         # Check time since last consolidation (stored as a marker in the index)
         index = await self.get_index()
         match = re.search(r"_Last consolidated: (.+?)_", index)
@@ -354,9 +370,9 @@ class Memory:
                     return False
             except ValueError:
                 pass  # malformed date — proceed with consolidation
- 
+
         return True
- 
+
     async def _run_consolidation(self, agent: str) -> None:
         """
         The actual consolidation work. Rewrites each solution file for the
@@ -365,17 +381,17 @@ class Memory:
         agent_dir = self._solutions_dir / agent
         if not agent_dir.exists():
             return
- 
+
         solution_files = list(agent_dir.glob("*.md"))
         if not solution_files:
             return
- 
+
         # Consolidate each solution file individually
         for sol_file in solution_files:
             content = sol_file.read_text(encoding="utf-8").strip()
             if not content:
                 continue
- 
+
             consolidated = await self._llm.complete(
                 messages=[Message(
                     role="user",
@@ -399,7 +415,7 @@ class Memory:
                 ),
                 max_tokens=512,
             )
- 
+
             if consolidated.strip():
                 sol_file.write_text(consolidated.strip(), encoding="utf-8")
                 log.info(
@@ -407,19 +423,19 @@ class Memory:
                     event="solution_consolidated",
                     file=sol_file.name,
                 )
- 
+
         # Mark consolidation time in the index
         await self._mark_consolidated()
- 
+
     async def _mark_consolidated(self) -> None:
         """Update the consolidation timestamp in MEMORY.md."""
         index_path = self._context_dir / _INDEX_FILE
         if not index_path.exists():
             return
- 
+
         content = index_path.read_text(encoding="utf-8")
         marker = f"_Last consolidated: {_now()}_"
- 
+
         if "_Last consolidated:" in content:
             content = re.sub(r"_Last consolidated:.*_", marker, content)
         else:
@@ -428,9 +444,9 @@ class Memory:
                 f"_Last updated: {_now()}_",
                 f"_Last updated: {_now()}_\n{marker}",
             )
- 
+
         index_path.write_text(content, encoding="utf-8")
- 
+
     # ── Session context with auto-compaction ──
 
     async def get_session_context(
@@ -497,7 +513,8 @@ class Memory:
                         continue
                     content = md_file.read_text(encoding="utf-8").strip()
                     if content:
-                        parts.append(f"## {md_file.stem}\n{content}")
+                        wrapped = _CONTEXT_XML_TEMPLATE.format(content=content)
+                        parts.append(f"## {md_file.stem}\n{wrapped}")
 
             markdown_context = "\n\n".join(parts)
 
@@ -522,7 +539,7 @@ class Memory:
 
 
 # ── Helpers ───────────────────────────────────
- 
+
 def _extract_summary(content: str) -> str:
     """
     Extract a one-line summary from markdown content.
@@ -533,8 +550,7 @@ def _extract_summary(content: str) -> str:
         if line and not line.startswith("#") and not line.startswith("_"):
             return line[:150]
     return content[:150].replace("\n", " ")
- 
- 
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
- 

@@ -8,6 +8,9 @@ Usage:
     from core.skill_loader import SkillLoader
     loader = SkillLoader()
     skills = loader.find_relevant("schedule a meeting", Path("agents/business/skills"))
+
+NOTE: Skill content is wrapped in <skill> XML delimiters to prevent prompt injection.
+The LLM is instructed to treat content inside these tags as DATA, not instructions.
 """
 
 from __future__ import annotations
@@ -20,6 +23,10 @@ from core.logger import get_logger
 log = get_logger("skills")
 
 _MIN_SCORE = 0.05
+
+_SKILL_XML_TEMPLATE = """<skill>
+{content}
+</skill>"""
 
 
 class SkillLoader:
@@ -53,7 +60,7 @@ class SkillLoader:
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        results = [content for _, content in scored[:max_skills]]
+        results = [_SKILL_XML_TEMPLATE.format(content=content) for _, content in scored[:max_skills]]
         log.info(
             "Skills loaded",
             event="skills_loaded",
@@ -71,5 +78,5 @@ class SkillLoader:
         for md_file in sorted(skills_dir.glob("*.md")):
             content = md_file.read_text(encoding="utf-8").strip()
             if content:
-                results.append(content)
+                results.append(_SKILL_XML_TEMPLATE.format(content=content))
         return results
