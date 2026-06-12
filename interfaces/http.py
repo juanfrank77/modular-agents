@@ -9,16 +9,19 @@ Pairing flow:
 
 Endpoints:
   POST /pair          — exchange pairing code for session token
+  DELETE /session     — revoke session token (logout)
   POST /message       — send a message to an agent
   GET  /agents        — list registered agents
   GET  /health        — system health (no auth required)
 
-Session tokens are in-memory only and cleared on restart.
+Session tokens expire after SESSION_TTL_HOURS (default: 24) and are rejected
+with 401. Sessions are in-memory and cleared on restart.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -64,8 +67,16 @@ class HTTPInterface:
         self._creator = creator
         self._notifier = notifier
         self._settings = settings
-        self._sessions: dict[str, str] = {}  # token → chat_id
+        self._sessions: dict[str, tuple[str, float]] = {}  # token → (chat_id, created_at_ts)
         self.app = self._build_app()
+
+    def _is_session_valid(self, token: str) -> bool:
+        """Check if token exists and hasn't expired."""
+        if token not in self._sessions:
+            return False
+        chat_id, created_at = self._sessions[token]
+        ttl_seconds = self._settings.session_ttl_hours * 3600
+        return (datetime.now(timezone.utc).timestamp() - created_at) < ttl_seconds
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="modular-agents HTTP API", docs_url=None, redoc_url=None)
@@ -77,17 +88,27 @@ class HTTPInterface:
 
             token = str(uuid.uuid4())
             chat_id = f"http_{token[:8]}"
-            self._sessions[token] = chat_id
+            created_at = datetime.now(timezone.utc).timestamp()
+            self._sessions[token] = (chat_id, created_at)
             self._safety.pairing.pair_directly(chat_id)
             log.info("HTTP session paired", event="http_paired", chat_id=chat_id)
             return {"token": token}
 
+        @app.delete("/session")
+        async def delete_session(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+            """Revoke the current session token (logout)."""
+            if creds is None or creds.credentials not in self._sessions:
+                raise HTTPException(status_code=401, detail="unauthorized")
+            del self._sessions[creds.credentials]
+            log.info("HTTP session deleted", event="http_session_deleted")
+            return {"status": "revoked"}
+
         def _get_chat_id(
             creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
         ) -> str:
-            if creds is None or creds.credentials not in self._sessions:
+            if creds is None or not self._is_session_valid(creds.credentials):
                 raise HTTPException(status_code=401, detail="unauthorized")
-            return self._sessions[creds.credentials]
+            return self._sessions[creds.credentials][0]
 
         @app.post("/message")
         async def message(

@@ -1054,6 +1054,7 @@ async def test_http_interface() -> None:
         mock_settings.telegram_allowed_chat_ids = []
         mock_settings.http_host = "127.0.0.1"
         mock_settings.http_port = 8099
+        mock_settings.session_ttl_hours = 24
 
         echo = EchoAgent(settings=mock_settings, storage=storage, notifier=notifier)
         bus = MessageBus()
