@@ -25,7 +25,11 @@ from core.logger import get_logger
 
 log = get_logger("web_tool")
 
-_MAX_SCRAPE_CHARS = 20480  # 20 KB
+_MAX_SCRAPE_CHARS = 5120  # 5 KB
+
+_WEB_SCRAPE_XML_TEMPLATE = """<web_scrape>
+{content}
+</web_scrape>"""
 
 # Known metadata hostnames that don't use raw IPs
 _PRIVATE_HOSTNAMES: frozenset[str] = frozenset([
@@ -123,15 +127,16 @@ class WebTool:
         """Fetch a URL and return its visible text content.
 
         Strips ``<script>`` and ``<style>`` tags before extracting text.
-        Output is capped at 20 KB (20 480 chars); a truncation notice is
-        appended when the cap is reached.  On any HTTP or network error a
-        warning is logged and ``""`` is returned.
+        Output is capped at 5 KB (5 120 chars); a truncation notice is
+        appended when the cap is reached. Content is wrapped in
+        ``<web_scrape>`` XML delimiters to prevent prompt injection.
+        On any HTTP or network error a warning is logged and ``""`` is returned.
 
         Args:
             url: The URL to fetch and parse.
 
         Returns:
-            Visible page text (up to 20 KB), or ``""`` on error.
+            Visible page text (up to 5 KB, wrapped in XML delimiters), or ``""`` on error.
         """
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
@@ -190,7 +195,8 @@ class WebTool:
                 url=url,
                 original_chars=len(text),
             )
-            text = text[:_MAX_SCRAPE_CHARS] + "\n\n[... truncated: content exceeded 20 KB limit ...]"
+            text = text[:_MAX_SCRAPE_CHARS] + "\n\n[... truncated to fit 5KB limit ...]"
 
+        wrapped = _WEB_SCRAPE_XML_TEMPLATE.format(content=text)
         log.debug("scrape complete", event="scrape_done", url=url, chars=len(text))
-        return text
+        return wrapped
