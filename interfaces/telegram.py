@@ -109,7 +109,7 @@ class TelegramInterface:
                     self._safety.pairing._failed_attempts.get(chat_id, 0)
                 await self._bus.send_notification(
                     chat_id,
-                    f"🔒 Send the pairing code shown in the console to get started. "
+                    f"🔒 Send the pairing token shown in the console to get started. "
                     f"({remaining} attempts remaining)",
                 )
             return
@@ -232,7 +232,7 @@ class TelegramInterface:
         if not self._safety.pairing.is_paired(chat_id):
             await self._bus.send_notification(
                 chat_id,
-                "🔒 Send the pairing code shown in the server console to get started.",
+                "🔒 Send the pairing token shown in the server console to get started.",
             )
             return
 

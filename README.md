@@ -128,10 +128,10 @@ If you want to use local/self-hosted models like Llama or No-Lama:
    ```
 
 2. **Pull your model**:
-   ```bash
-   ollama pull llama3      # or ollama pull no-lama
-   ollama pull small-lama  # any model available in Ollama
-   ```
+    ```bash
+    ollama pull llama3.2      # recommended
+    ollama pull mistral       # alternative option
+    ```
 
 3. **Configure in `.env`** (default URL works for local installation):
    ```
