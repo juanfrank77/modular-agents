@@ -25,7 +25,7 @@ from core.logger import get_logger
 
 log = get_logger("web_tool")
 
-_MAX_SCRAPE_CHARS = 5120  # 5 KB
+_MAX_SCRAPE_CHARS = 20480  # 20 KB (default for backward compatibility)
 
 _WEB_SCRAPE_XML_TEMPLATE = """<web_scrape>
 {content}
@@ -62,9 +62,17 @@ class WebTool:
     they log a warning and return an empty result rather than raising.
     """
 
-    def __init__(self, search_api_key: str = "", timeout: int = 10) -> None:
+    def __init__(
+        self,
+        search_api_key: str = "",
+        timeout: int = 10,
+        max_scrape_chars: int = _MAX_SCRAPE_CHARS,
+        wrap_xml: bool = True,
+    ) -> None:
         self._search_api_key = search_api_key
         self._timeout = timeout
+        self._max_scrape_chars = max_scrape_chars
+        self._wrap_xml = wrap_xml
         log.debug("WebTool initialised", has_api_key=bool(search_api_key))
 
     # ------------------------------------------------------------------
@@ -127,16 +135,17 @@ class WebTool:
         """Fetch a URL and return its visible text content.
 
         Strips ``<script>`` and ``<style>`` tags before extracting text.
-        Output is capped at 5 KB (5 120 chars); a truncation notice is
-        appended when the cap is reached. Content is wrapped in
-        ``<web_scrape>`` XML delimiters to prevent prompt injection.
+        Output is capped at ``max_scrape_chars`` (default 20 KB); a truncation notice is
+        appended when the cap is reached. Content is wrapped in ``<web_scrape>`` XML
+        delimiters to prevent prompt injection unless ``wrap_xml=False``.
         On any HTTP or network error a warning is logged and ``""`` is returned.
 
         Args:
             url: The URL to fetch and parse.
 
         Returns:
-            Visible page text (up to 5 KB, wrapped in XML delimiters), or ``""`` on error.
+            Visible page text (up to max_scrape_chars, wrapped in XML delimiters by default),
+            or ``""`` on error.
         """
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
@@ -188,15 +197,16 @@ class WebTool:
         lines = [line.strip() for line in text.splitlines()]
         text = "\n".join(line for line in lines if line)
 
-        if len(text) > _MAX_SCRAPE_CHARS:
+        if len(text) > self._max_scrape_chars:
             log.debug(
                 "scrape result truncated",
                 event="scrape_truncated",
                 url=url,
                 original_chars=len(text),
             )
-            text = text[:_MAX_SCRAPE_CHARS] + "\n\n[... truncated to fit 5KB limit ...]"
+            text = text[:self._max_scrape_chars] + "\n\n[... truncated to fit limit ...]"
 
-        wrapped = _WEB_SCRAPE_XML_TEMPLATE.format(content=text)
+        if self._wrap_xml:
+            text = _WEB_SCRAPE_XML_TEMPLATE.format(content=text)
         log.debug("scrape complete", event="scrape_done", url=url, chars=len(text))
-        return wrapped
+        return text
