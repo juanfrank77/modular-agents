@@ -22,6 +22,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -58,6 +59,17 @@ async def bootstrap():
 
     configure_logging(level=settings.log_level, fmt=settings.log_format)
     log.info("Framework starting", event="startup")
+
+    # Security check: TELEGRAM_ALLOWED_CHAT_IDS required in production
+    env = os.getenv("ENV", "development").lower()
+    if env == "production":
+        if not settings.telegram_allowed_chat_ids:
+            print(
+                "\n[config] FATAL: TELEGRAM_ALLOWED_CHAT_IDS is required in production.\n"
+                "  Set your chat ID in .env (find it via @userinfobot on Telegram).\n"
+                "  Leaving it empty in production would allow unrestricted bot access.\n"
+            )
+            sys.exit(1)
 
     storage = Storage(settings.db_path)
     await storage.init()
@@ -184,8 +196,8 @@ async def main() -> None:
     bus, safety, creator, cli_notifier, http_notifier = await bootstrap()
 
     print(f"\n{'=' * 52}")
-    print(f"  PAIRING CODE:  {safety.pairing.code}")
-    print("  Send this code to the bot on Telegram to pair.")
+    print(f"  PAIRING TOKEN:  {safety.pairing.code}")
+    print("  Send this token to the bot on Telegram to pair.")
     print("  Or POST it to /pair on the HTTP API.")
     print(f"{'=' * 52}\n")
 
