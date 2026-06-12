@@ -45,11 +45,15 @@ class FileTool:
     def _validate_path(self, path: Path) -> Path:
         """Resolve *path* and assert it is under an allowed root.
 
+        Resolves symlinks and canonicalizes the path before comparison,
+        preventing directory-traversal and symlink-escape attacks.
+        For non-existent paths, uses strict=False to resolve as much as possible.
+
         Returns the resolved absolute ``Path`` on success.
         Raises ``PermissionError`` if the resolved path is outside every
         allowed root.
         """
-        resolved = path.resolve()
+        resolved = path.resolve(strict=False)
         for allowed in self._allowed:
             try:
                 resolved.relative_to(allowed)
