@@ -411,9 +411,13 @@ Each agent runs in one of three autonomy modes (set per-agent in `.env`):
 | `supervised` | Read and low-risk writes are automatic; high-risk actions require inline Approve/Deny |
 | `autonomous` | Acts freely; only checks the hardcoded command blocklist |
 
-**3. Command-level** — blocklist
+**3. Command-level** — blocklist (defense-in-depth)
 
-A hardcoded blocklist always blocks dangerous shell patterns (`rm -rf /`, fork bombs, disk-write commands, etc.) regardless of autonomy level.
+Commands are executed via `asyncio.create_subprocess_exec()` with explicit argument lists,
+not through a shell. This prevents shell injection attacks regardless of special characters.
+The hardcoded blocklist provides an additional layer by catching obviously destructive patterns
+in action descriptions, but it is NOT a security boundary — commands can always be bypassed
+via obfuscation. All CLI execution through `cli_runner.py` is inherently safe.
 
 Extend it without code changes using `EXTRA_BLOCKED_PATTERNS` in `.env`:
 ```

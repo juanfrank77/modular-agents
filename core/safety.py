@@ -112,6 +112,10 @@ class PairingManager:
 # Command Blocklist
 # ──────────────────────────────────────────────
 
+# NOTE: These patterns are a defense-in-depth measure. They do NOT provide shell
+# security — the cli_runner.py uses asyncio.create_subprocess_exec() which passes
+# commands as explicit argument lists (shell=False by default), preventing shell
+# injection. Do NOT rely on this regex blocklist for security.
 _BLOCKED_PATTERNS = [
     re.compile(r"rm\s+-rf\s+/", re.IGNORECASE),
     re.compile(r"\bdd\s+if=", re.IGNORECASE),
