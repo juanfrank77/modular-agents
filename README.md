@@ -171,20 +171,22 @@ python main.py
 
 #### First time setup — pairing your chat
 
-When the bot starts, it prints a 6-digit pairing code to the console:
+When the bot starts, it prints a cryptographically random pairing token to the console (32 characters):
 
 ```
-====================================================
-  PAIRING CODE:  483920
-  Send this code to the bot on Telegram to pair.
-====================================================
+================================================================================
+  PAIRING TOKEN:  a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+  Send this token to the bot on Telegram to pair.
+  Or POST it to /pair on the HTTP API.
+================================================================================
 ```
 
 **To pair:**
 1. Open Telegram and find the bot you created with @BotFather
-2. Send it a message — any message — and it will reply asking for the pairing code
-3. Type the 6-digit code exactly as shown in the console and send it
+2. Send it a message — any message — and it will reply asking for the pairing token
+3. Type the 32-character token exactly as shown in the console and send it
 4. The bot will reply: `✅ Paired. You can now use the bot.`
+5. After 5 failed attempts, the bot locks — restart the service to reset the pairing flow
 
 You only need to do this once per chat. The pairing persists across restarts.
 
@@ -397,7 +399,7 @@ The system enforces four independent layers of access control:
 
 **1. Chat-level** — `TELEGRAM_ALLOWED_CHAT_IDS`
 
-Only the listed chat IDs can interact with the bot. Any other chat receives no response. Leave empty in development to allow all chats.
+Only the listed chat IDs can interact with the bot. Any other chat receives no response. **In production (ENV=production), this must be set — startup will fail if empty to prevent accidental open access.**
 
 **2. Agent-level** — autonomy mode
 

@@ -95,13 +95,22 @@ class TelegramInterface:
         text = update.message.text
 
         if not self._safety.pairing.is_paired(chat_id):
+            if self._safety.pairing.is_locked(chat_id):
+                await self._bus.send_notification(
+                    chat_id,
+                    "🔒 Too many failed pairing attempts. Restart the bot to try again.",
+                )
+                return
             if self._safety.pairing.try_pair(chat_id, text):
                 await self._bus.send_notification(chat_id, "✅ Paired. You can now use the bot.")
                 log.info("Chat paired via message", event="paired", chat_id=chat_id)
             else:
+                remaining = self._safety.pairing.MAX_FAILED_ATTEMPTS - \
+                    self._safety.pairing._failed_attempts.get(chat_id, 0)
                 await self._bus.send_notification(
                     chat_id,
-                    "🔒 Send the pairing code shown in the console to get started.",
+                    f"🔒 Send the pairing code shown in the console to get started. "
+                    f"({remaining} attempts remaining)",
                 )
             return
 
