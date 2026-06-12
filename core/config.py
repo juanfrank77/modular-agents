@@ -103,6 +103,7 @@ class Settings:
     # HTTP interface
     http_host: str = "127.0.0.1"
     http_port: int = 8080
+    session_ttl_hours: int = 24
 
     # Local file access
     local_file_paths: list[Path] = field(default_factory=list)
@@ -233,6 +234,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         extra_blocked_patterns=extra_patterns,
         http_host=_optional("HTTP_HOST", "127.0.0.1"),
         http_port=int(_optional("HTTP_PORT", "8080")),
+        session_ttl_hours=int(_optional("SESSION_TTL_HOURS", "24")),
     )
 
 
