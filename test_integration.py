@@ -1130,8 +1130,43 @@ async def test_http_interface() -> None:
         assert r.status_code == 401
         ok("POST /message with invalid token returns 401")
 
+        # ── POST /message — rate limited ───────────────────────────────
+        r = client.post("/message", json={"text": "rate test"}, headers=headers)
+        assert r.status_code == 200
+        ok("POST /message works within rate limit")
+
     except Exception:
         fail("HTTPInterface", traceback.format_exc())
+
+
+async def test_rate_limiter() -> None:
+    section("21. Rate Limiter")
+    try:
+        from core.safety import RateLimiter
+        import time
+
+        limiter = RateLimiter(rpm=3)  # 3 messages per minute for testing
+
+        # First 3 requests should be allowed
+        for i in range(3):
+            assert limiter.is_allowed("test_chat"), f"Request {i+1} should be allowed"
+        ok("Rate limiter allows first 3 requests")
+
+        # 4th request should be blocked
+        assert not limiter.is_allowed("test_chat"), "4th request should be blocked"
+        ok("Rate limiter blocks 4th request when over limit")
+
+        # Different chat_id should still be allowed
+        assert limiter.is_allowed("other_chat"), "Different chat_id should be allowed"
+        ok("Different chat_id is rate-limited independently")
+
+        # wait_time returns positive when blocked
+        wait = limiter.wait_time("test_chat")
+        assert wait > 0, "wait_time should be positive when rate limited"
+        ok(f"wait_time() returns {wait:.1f}s when rate limited")
+
+    except Exception:
+        fail("Rate limiter", traceback.format_exc())
 
 
 # ──────────────────────────────────────────────
@@ -1166,6 +1201,7 @@ async def run_all() -> None:
         await test_http_config()
         await test_cli_interface()
         await test_http_interface()
+        await test_rate_limiter()
 
     print(f"\n{'─' * 50}")
     total = passed + failed + skipped
