@@ -104,8 +104,8 @@ After pulling new code:
 git pull
 
 # Install any new dependencies
-source .venv/bin/activate
-pip install -r requirements.txt
+ source .venv/bin/activate
+ uv pip install -r requirements.txt
 
 # Run tests before restarting
 python test_integration.py
@@ -141,7 +141,7 @@ Agent behaviour is controlled by SKILL.md files and markdown context files.
 ## Managing the pairing code
 
 The pairing code is printed to the console (and to journald) on every startup.
-It's a 6-digit number that regenerates each time the bot restarts.
+It's a 32-character cryptographically random token that regenerates each time the bot restarts.
 
 To find it after startup:
 ```bash
@@ -197,6 +197,22 @@ cat memory/solutions/devops/some-incident-fix.md
 ---
 
 ## Common failure scenarios
+
+### Bot not responding before pairing (pre-pair verification)
+
+If you've started the service but the bot doesn't respond to any messages, verify pairing first:
+
+1. Check if the service is running:
+   ```bash
+   sudo systemctl status modular-agents
+   ```
+2. Get the pairing code:
+   ```bash
+   journalctl -u modular-agents | grep "PAIRING TOKEN"
+   ```
+3. Send the pairing token to the bot on Telegram before expecting any response
+
+The bot will not respond to messages until pairing is complete. After 5 failed pairing attempts, the bot locks — restart the service to reset.
 
 ### Bot not responding to messages
 

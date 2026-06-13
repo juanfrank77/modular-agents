@@ -59,13 +59,23 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 - At least one LLM provider configured (see below)
 - For DevOps agent: [`gh` CLI](https://cli.github.com/) and [`railway` CLI](https://docs.railway.app/develop/cli) installed and authenticated
 
+#### What you'll need by feature
+
+| Feature | Required tools/services | Setup |
+|---------|----------------------|-------|
+| Core bot | Telegram bot token | [Create bot with @BotFather](https://core.telegram.org/bots#botfather) |
+| LLM inference | Any provider API key | See LLM Provider Options table below |
+| DevOps agent | `gh` CLI, `railway` CLI | `gh auth login` and `railway login` |
+| Web search | `TAVILY_API_KEY` (optional) | Get key from [tavily.com](https://tavily.com) |
+| External apps (Gmail, Calendar, etc.) | `COMPOSIO_API_KEY` + OAuth | `composio login` and `composio link <service>` |
+
 ### LLM Provider Options
 
 | Provider | Environment Variable | Description |
 |----------|---------------------|-------------|
-| **Kilo** | `KILO_API_KEY` | Primary provider (default) |
-| **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (fallback) |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (most common) |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one API |
+| **Kilo** | `KILO_API_KEY` | Primary provider (default) |
 | **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Llama, No-Lama, etc.) |
 
 Configure at least one provider. Provider priority: Kilo → OpenRouter → Ollama → Anthropic.
@@ -171,6 +181,11 @@ python main.py
 
 #### First time setup — pairing your chat
 
+**Using systemd?** The pairing code is in the logs, not the terminal:
+```bash
+journalctl -u modular-agents | grep "PAIRING CODE"
+```
+
 When the bot starts, it prints a cryptographically random pairing token to the console (32 characters):
 
 ```
@@ -189,11 +204,6 @@ When the bot starts, it prints a cryptographically random pairing token to the c
 5. After 5 failed attempts, the bot locks — restart the service to reset the pairing flow
 
 You only need to do this once per chat. The pairing persists across restarts.
-
-**Using systemd?** The pairing code is in the logs, not the terminal:
-```bash
-journalctl -u modular-agents | grep "PAIRING CODE"
-```
 
 **Can't find your bot on Telegram?** Search by the username you set in @BotFather (e.g. `@myagentbot`). If you haven't created a bot yet, open Telegram, search for `@BotFather`, send `/newbot`, and follow the prompts — it takes about 2 minutes.
 
@@ -259,11 +269,13 @@ To add a new skill: create a new `.md` file in the relevant skills folder follow
 
 ### Adding a new agent
 
-**Option 1: Interactive Wizard (Recommended)**
+**Option 1: Interactive Wizard (Extending a running system)**
 
-Use the `/newagent` command in Telegram to create a new agent interactively. The wizard will guide you through defining the agent's purpose, autonomy level, skills, and generate the necessary code and files automatically.
+Use the `/newagent` command in Telegram to create a new agent interactively. This is the fastest way to extend your running system — the wizard guides you through defining the agent's purpose, autonomy level, skills, and generates the necessary code and files automatically. Available after the initial setup.
 
-**Option 2: Manual Creation**
+**Option 2: Manual Creation (First-time setup)**
+
+For initial setup or full control, create the agent manually:
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design. The short version:
 
