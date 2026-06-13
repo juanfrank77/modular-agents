@@ -100,11 +100,16 @@ class Settings:
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"  # "json" | "pretty"
+    log_redact_content: bool = True
+    log_content_max_length: int = 200
 
     # HTTP interface
     http_host: str = "127.0.0.1"
     http_port: int = 8080
     session_ttl_hours: int = 24
+
+    # Rate limiting
+    rate_limit_rpm: int = 20  # messages per minute per chat_id
 
     # Local file access
     local_file_paths: list[Path] = field(default_factory=list)
@@ -234,9 +239,12 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
         composio_user_id=_optional("COMPOSIO_USER_ID", ""),
         extra_blocked_patterns=extra_patterns,
+        log_redact_content=_optional("LOG_REDACT_CONTENT", "true").lower() == "true",
+        log_content_max_length=int(_optional("LOG_CONTENT_MAX_LENGTH", "200")),
         http_host=_optional("HTTP_HOST", "127.0.0.1"),
         http_port=int(_optional("HTTP_PORT", "8080")),
         session_ttl_hours=int(_optional("SESSION_TTL_HOURS", "24")),
+        rate_limit_rpm=int(_optional("RATE_LIMIT_RPM", "20")),
     )
 
 

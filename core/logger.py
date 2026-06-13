@@ -18,12 +18,18 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+
+# Module-level config for redaction (set by configure_logging)
+_max_content_len = 200
+_redact_content = True
 
 
 # ──────────────────────────────────────────────
@@ -50,7 +56,16 @@ class JSONFormatter(logging.Formatter):
                 "threadName", "processName", "process", "name", "message",
                 "agent", "event", "duration_ms",
             ):
-                entry[key] = val
+                # Redact content fields
+                if key == "content" and isinstance(val, str):
+                    if _redact_content:
+                        entry[key] = hashlib.sha256(val.encode()).hexdigest()[:16]
+                    elif len(val) > _max_content_len:
+                        entry[key] = f"{val[:_max_content_len]}... [truncated]"
+                    else:
+                        entry[key] = val
+                else:
+                    entry[key] = val
         return json.dumps(entry)
 
 
@@ -128,11 +143,18 @@ class _Timer:
 
 _configured = False
 
-def _configure(level: str = "INFO", fmt: str = "json") -> None:
-    global _configured
+def _configure(
+    level: str = "INFO",
+    fmt: str = "json",
+    redact_content: bool = True,
+    content_max_len: int = 200,
+) -> None:
+    global _configured, _redact_content, _max_content_len
     if _configured:
         return
     _configured = True
+    _redact_content = redact_content
+    _max_content_len = content_max_len
 
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -152,6 +174,11 @@ def get_logger(agent: str) -> AgentLogger:
     return AgentLogger(agent=agent, logger=logging.getLogger(agent))
 
 
-def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
+def configure_logging(
+    level: str = "INFO",
+    fmt: str = "json",
+    redact_content: bool = True,
+    content_max_len: int = 200,
+) -> None:
     """Call this early in main.py with values from settings."""
-    _configure(level=level, fmt=fmt)
+    _configure(level=level, fmt=fmt, redact_content=redact_content, content_max_len=content_max_len)
