@@ -57,7 +57,12 @@ log = get_logger("main")
 async def bootstrap():
     """Initialise all components and return wired-up objects."""
 
-    configure_logging(level=settings.log_level, fmt=settings.log_format)
+    configure_logging(
+        level=settings.log_level,
+        fmt=settings.log_format,
+        redact_content=settings.log_redact_content,
+        content_max_len=settings.log_content_max_length,
+    )
     log.info("Framework starting", event="startup")
 
     # Security check: TELEGRAM_ALLOWED_CHAT_IDS required in production
@@ -93,6 +98,7 @@ async def bootstrap():
         allowed_ids=settings.telegram_allowed_chat_ids,
         approval_timeouts=settings.approval_timeouts,
         extra_blocked_patterns=settings.extra_blocked_patterns,
+        rate_limit_rpm=settings.rate_limit_rpm,
     )
 
     skill_loader = SkillLoader()

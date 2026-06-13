@@ -94,6 +94,16 @@ class TelegramInterface:
         chat_id = str(update.message.chat_id)
         text = update.message.text
 
+        # Rate limit check for paired chats
+        if self._safety.pairing.is_paired(chat_id):
+            if not self._safety.rate_limiter.is_allowed(chat_id):
+                wait_sec = self._safety.rate_limiter.wait_time(chat_id)
+                await self._bus.send_notification(
+                    chat_id,
+                    f"⏳ Rate limit: please wait {wait_sec:.0f}s before sending more messages.",
+                )
+                return
+
         if not self._safety.pairing.is_paired(chat_id):
             if self._safety.pairing.is_locked(chat_id):
                 await self._bus.send_notification(

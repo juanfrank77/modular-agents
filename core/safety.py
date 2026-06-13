@@ -157,6 +157,54 @@ def is_blocked_command(text: str) -> bool:
 
 
 # ──────────────────────────────────────────────
+# Rate Limiter
+# ──────────────────────────────────────────────
+
+
+class RateLimiter:
+    """
+    Token bucket rate limiter per chat_id.
+    Prevents abuse by limiting messages per minute.
+    """
+
+    def __init__(self, rpm: int = 20):
+        self._rpm = rpm
+        self._buckets: dict[str, list[float]] = {}
+
+    def _prune_old(self, chat_id: str, now: float) -> None:
+        """Remove timestamps older than 60 seconds."""
+        window_start = now - 60
+        if chat_id in self._buckets:
+            self._buckets[chat_id] = [t for t in self._buckets[chat_id] if t > window_start]
+
+    def is_allowed(self, chat_id: str) -> bool:
+        """Check if chat_id is within rate limit. Returns True if allowed."""
+        import time
+        now = time.time()
+        self._prune_old(chat_id, now)
+        count = len(self._buckets.get(chat_id, []))
+        if count >= self._rpm:
+            log.warning(
+                "Rate limit exceeded",
+                event="rate_limited",
+                chat_id=chat_id,
+                rpm=self._rpm,
+            )
+            return False
+        self._buckets.setdefault(chat_id, []).append(now)
+        return True
+
+    def wait_time(self, chat_id: str) -> float:
+        """Return seconds until oldest message expires (for cooldown messages)."""
+        import time
+        now = time.time()
+        if chat_id not in self._buckets or not self._buckets[chat_id]:
+            return 0
+        oldest = min(self._buckets[chat_id])
+        return max(0, 60 - (now - oldest))
+
+
+# ──────────────────────────────────────────────
 # Approval Gate
 # ──────────────────────────────────────────────
 
@@ -262,9 +310,11 @@ class Safety:
         allowed_ids: list[str],
         approval_timeouts: dict[str, int] | None = None,
         extra_blocked_patterns: list[str] | None = None,
+        rate_limit_rpm: int = 20,
     ) -> None:
         self.pairing = PairingManager(allowed_ids)
         self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
+        self.rate_limiter = RateLimiter(rpm=rate_limit_rpm)
         # Compile extra patterns from settings
         self._extra_patterns = []
         if extra_blocked_patterns:
