@@ -80,14 +80,16 @@ Work through these in priority order — Security Critical items first.
 ---
 
 ### Low
+  
+- [x] **S14 — Structured logs may leak sensitive message content**
+   Log lines include full message content. API keys or passwords mentioned in conversation land in journald permanently.
+   **Fix:** Truncate `content` field in log lines to 200 chars. Add a `LOG_REDACT_CONTENT=true` env var that hashes content instead of logging it.
+   **Implemented:** logger.py (lines 30-32, 59-68) supports `LOG_REDACT_CONTENT` (hashes with SHA256) and `LOG_CONTENT_MAX_LENGTH` (truncates before hashing). config.py (lines 100-104, 242-247) adds settings. .env.example updated with new environment variables.
 
-- [ ] **S14 — Structured logs may leak sensitive message content**
-  Log lines include full message content. API keys or passwords mentioned in conversation land in journald permanently.
-  **Fix:** Truncate `content` field in log lines to 200 chars. Add a `LOG_REDACT_CONTENT=true` env var that hashes content instead of logging it.
-
-- [ ] **S15 — No rate limiting on bot interactions**
-  A paired user can flood the bot with requests that burn through LLM API credits. No per-session or per-user limits exist.
-  **Fix:** Add a simple token bucket per `chat_id`: e.g., 20 messages per minute, configurable via `RATE_LIMIT_RPM` in `.env`. Respond with a cooldown message when the limit is hit.
+- [x] **S15 — No rate limiting on bot interactions**
+   A paired user can flood the bot with requests that burn through LLM API credits. No per-session or per-user limits exist.
+   **Fix:** Add a simple token bucket per `chat_id`: e.g., 20 messages per minute, configurable via `RATE_LIMIT_RPM` in `.env`. Respond with a cooldown message when the limit is hit.
+   **Implemented:** safety.py (lines 159-204) adds `RateLimiter` class with token bucket algorithm. TelegramInterface (lines 97-105) enforces rate limits with cooldown messages. HTTPInterface (lines 118-124) returns 429 with retry-after info.
 
 ---
 
@@ -154,10 +156,10 @@ Work through these in priority order — Security Critical items first.
 - **Critical (3 items):** 3 done ✅ (S1-S3)
 - **High (5 items):** 5 done ✅ (S4-S8)
 - **Medium (5 items):** 5 done ✅ (S9-S13)
-- **Low (2 items):** 0 done ⭕ (S14 log redaction, S15 rate limiting)
+- **Low (2 items):** 2 done ✅ (S14 log redaction, S15 rate limiting)
 
 ### UX (10 items)
 - **High friction (5 items):** 5 done ✅ (U1-U5)
 - **Medium friction (5 items):** 5 done ✅ (U6-U10)
 
-### Total: 23 done, 2 open (S14, S15)
+### Total: 25 done, 0 open
