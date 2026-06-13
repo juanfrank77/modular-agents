@@ -451,6 +451,33 @@ Actions are classified by risk. In `supervised` mode, anything above `WRITE_LOW`
 
 ---
 
+## Data and trust model
+
+When you connect external apps like Gmail and Google Calendar, the bot uses [Composio](https://composio.dev) as an integration provider. This creates a trust dependency you should understand:
+
+**What Composio holds:**
+- Long-lived OAuth tokens for your connected accounts (Gmail, Google Calendar, Slack, etc.)
+- Token refresh capability (can obtain new tokens when yours expire)
+- Basic profile information for authentication
+
+**Breach impact:**
+- If Composio's systems were compromised, attackers could access tokens for connected services
+- They could read your emails, view your calendar, and send messages on your behalf
+- They could NOT access your files, environment variables, or shell commands
+
+**Revoking access:**
+- Google accounts: Visit [Google Security Settings → Third-party apps with account access](https://myaccount.google.com/permissions) and remove Composio
+- Other services: Revoke via each service's app permissions page
+- Or use: `composio unlink <service>` to remove the connection
+
+**Alternatives:**
+- For maximum isolation, skip Composio and use local tools only (gh CLI, railway CLI)
+- Each agent can use other integration methods without Composio
+
+Treat Composio as you would any third-party integration — it's a trust boundary similar to your LLM provider.
+
+---
+
 ## Project structure
 
 ```
@@ -522,7 +549,9 @@ This system is built on three ideas:
 
 **Behaviour via text, not code** — agent behaviour is defined in Markdown skill files. Improving how an agent works means editing text, not deploying Python.
 
-**Your data stays yours** — everything runs on your machine. Conversation history is in a local SQLite database. Context files are plain Markdown. No third-party service sees your data except the LLM API calls themselves.
+**Your data stays yours** — everything runs on your machine. Conversation history is in a local SQLite database (`memory/sessions.db`). Context files are plain Markdown. No third-party service sees your data except the LLM API calls themselves.
+
+> **Security note:** `sessions.db` is a plaintext SQLite file. Anyone with filesystem access can read it with `sqlite3`. For sensitive deployments, treat this file as containing confidential data. Back it up securely and consider filesystem encryption (e.g., fscrypt on Linux) to protect conversation history at rest.
 
 For the full architecture and design decisions behind, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 

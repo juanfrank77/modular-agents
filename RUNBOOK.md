@@ -292,14 +292,14 @@ Common reasons:
 
 ## Backup
 
-The only stateful files are:
+The stateful files are:
 
-| File | What it contains | How to back up |
+| File | Contents | Security considerations |
 |---|---|---|
-| `memory/sessions.db` | All conversation history | Copy the file |
+| `memory/sessions.db` | All conversation history | **Plaintext SQLite** — anyone with filesystem access can read via `sqlite3`. Contains sensitive data (emails, deployments, personal context). Protect via filesystem permissions or encryption. |
 | `memory/context/*.md` | Your preferences and projects | Commit to git (no secrets) |
 | `memory/solutions/**` | Agent-learned patterns | Commit to git |
-| `.env` | Secrets | Keep a secure copy — do NOT commit |
+| `.env` | Secrets | Keep secure copy — do NOT commit |
 
 Quick backup:
 ```bash

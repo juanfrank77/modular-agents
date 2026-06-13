@@ -5,9 +5,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# For maximum security, run as dedicated system user
+# To create: sudo useradd -r -s /usr/sbin/nologin modular-agents
+# Then change ownership: sudo chown -R modular-agents:modular-agents /home/YOUR_USERNAME/modular-agents
+# User=modular-agents
 User=YOUR_USERNAME
+Group=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/modular-agents
 Environment="PATH=/home/YOUR_USERNAME/modular-agents/.venv/bin:/home/YOUR_USERNAME/.local/bin:/home/YOUR_USERNAME/.railway/bin:/usr/local/bin:/usr/bin"
+Environment="HOME=/home/YOUR_USERNAME"
 ExecStart=/home/YOUR_USERNAME/modular-agents/.venv/bin/python /home/YOUR_USERNAME/modular-agents/main.py
 Restart=on-failure
 RestartSec=10
