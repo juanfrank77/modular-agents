@@ -169,6 +169,12 @@ if [ -f "$DB_FILE" ]; then
     ok "sessions.db locked to 600"
 fi
 
+# Warn if DB_ENCRYPTION_KEY is not set
+if ! grep -q "^DB_ENCRYPTION_KEY=" "$ENV_FILE" 2>/dev/null || grep -q "^#.*DB_ENCRYPTION_KEY" "$ENV_FILE" 2>/dev/null; then
+    warn "DB_ENCRYPTION_KEY not set — conversation data is stored unencrypted"
+    warn "Set DB_ENCRYPTION_KEY in .env to enable SQLCipher encryption"
+fi
+
 
 # ── 6. Required directories ───────────────────────────────────────────────────
 section "6. Directory structure"

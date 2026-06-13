@@ -553,6 +553,8 @@ This system is built on three ideas:
 
 > **Security note:** `sessions.db` is a plaintext SQLite file. Anyone with filesystem access can read it with `sqlite3`. For sensitive deployments, treat this file as containing confidential data. Back it up securely and consider filesystem encryption (e.g., fscrypt on Linux) to protect conversation history at rest.
 
+**Optional encryption** — Set `DB_ENCRYPTION_KEY` in `.env` to enable SQLCipher encryption. When set, conversation data is encrypted at rest. Without it, the SQLite file is plaintext but protected by filesystem permissions (chmod 600).
+
 For the full architecture and design decisions behind, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---

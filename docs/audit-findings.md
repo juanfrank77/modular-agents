@@ -46,8 +46,7 @@ Work through these in priority order — Security Critical items first.
 
 - [x] **S8 — `sessions.db` is plaintext**
    All conversation history sits in an unencrypted SQLite file. Anyone with filesystem access reads it with a single `sqlite3` command. Content may include sensitive email details, deployment info, personal context.
-   **Fix:** Documented prominently in README's "Your data stays yours" section and RUNBOOK backup section. Added note about filesystem encryption (fscrypt) for sensitive deployments.
-   **Implemented:** README.md (line 527) adds security note about plaintext storage. RUNBOOK.md updates backup table with security warnings.
+   **Fix:** Added `DB_ENCRYPTION_KEY` config option. When set, SQLCipher encryption is applied via `PRAGMA key`. Users can enable encryption by uncommenting and setting this value in `.env`.
 
 ---
 
@@ -161,4 +160,4 @@ Work through these in priority order — Security Critical items first.
 - **High friction (5 items):** 5 done ✅ (U1-U5)
 - **Medium friction (5 items):** 5 done ✅ (U6-U10)
 
-### Total: 23 done, 4 open (S14, S15, plus 2 from other categories)
+### Total: 23 done, 2 open (S14, S15)

@@ -42,6 +42,7 @@ class Settings:
 
     # Storage
     db_path: Path = Path("memory/sessions.db")
+    db_encryption_key: str = ""
     memory_context_dir: Path = Path("memory/context")
     memory_solutions_dir: Path = Path("memory/solutions")
 
@@ -184,6 +185,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),
+        db_encryption_key=_optional("DB_ENCRYPTION_KEY", ""),
         memory_context_dir=Path(_optional("MEMORY_CONTEXT_DIR", "memory/context")),
         memory_solutions_dir=Path(
             _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")

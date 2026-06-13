@@ -71,7 +71,7 @@ async def bootstrap():
             )
             sys.exit(1)
 
-    storage = Storage(settings.db_path)
+    storage = Storage(settings.db_path, settings.db_encryption_key)
     await storage.init()
 
     telegram_notifier = TelegramNotifier(token=settings.telegram_token)
