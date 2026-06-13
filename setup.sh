@@ -246,6 +246,10 @@ else
         sudo systemctl enable "$SERVICE_NAME"
         ok "Service installed and enabled: $SYSTEMD_TARGET"
         ok "Will auto-start on boot"
+        info "For better security: create a dedicated user with:"
+        echo "         sudo useradd -r -s /usr/sbin/nologin modular-agents"
+        echo "         sudo chown -R modular-agents:modular-agents $PROJECT_DIR"
+        echo "       Then update modular-agents.service to use User=modular-agents"
         info "Start now with: sudo systemctl start $SERVICE_NAME"
     fi
 fi
