@@ -41,6 +41,8 @@ from core.agent_creator import AgentCreator
 from agents.business.agent import BusinessAgent
 from agents.devops.agent import DevOpsAgent
 from agents.echo.agent import EchoAgent
+from agents.librarian.agent import LibrarianAgent
+from agents.projects.agent import ProjectsAgent
 from agents.wellbeing.agent import WellbeingAgent
 from interfaces.telegram import TelegramInterface
 from interfaces.cli import CLIInterface
@@ -130,7 +132,13 @@ async def bootstrap():
     wellbeing = WellbeingAgent(settings=settings, storage=storage, notifier=router)
     bus.register(wellbeing)
 
-    for agent in [business, devops, echo, wellbeing]:
+    librarian = LibrarianAgent(**agent_kwargs)
+    bus.register(librarian)
+
+    projects = ProjectsAgent(**agent_kwargs)
+    bus.register(projects)
+
+    for agent in [business, devops, echo, wellbeing, librarian, projects]:
         try:
             await agent.register_schedules(bus)
         except Exception as e:

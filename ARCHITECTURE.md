@@ -405,17 +405,27 @@ framework/
   │   │   ├── agent.py        ← BusinessAgent implementation
   │   │   ├── tools/          ← calendar, email, asana, etc.
   │   │   └── skills/         ← SKILL.md files
-  │   └── devops/
-  │       ├── __init__.py
-  │       ├── agent.py        ← DevOpsAgent implementation
-  │       ├── tools/          ← github, deploy, monitor, etc.
-  │       └── skills/         ← SKILL.md files
+  │   ├── devops/
+  │   │   ├── __init__.py
+  │   │   ├── agent.py        ← DevOpsAgent implementation
+  │   │   ├── tools/          ← github, deploy, monitor, etc.
+  │   │   └── skills/         ← SKILL.md files
+  │   ├── librarian/
+  │   │   ├── agent.py        ← knowledge ingestion + weekly digest
+  │   │   ├── skills/         ← ingest-resource, knowledge-query, knowledge-digest
+  │   │   └── state.json      ← per-note surfacing metadata
+  │   └── projects/
+  │       ├── agent.py        ← chief of staff: progress log + weekly kickoff
+  │       ├── skills/         ← progress-update, weekly-kickoff, project-status
+  │       └── state.json      ← per-project momentum tracking
   ├── memory/
   │   ├── sessions.db         ← SQLite (auto-created on first run)
   │   ├── context/
   │   │   ├── preferences.md
   │   │   ├── personal.md
-  │   │   └── projects.md
+  │   │   └── projects.md     ← includes agent-maintained "## Progress log"
+  │   ├── knowledge/          ← distilled notes from ingested resources + INDEX.md
+  │   ├── inbox/              ← raw downloaded Telegram files (gitignored)
   │   └── solutions/
   ├── main.py                 ← startup, wires everything together
   ├── .env                    ← secrets (chmod 600)
@@ -508,6 +518,22 @@ Recommended build order. Each phase produces working, testable output before the
 > Railway project/service/environment also resolved from `projects.md`.
 
 ---
+
+### Phase 5 — Knowledge & Project Momentum
+> **Deliverable:** Saved resources become actionable knowledge; projects get per-project momentum tracking.
+
+- [x] `LibrarianAgent` — ingests PDFs, voice notes, audio, and URLs sent over Telegram
+  - Telegram interface downloads document/voice/audio files to `memory/inbox/` and routes them to the librarian
+  - Extraction: `pypdf` for PDFs, OpenAI Whisper for audio (optional `OPENAI_API_KEY`), `WebTool` for URLs
+  - LLM distills each resource into a structured note (summary, key ideas, next actions, related projects) in `memory/knowledge/`
+  - A short version is saved via `memory.save_solution()` so other agents surface it by keyword
+  - Saturday-morning digest resurfaces the least-seen notes with pending actions (anti-staleness loop)
+  - Optional graphify integration (`agents/librarian/tools/graphify.py`): if the `graphify` CLI is installed (`uv tool install graphifyy`), each ingest triggers a background `graphify update` over `memory/knowledge/`, and queries add graph-traversal context. Degrades to keyword search when absent.
+- [x] `ProjectsAgent` — chief of staff for the project portfolio
+  - `update: <project> — <what happened>` messages are parsed by the LLM and logged to `state.json` + a `## Progress log` section in `memory/context/projects.md`
+  - Momentum tracking flags projects with no logged update in 7+ days
+  - Monday-morning kickoff proposes the week's top 3 priorities with stale-project nudges
+- [x] `@agent` message prefix for explicit routing (e.g. `@librarian`, `@projects`) — complements bus continuity routing
 
 > **Starting point recommendation**  
 > Begin with Phase 1 + the "hello world" echo agent. This validates the entire stack — config, bus, notifier, logger — before adding any domain logic. Then complete Phase 2 fully before writing either real agent. A well-built core makes Phases 3 and 4 straightforward.

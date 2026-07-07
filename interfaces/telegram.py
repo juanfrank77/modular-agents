@@ -8,6 +8,8 @@ and runs long-polling. No agents or core components are constructed here.
 
 from __future__ import annotations
 
+import re
+import time
 from typing import TYPE_CHECKING
 
 from telegram import Update
@@ -54,6 +56,12 @@ class TelegramInterface:
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
                 self._on_message,
+            )
+        )
+        app.add_handler(
+            MessageHandler(
+                filters.Document.ALL | filters.VOICE | filters.AUDIO,
+                self._on_file,
             )
         )
         app.add_handler(CallbackQueryHandler(self._on_callback))
@@ -129,13 +137,112 @@ class TelegramInterface:
             await self._bus.send_notification(chat_id, response)
             return
 
+        # "@agent ..." prefix routes explicitly to a named agent
+        agent_name = ""
+        if text.startswith("@"):
+            first, _, rest = text.partition(" ")
+            candidate = first[1:].lower().strip()
+            if candidate in self._bus.registered_agents and rest.strip():
+                agent_name = candidate
+                text = rest.strip()
+
         log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
-            agent_name="",
+            agent_name=agent_name,
             chat_id=chat_id,
             text=text,
+        )
+
+        thinking_id = await self._bus.send_thinking(chat_id)
+        response = await self._bus.publish(event)
+        if thinking_id:
+            await self._bus.clear_thinking(chat_id, thinking_id)
+        if response and not response.success:
+            log.warning(
+                "Agent returned unsuccessful response",
+                event="response_error",
+                agent=response.agent_name,
+            )
+
+    async def _on_file(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Download an incoming document/voice/audio file and route it to
+        the librarian agent for knowledge ingestion."""
+        msg = update.message
+        if not msg:
+            return
+
+        chat_id = str(msg.chat_id)
+        if not self._safety.pairing.is_paired(chat_id):
+            await self._bus.send_notification(
+                chat_id, "🔒 Send the pairing token shown in the console first."
+            )
+            return
+        if not self._safety.rate_limiter.is_allowed(chat_id):
+            wait_sec = self._safety.rate_limiter.wait_time(chat_id)
+            await self._bus.send_notification(
+                chat_id, f"⏳ Rate limit: please wait {wait_sec:.0f}s."
+            )
+            return
+
+        if msg.document:
+            attachment, kind = msg.document, "document"
+            file_name = msg.document.file_name or "document"
+            mime = msg.document.mime_type or ""
+        elif msg.voice:
+            attachment, kind = msg.voice, "voice"
+            file_name = "voice-note.ogg"
+            mime = msg.voice.mime_type or "audio/ogg"
+        elif msg.audio:
+            attachment, kind = msg.audio, "audio"
+            file_name = msg.audio.file_name or "audio.mp3"
+            mime = msg.audio.mime_type or ""
+        else:
+            return
+
+        max_bytes = self._settings.ingest_max_file_mb * 1024 * 1024
+        if attachment.file_size and attachment.file_size > max_bytes:
+            await self._bus.send_notification(
+                chat_id,
+                f"⚠️ File too large ({attachment.file_size // (1024 * 1024)} MB). "
+                f"Max is {self._settings.ingest_max_file_mb} MB.",
+            )
+            return
+
+        inbox = self._settings.memory_inbox_dir
+        inbox.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^\w.\-]+", "_", file_name)
+        dest = inbox / f"{int(time.time())}_{safe_name}"
+
+        try:
+            tg_file = await context.bot.get_file(attachment.file_id)
+            await tg_file.download_to_drive(custom_path=str(dest))
+        except Exception as e:
+            log.warning("File download failed", event="file_dl_error", error=str(e))
+            await self._bus.send_notification(
+                chat_id, "⚠️ Couldn't download that file. Please try again."
+            )
+            return
+
+        log.info(
+            "Inbound file", event="inbound_file", chat_id=chat_id,
+            kind=kind, file=safe_name,
+        )
+
+        event = AgentEvent(
+            type=EventType.USER_MESSAGE,
+            agent_name="librarian",
+            chat_id=chat_id,
+            text=msg.caption or "",
+            data={
+                "file_path": str(dest),
+                "kind": kind,
+                "mime": mime,
+                "file_name": file_name,
+            },
         )
 
         thinking_id = await self._bus.send_thinking(chat_id)
@@ -260,7 +367,13 @@ class TelegramInterface:
                     "/newagent — create a new agent interactively\n"
                     "/planmode [agent] — toggle plan mode for one or all agents\n"
                     "/help — show this message\n\n"
-                    "Or just send a message to talk to your agents."
+                    "*Talking to agents*\n"
+                    "Prefix a message with @agent to reach one directly, e.g.\n"
+                    "`@projects update: NINA — shipped onboarding`\n"
+                    "`@librarian what do I know about pricing?`\n\n"
+                    "*Knowledge ingestion*\n"
+                    "Send a PDF, voice note, audio file, or URL and the "
+                    "librarian will distill it into an actionable note."
                 ),
             )
             return

@@ -45,6 +45,8 @@ class Settings:
     db_encryption_key: str = ""
     memory_context_dir: Path = Path("memory/context")
     memory_solutions_dir: Path = Path("memory/solutions")
+    memory_knowledge_dir: Path = Path("memory/knowledge")
+    memory_inbox_dir: Path = Path("memory/inbox")
 
     # Scheduler / heartbeat
     heartbeat_interval_minutes: int = 30
@@ -53,6 +55,8 @@ class Settings:
     business_agent_autonomy: str = "supervised"
     devops_agent_autonomy: str = "autonomous"
     wellbeing_agent_autonomy: str = "autonomous"
+    librarian_agent_autonomy: str = "autonomous"
+    projects_agent_autonomy: str = "supervised"
 
     # LLM retry / backoff
     llm_max_retries: int = 3
@@ -116,6 +120,10 @@ class Settings:
 
     # Web tools
     tavily_api_key: str = ""
+
+    # Knowledge ingestion (librarian agent)
+    openai_api_key: str = ""  # optional — enables voice/audio transcription via Whisper
+    ingest_max_file_mb: int = 20  # Telegram bot API download limit
 
 
 # ──────────────────────────────────────────────
@@ -195,10 +203,16 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         memory_solutions_dir=Path(
             _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")
         ),
+        memory_knowledge_dir=Path(
+            _optional("MEMORY_KNOWLEDGE_DIR", "memory/knowledge")
+        ),
+        memory_inbox_dir=Path(_optional("MEMORY_INBOX_DIR", "memory/inbox")),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),
+        librarian_agent_autonomy=_optional("LIBRARIAN_AGENT_AUTONOMY", "autonomous"),
+        projects_agent_autonomy=_optional("PROJECTS_AGENT_AUTONOMY", "supervised"),
         llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
         llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),
@@ -236,6 +250,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         wellbeing_wake_time=_optional("WELLBEING_WAKE_TIME", "07:00"),
         wellbeing_bedtime=_optional("WELLBEING_BEDTIME", "23:00"),
         tavily_api_key=_optional("TAVILY_API_KEY", ""),
+        openai_api_key=_optional("OPENAI_API_KEY", ""),
+        ingest_max_file_mb=int(_optional("INGEST_MAX_FILE_MB", "20")),
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
         composio_user_id=_optional("COMPOSIO_USER_ID", ""),
         extra_blocked_patterns=extra_patterns,

@@ -29,6 +29,19 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Incident detection and response guidance
 - Automated health checks every hour
 
+**Librarian Agent** — your knowledge distiller
+- Send it a PDF, voice note, audio file, or URL on Telegram
+- Extracts the content (pypdf, Whisper transcription, web scraping) and distills it into a structured note: summary, key ideas, next actions, related projects
+- Notes live in `memory/knowledge/` as plain Markdown, indexed and searchable ("what do I know about pricing?")
+- Optional [graphify](https://github.com/Graphify-Labs/graphify) integration: install with `uv tool install graphifyy` and the librarian maintains a knowledge graph over your notes (`memory/knowledge/graphify-out/`), answering questions by graph traversal instead of plain keyword matching
+- Weekly digest (Saturday morning) resurfaces the least-seen notes with their pending actions, so saved knowledge doesn't go stale
+
+**Projects Agent** — your chief of staff
+- Log progress in one line: `@projects update: NINA — shipped onboarding`
+- Tracks per-project momentum and flags projects with no update in 7+ days
+- Monday kickoff message with stale-project nudges and the week's top 3 priorities
+- Progress log is appended to `memory/context/projects.md`, so history stays human-readable
+
 Each agent has its own skills (defined in plain Markdown files), its own memory, and its own autonomy level — the Business Agent asks before sending anything, the DevOps Agent acts autonomously on safe operations and asks only for destructive ones.
 
 ---
@@ -49,6 +62,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
 - **Safety** is built in — supervised agents ask for approval before consequential actions
 - **Reliability** includes LLM retry logic and typing indicators during processing
+- **Routing**: prefix a message with `@agent` (e.g. `@librarian`, `@projects`) to reach a specific agent; files sent to the bot route to the librarian automatically
 
 ---
 
@@ -126,6 +140,11 @@ ANTHROPIC_API_KEY=your_key_here         # Anthropic (fallback)
 Telegram access control:
 ```
 TELEGRAM_ALLOWED_CHAT_IDS=your_chat_id   # get this from @userinfobot on Telegram
+```
+
+Optional — voice/audio transcription for the Librarian agent:
+```
+OPENAI_API_KEY=your_key_here   # enables Whisper transcription of voice notes and audio files
 ```
 
 #### Using Ollama (self-hosted models)
