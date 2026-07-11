@@ -53,6 +53,8 @@ class Settings:
     business_agent_autonomy: str = "supervised"
     devops_agent_autonomy: str = "autonomous"
     wellbeing_agent_autonomy: str = "autonomous"
+    focus_agent_autonomy: str = "autonomous"
+    finance_agent_autonomy: str = "autonomous"
 
     # LLM retry / backoff
     llm_max_retries: int = 3
@@ -199,6 +201,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),
+        focus_agent_autonomy=_optional("FOCUS_AGENT_AUTONOMY", "autonomous"),
+        finance_agent_autonomy=_optional("FINANCE_AGENT_AUTONOMY", "autonomous"),
         llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
         llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),

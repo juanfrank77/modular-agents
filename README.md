@@ -23,6 +23,17 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Weekly check-ins tracking morning routine consistency
 - Respects quiet hours with emergency override support
 
+**Focus Agent** — your deep work coach
+- Start and track focus sessions from chat (`focus 50` … `done`)
+- Daily deep-work planning prompt on weekday mornings
+- Weekly review with session counts, hours, and streaks
+
+**Finance Agent** — your personal finance assistant
+- Log expenses from chat (`spent 12.50 groceries`)
+- Monthly budgets per category and in total, with overspend warnings
+- Savings goals with progress tracking (`goal vacation 5000`, `save 200 vacation`)
+- Weekly spending report and LLM-backed budgeting advice grounded in your numbers
+
 **DevOps Agent** — your infrastructure assistant
 - GitHub digest: open PRs, failing CI, stale branches
 - Deployment pipeline via Railway CLI
