@@ -1,0 +1,16 @@
+# Personal Background
+
+<!--
+Background context that gets injected into every system prompt.
+Keep it to a few short paragraphs — it's read on every call so length has a cost.
+Cover: what you do, how you work, what the agents should always know about your situation.
+-->
+
+## Who is the user
+<!-- A short paragraph: name (or pseudonym), location, primary work domains. -->
+
+## Working style
+<!-- How you prefer to communicate, decide, and review. Bullet list. -->
+
+## What the agents should always know
+<!-- Domain rules, tool preferences, things the agents should never assume. -->

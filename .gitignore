@@ -65,3 +65,13 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+## ── User-specific context files (not committed) ─────────────────────────────
+## Each installation maintains its own personal.md / preferences.md / projects.md
+## inside memory/context/. New users seed theirs from the matching .template.
+## See memory/context/README.md for the full pattern.
+memory/context/*.md
+!memory/context/*.md.template
+
+## Agent runtime state — written by the running service, never committed
+agents/*/state.json

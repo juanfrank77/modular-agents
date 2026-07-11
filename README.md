@@ -222,6 +222,13 @@ journalctl -u modular-agents -f        # with systemd
 
 These are plain Markdown files in `memory/context/`. Edit them any time — no restart needed.
 
+**Per-installation data, not committed.** The files in this directory are
+specific to *your* installation and are gitignored once created. The repo
+ships `*.md.template` files with example structure and HTML comments
+explaining what to fill in. `setup.sh` copies each template to its real
+`.md` name on first run, and from then on `git pull` will never touch your
+files. See `memory/context/README.md` for the full pattern.
+
 ### `preferences.md`
 Your operational preferences: timezone, communication style, notification rules, work hours. Example:
 ```markdown
@@ -412,6 +419,18 @@ The system enforces four independent layers of access control:
 **1. Chat-level** — `TELEGRAM_ALLOWED_CHAT_IDS`
 
 Only the listed chat IDs can interact with the bot. Any other chat receives no response. **In production (ENV=production), this must be set — startup will fail if empty to prevent accidental open access.**
+
+Comma-separate multiple chat IDs to share the bot with a partner or team:
+```
+TELEGRAM_ALLOWED_CHAT_IDS=111111111,222222222
+```
+
+All listed chats share the same autonomy and approval flow. Context files
+(`memory/context/*.md`) are per-installation, not per-chat — they're a
+property of the *server*, not the *user*. If you want each person to have
+their own context, run a separate installation on their own machine and
+have each one talk to its own bot (or set up a second chat with its own
+TELEGRAM_BOT_TOKEN pointing at their install).
 
 **2. Agent-level** — autonomy mode
 

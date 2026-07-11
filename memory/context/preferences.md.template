@@ -1,0 +1,13 @@
+# Preferences
+
+<!--
+Operational preferences for the agent system.
+Read on every call alongside personal.md.
+-->
+
+- Timezone: America/New_York (UTC-5)
+- Preferred name:
+- Communication tone: direct and concise
+- Language: English
+- Work hours: Mon–Fri, 9am–5pm
+- Notifications outside working hours: P1 incidents only

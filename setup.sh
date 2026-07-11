@@ -192,17 +192,25 @@ for dir in "${DIRS[@]}"; do
     ok "$dir"
 done
 
-# Seed empty context files if they don't exist
+# Seed personal context files from templates if they don't exist.
+# Each installation keeps its own personal.md / preferences.md / projects.md;
+# these files are gitignored once created. See memory/context/README.md.
 CONTEXT_FILES=("preferences" "personal" "projects")
 for f in "${CONTEXT_FILES[@]}"; do
     TARGET="$PROJECT_DIR/memory/context/${f}.md"
+    TEMPLATE="$PROJECT_DIR/memory/context/${f}.md.template"
     if [ ! -f "$TARGET" ]; then
-        echo "# ${f^}" > "$TARGET"
-        echo "" >> "$TARGET"
-        echo "<!-- Fill in your ${f} here. This file is read by the agents on every call. -->" >> "$TARGET"
-        warn "Created empty memory/context/${f}.md — fill this in before running"
+        if [ -f "$TEMPLATE" ]; then
+            cp "$TEMPLATE" "$TARGET"
+            warn "Created memory/context/${f}.md from template — review and personalise before running"
+        else
+            echo "# ${f^}" > "$TARGET"
+            echo "" >> "$TARGET"
+            echo "<!-- Fill in your ${f} here. This file is read by the agents on every call. -->" >> "$TARGET"
+            warn "Created empty memory/context/${f}.md — fill this in before running"
+        fi
     else
-        ok "memory/context/${f}.md exists"
+        ok "memory/context/${f}.md exists (left untouched)"
     fi
 done
 

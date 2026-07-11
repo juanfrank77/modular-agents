@@ -1,0 +1,30 @@
+# Projects
+
+<!--
+Your active projects and the repos/services associated with them.
+The DevOps agent uses this to know which GitHub repos to monitor and
+which Railway services to manage.
+
+Copy a project block and fill it in for each active project.
+-->
+
+## Active Projects
+
+### Example project
+- Status: In progress
+- Priority: High
+- Type: Solo technical project
+- Goal: One-sentence description of what this project is for.
+- repo: your-org/your-repo
+- railway-service: api
+- railway-environment: production
+
+## Physical operation
+
+<!--
+If you have a non-software operation (farm, retail, etc.) that the system
+should know about but treat as a separate domain, list it here.
+-->
+
+## On hold
+<!-- Projects that are paused, with the reason. -->
