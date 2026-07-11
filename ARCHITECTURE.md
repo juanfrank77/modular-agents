@@ -410,6 +410,10 @@ framework/
   │       ├── agent.py        ← DevOpsAgent implementation
   │       ├── tools/          ← github, deploy, monitor, etc.
   │       └── skills/         ← SKILL.md files
+  │   └── projects/
+  │       ├── __init__.py
+  │       ├── agent.py        ← ProjectsAgent implementation
+  │       └── skills/         ← SKILL.md files
   ├── memory/
   │   ├── sessions.db         ← SQLite (auto-created on first run)
   │   ├── context/

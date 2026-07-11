@@ -29,6 +29,12 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Incident detection and response guidance
 - Automated health checks every hour
 
+**Projects Agent** — your chief of staff
+- Log progress in one line: `@projects update: NINA — shipped onboarding`
+- Tracks per-project momentum and flags projects with no update in 7+ days
+- Monday kickoff message with stale-project nudges and the week's top 3 priorities
+- Progress log is appended to `memory/context/projects.md`, so history stays human-readable
+
 Each agent has its own skills (defined in plain Markdown files), its own memory, and its own autonomy level — the Business Agent asks before sending anything, the DevOps Agent acts autonomously on safe operations and asks only for destructive ones.
 
 ---

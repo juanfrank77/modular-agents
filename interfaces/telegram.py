@@ -131,9 +131,18 @@ class TelegramInterface:
 
         log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
+        # "@agent ..." prefix routes explicitly to a named agent
+        agent_name = ""
+        if text.startswith("@"):
+            first, _, rest = text.partition(" ")
+            candidate = first[1:].lower().strip()
+            if candidate in self._bus.registered_agents and rest.strip():
+                agent_name = candidate
+                text = rest.strip()
+
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
-            agent_name="",
+            agent_name=agent_name,
             chat_id=chat_id,
             text=text,
         )
