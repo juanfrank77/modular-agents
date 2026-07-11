@@ -8,6 +8,20 @@ reply to email, draft a response, respond to [person]
 Help the user reach inbox zero efficiently by categorising, summarising,
 and drafting responses — without ever sending anything without explicit approval.
 
+## When to use this vs email-digest
+- **email-triage** answers "what needs my attention right now?"
+  Proposes inbox actions (mark read, archive, draft reply) and waits
+  for explicit approval before any change. Operates on unread by
+  default; no time window.
+- **email-digest** answers "what's relevant to my work?" Read-only,
+  operates over a time window (default 7 days), read or unread.
+  Saves a digest to `memory/solutions/`. Does not propose sends.
+
+Typical workflow: run email-digest first to find what's relevant,
+then email-triage to process the rest of the inbox. The digest's
+auto-save file is the durable record of relevance; this skill's
+approved actions are the durable record of inbox movement.
+
 ## Triage Categories
 Classify every email into one of:
 

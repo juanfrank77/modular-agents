@@ -1,0 +1,41 @@
+# Reader Profile
+
+<!--
+What you're focused on right now. Update when focus shifts — at least
+weekly. The agent reads this on every email-digest run to decide what
+to surface. Specific beats general. "Watching for X" beats "interested
+in X". The "Watching for" keywords drive a subject-line pre-filter, so
+concrete terms here directly improve what gets through.
+-->
+
+## Current focus
+
+<!-- 2-4 sentences. What projects, goals, or problems occupy your
+     head right now. Be concrete: "shipping NINA beta by end of month"
+     beats "AI tools". -->
+
+## Watching for
+
+<!-- Bullet list of topics, signals, tools, tactics, market movements.
+     These are the pre-filter keywords, so be specific. -->
+- 
+- 
+- 
+
+## Active projects to match against
+
+<!-- Bullet list of active project names + one-line goal. The agent
+     uses these to cite which project a surfaced email relates to.
+     Keep goal one-liners fresh. -->
+- 
+- 
+- 
+
+## Ignore / deprioritise
+
+<!-- What to NOT surface even if it matches the focus. -->
+- 
+
+## Updated
+
+<!-- YYYY-MM-DD — refresh when focus shifts. -->

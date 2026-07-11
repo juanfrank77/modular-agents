@@ -253,6 +253,9 @@ Your active projects and the repos/services associated with them. The DevOps age
 - railway-environment: production
 ```
 
+### `reader_profile.md`
+Drives the `email-digest` skill. Defines your current focus, active projects to match against, a "Watching for" keyword list (used as a subject-line pre-filter), and an "Ignore" list. Update at least weekly — a stale profile produces a stale digest. See `agents/business/skills/email-digest.md` and `memory/context/reader_profile.md.template`.
+
 ---
 
 ## Customizing agent behaviour

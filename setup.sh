@@ -193,9 +193,10 @@ for dir in "${DIRS[@]}"; do
 done
 
 # Seed personal context files from templates if they don't exist.
-# Each installation keeps its own personal.md / preferences.md / projects.md;
-# these files are gitignored once created. See memory/context/README.md.
-CONTEXT_FILES=("preferences" "personal" "projects")
+# Each installation keeps its own personal.md / preferences.md / projects.md /
+# reader_profile.md; these files are gitignored once created. See
+# memory/context/README.md.
+CONTEXT_FILES=("preferences" "personal" "projects" "reader_profile")
 for f in "${CONTEXT_FILES[@]}"; do
     TARGET="$PROJECT_DIR/memory/context/${f}.md"
     TEMPLATE="$PROJECT_DIR/memory/context/${f}.md.template"

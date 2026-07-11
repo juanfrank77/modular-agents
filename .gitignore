@@ -72,6 +72,7 @@ venv.bak/
 ## See memory/context/README.md for the full pattern.
 memory/context/*.md
 !memory/context/*.md.template
+!memory/context/README.md
 
 ## Agent runtime state — written by the running service, never committed
 agents/*/state.json
