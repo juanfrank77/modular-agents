@@ -9,7 +9,7 @@ Tests for the Composio integration layer:
 All tests mock the SDK — composio-anthropic does NOT need to be installed.
 
 Run:
-    python -m pytest test_composio.py -x -q
+    python -m pytest tests/test_composio.py -x -q
 """
 
 from __future__ import annotations

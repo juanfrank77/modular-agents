@@ -14,6 +14,9 @@ python-telegram-bot==22.7
 # Anthropic SDK
 anthropic==0.88.0
 
+# Composio (Gmail/Calendar/Slack integrations)
+composio-anthropic==0.18.0
+
 # Scheduler
 apscheduler==3.11.2
 
