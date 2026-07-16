@@ -31,8 +31,10 @@ from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
 from core.safety import ActionType
 from agents.base import BaseAgent
+from agents.devops.actions import ACTIONS, MissingRequiredArg, resolve_args
 from agents.devops.tools import DevOpsTools, build_tools
 from agents.devops.tools.cli_runner import ToolError
+from core.action_parsing import parse_action_line
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -57,8 +59,17 @@ Autonomy level: autonomous
 - You may read, search, query APIs, run diagnostics, and write low-risk configs freely.
 - Before any production deploy, database migration, or resource deletion, you MUST
   describe the action and wait for approval. Format as:
-    ACTION: <type> | <description>
-  Example: ACTION: DEPLOY_PROD | Deploy v1.4.2 to production via Fly.io
+    ACTION: <type> | key=value key2="quoted value" ...
+  These action types execute for real once approved — use key=value args:
+    ACTION: MERGE_PR | number=42 repo=org/x method=squash
+      (method defaults to "rebase" if omitted)
+    ACTION: CREATE_ISSUE | repo=org/x title="Flaky CI on main" body="Steps to reproduce"
+    ACTION: DEPLOY_PROD | service=api
+    ACTION: DEPLOY_STAGING | service=api
+    ACTION: DB_ROLLBACK | deployment_id=abc123 service=api environment=production
+  Other action types (DB_MIGRATE, DELETE_RESOURCE, RESTART_SERVICE, RUN_SCRIPT,
+  CLOSE_ISSUE) still require approval but have no execution handler yet — say so
+  in your own words after proposing them.
 
 {context}
 
@@ -171,8 +182,10 @@ class DevOpsAgent(BaseAgent):
 
     async def _handle_action_proposal(self, chat_id: str, response_text: str) -> str:
         """
-        Intercept ACTION: lines. In autonomous mode most actions proceed
-        immediately — only DESTRUCTIVE actions require approval.
+        Intercept ACTION: lines. Wired types (see agents.devops.actions.ACTIONS)
+        execute the real tool call once approved. Unwired types keep the
+        legacy free-text approval flow and now say so explicitly instead of
+        silently discarding the approved action.
         """
         assert self.safety is not None, "safety required"
         if "ACTION:" not in response_text:
@@ -182,11 +195,71 @@ class DevOpsAgent(BaseAgent):
         action_lines = [line for line in lines if line.strip().startswith("ACTION:")]
 
         for action_line in action_lines:
-            parts = action_line.replace("ACTION:", "").strip().split("|", 1)
-            action_type_str = parts[0].strip().upper() if parts else ""
-            description = parts[1].strip() if len(parts) > 1 else action_line
-
+            action_type_str, parsed_args = parse_action_line(action_line)
             action_type = _ACTION_MAP.get(action_type_str, ActionType.WRITE_HIGH)
+            spec = ACTIONS.get(action_type_str)
+
+            if spec is not None:
+                try:
+                    resolved_args = resolve_args(spec, parsed_args)
+                except MissingRequiredArg as e:
+                    response_text = response_text.replace(
+                        action_line, f"❌ Action failed: missing required argument '{e}'"
+                    )
+                    continue
+
+                description = spec.describe(resolved_args)
+                allowed = await self.safety.check_action(
+                    chat_id=chat_id,
+                    action_type=action_type,
+                    autonomy_level=self.autonomy_level,
+                    description=description,
+                )
+
+                if not allowed:
+                    response_text = response_text.replace(
+                        action_line,
+                        f"⚠️ Action blocked — approval required: _{description}_",
+                    )
+                    log.warning(
+                        "Destructive action blocked",
+                        event="action_blocked",
+                        action=action_type_str,
+                        description=description,
+                    )
+                    continue
+
+                try:
+                    result_text = await spec.execute(self.tools, resolved_args)
+                except ToolError as e:
+                    result_text = f"❌ Action failed: {e}"
+                    log.error(
+                        "Action execution failed",
+                        event="action_exec_failed",
+                        action=action_type_str,
+                        error=str(e),
+                    )
+                except Exception as e:
+                    result_text = f"❌ Action failed: invalid argument — {e}"
+                    log.error(
+                        "Action execution failed with unexpected error",
+                        event="action_exec_error",
+                        action=action_type_str,
+                        error=str(e),
+                    )
+                else:
+                    log.info(
+                        "Action executed",
+                        event="action_executed",
+                        action=action_type_str,
+                    )
+                response_text = response_text.replace(action_line, result_text)
+                continue
+
+            # Legacy path: no ActionSpec registered for this type. Recover the
+            # free-text description the same way the original implementation did.
+            parts = action_line.replace("ACTION:", "").strip().split("|", 1)
+            description = parts[1].strip() if len(parts) > 1 else action_line
 
             allowed = await self.safety.check_action(
                 chat_id=chat_id,
@@ -205,6 +278,16 @@ class DevOpsAgent(BaseAgent):
                     event="action_blocked",
                     action=action_type_str,
                     description=description,
+                )
+            else:
+                response_text = response_text.replace(
+                    action_line,
+                    f"✅ Approved, but no execution handler wired for {action_type_str} yet.",
+                )
+                log.warning(
+                    "Approved action has no execution handler",
+                    event="action_not_wired",
+                    action=action_type_str,
                 )
 
         return response_text
