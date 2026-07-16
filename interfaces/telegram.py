@@ -22,6 +22,7 @@ from telegram.ext import (
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
+from core.routing import parse_agent_tag
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -131,14 +132,7 @@ class TelegramInterface:
 
         log.info("Inbound message", event="inbound", chat_id=chat_id, length=len(text))
 
-        # "@agent ..." prefix routes explicitly to a named agent
-        agent_name = ""
-        if text.startswith("@"):
-            first, _, rest = text.partition(" ")
-            candidate = first[1:].lower().strip()
-            if candidate in self._bus.registered_agents and rest.strip():
-                agent_name = candidate
-                text = rest.strip()
+        agent_name, text = parse_agent_tag(text, self._bus.registered_agents)
 
         event = AgentEvent(
             type=EventType.USER_MESSAGE,

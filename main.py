@@ -34,7 +34,7 @@ from core.memory import Memory
 from core.notifier import CLINotifier, HTTPNotifier, RouterNotifier, TelegramNotifier
 from core.protocols import Message
 from core.safety import Safety
-from core.scheduler import Scheduler, scheduler as _scheduler
+from core.scheduler import scheduler as _scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
 from core.agent_creator import AgentCreator
@@ -105,7 +105,7 @@ async def bootstrap():
     skill_loader = SkillLoader()
     _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
 
-    bus = MessageBus()
+    bus = MessageBus(llm=llm, classifier_model=settings.classifier_model)
     _scheduler.set_bus(bus)
 
     agent_kwargs = dict(

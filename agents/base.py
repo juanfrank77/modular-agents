@@ -45,6 +45,7 @@ class BaseAgent(ABC):
     name: str  # unique identifier, e.g. "business"
     description: str  # used by bus for routing decisions
     autonomy_level: str  # "read_only" | "supervised" | "autonomous"
+    routable: bool = True  # False = never picked by the intent classifier (e.g. echo)
 
     def __init__(
         self,

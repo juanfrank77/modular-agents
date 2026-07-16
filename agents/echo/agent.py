@@ -26,6 +26,7 @@ class EchoAgent(BaseAgent):
     name = "echo"
     description = "Echoes messages back. Used to validate the Phase 1 stack."
     autonomy_level = "read_only"
+    routable = False
 
     async def handle(self, event: AgentEvent) -> AgentResponse:
         if not self._is_authorized(event.chat_id):
