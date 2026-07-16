@@ -39,6 +39,7 @@ class Settings:
     ollama_base_url: str = "http://localhost:11434"
     default_model: str = "claude-sonnet-4.6"
     default_max_tokens: int = 2048
+    classifier_model: str = "claude-haiku-4.6"
 
     # Storage
     db_path: Path = Path("memory/sessions.db")
@@ -190,6 +191,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         # Optional with defaults
         default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
+        classifier_model=_optional("CLASSIFIER_MODEL", "claude-haiku-4.6"),
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),
         db_encryption_key=_optional("DB_ENCRYPTION_KEY", ""),
         memory_context_dir=Path(_optional("MEMORY_CONTEXT_DIR", "memory/context")),

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
+from core.routing import parse_agent_tag
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -55,9 +56,10 @@ class CLIInterface:
         self._safety.pairing.pair_directly(_CLI_CHAT_ID)
 
     def _make_event(self, text: str) -> AgentEvent:
+        agent_name, text = parse_agent_tag(text, self._bus.registered_agents)
         return AgentEvent(
             type=EventType.USER_MESSAGE,
-            agent_name="",
+            agent_name=agent_name,
             chat_id=_CLI_CHAT_ID,
             text=text,
         )

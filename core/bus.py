@@ -22,19 +22,26 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse
+from core.protocols import AgentEvent, AgentResponse, EventType
+from core.intent_classifier import classify_agent
 
 if TYPE_CHECKING:
     from agents.base import BaseAgent
+    from core.protocols import LLMProvider
 
 log = get_logger("bus")
 
 class MessageBus:
-    def __init__(self) -> None:
+    def __init__(
+        self, llm: "LLMProvider | None" = None, classifier_model: str = ""
+    ) -> None:
         # agent_name → agent instance
         self._agents: dict[str, "BaseAgent"] = {}
-        # Maps chat_id → last active agent name (for conversation continuity)
+        # Maps chat_id → last active agent name (fallback when classification
+        # is unavailable or inconclusive)
         self._chat_agent_map: dict[str, str] = {}
+        self._llm = llm
+        self._classifier_model = classifier_model
 
     # ── Registration ──────────────────────────
 
@@ -50,10 +57,11 @@ class MessageBus:
 
         Routing priority:
           1. event.agent_name if explicitly set (scheduled tasks, heartbeats)
-          2. Last agent that handled this chat_id (conversation continuity)
-          3. First registered agent as fallback
+          2. Content-based classifier for untagged user messages
+          3. Last agent that handled this chat_id (conversation continuity)
+          4. First registered agent as fallback
         """
-        agent = self._resolve_agent(event)
+        agent = await self._resolve_agent(event)
         if not agent:
             log.warning("No agent found for event", event="routing_failed",
                         agent_hint=event.agent_name)
@@ -159,18 +167,33 @@ class MessageBus:
 
     # ── Internal ─────────────────────────────
 
-    def _resolve_agent(self, event: AgentEvent) -> "BaseAgent | None":
-        # Explicit routing (scheduled tasks always set agent_name)
+    async def _resolve_agent(self, event: AgentEvent) -> "BaseAgent | None":
+        # Explicit routing always wins: '@tag' from an interface, or the
+        # agent_name scheduled tasks/heartbeats set directly.
         if event.agent_name and event.agent_name in self._agents:
             return self._agents[event.agent_name]
 
-        # Continuity: same chat → same agent
+        # Content-based routing for untagged user messages, when a
+        # classifier LLM is wired up.
+        if event.type is EventType.USER_MESSAGE and event.text and self._llm:
+            candidates = {
+                name: agent.description
+                for name, agent in self._agents.items()
+                if getattr(agent, "routable", True)
+            }
+            if candidates:
+                picked = await classify_agent(
+                    event.text, candidates, self._llm, self._classifier_model
+                )
+                if picked and picked in self._agents:
+                    return self._agents[picked]
+
+        # Fallback: last agent that handled this chat, then first-registered.
         if event.chat_id and event.chat_id in self._chat_agent_map:
             last_agent = self._chat_agent_map[event.chat_id]
             if last_agent in self._agents:
                 return self._agents[last_agent]
 
-        # Fallback: first registered agent
         if self._agents:
             return next(iter(self._agents.values()))
 

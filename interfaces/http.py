@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
+from core.routing import parse_agent_tag
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -127,11 +128,16 @@ class HTTPInterface:
                 response_text = await self._creator.handle(chat_id, req.text)
                 return {"response": response_text, "agent": "creator", "success": True}
 
+            agent_name = req.agent
+            text = req.text
+            if not agent_name:
+                agent_name, text = parse_agent_tag(req.text, self._bus.registered_agents)
+
             event = AgentEvent(
                 type=EventType.USER_MESSAGE,
-                agent_name=req.agent,
+                agent_name=agent_name,
                 chat_id=chat_id,
-                text=req.text,
+                text=text,
             )
             response = await self._bus.publish(event)
 
