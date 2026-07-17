@@ -27,6 +27,7 @@ from core.logger import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import Notifier
+    from core.state_store import StateStore
 
 log = get_logger("safety")
 
@@ -53,11 +54,12 @@ class PairingManager:
 
     MAX_FAILED_ATTEMPTS = 5
 
-    def __init__(self, allowed_ids: list[str]) -> None:
+    def __init__(self, allowed_ids: list[str], state_store: "StateStore | None" = None) -> None:
         self._token = uuid.uuid4().hex  # 32-char cryptographically random token
         self._allowed_ids = set(allowed_ids)
         self._paired: set[str] = set()
         self._failed_attempts: dict[str, int] = {}  # chat_id -> attempt count
+        self._state_store = state_store
 
     @property
     def code(self) -> str:
@@ -73,7 +75,7 @@ class PairingManager:
     def is_locked(self, chat_id: str) -> bool:
         return self._failed_attempts.get(chat_id, 0) >= self.MAX_FAILED_ATTEMPTS
 
-    def try_pair(self, chat_id: str, text: str) -> bool:
+    async def try_pair(self, chat_id: str, text: str) -> bool:
         """Returns True if the text matches the pairing code."""
         # Check if locked
         if self.is_locked(chat_id):
@@ -89,6 +91,9 @@ class PairingManager:
             self._paired.add(chat_id)
             self._failed_attempts.pop(chat_id, None)  # reset on success
             log.info("Chat paired", event="pairing_success", chat_id=chat_id)
+            if self._state_store:
+                await self._state_store.save_paired_chat(chat_id)
+                await self._state_store.delete_failed_attempts(chat_id)
             return True
 
         # Increment failed attempts
@@ -99,13 +104,30 @@ class PairingManager:
             chat_id=chat_id,
             attempts=self._failed_attempts[chat_id],
         )
+        if self._state_store:
+            await self._state_store.save_failed_attempts(chat_id, self._failed_attempts[chat_id])
         return False
 
-    def pair_directly(self, chat_id: str) -> None:
+    async def pair_directly(self, chat_id: str) -> None:
         """Pair a chat_id without requiring the code — for trusted local interfaces."""
         self._paired.add(chat_id)
         self._failed_attempts.pop(chat_id, None)
         log.info("Chat paired directly", event="pairing_direct", chat_id=chat_id)
+        if self._state_store:
+            await self._state_store.save_paired_chat(chat_id)
+
+    async def load(self) -> None:
+        """Rehydrate paired chats and lockout counters from the state store.
+        Called once at startup, after construction."""
+        if not self._state_store:
+            return
+        self._paired = await self._state_store.load_paired_chats()
+        self._failed_attempts = await self._state_store.load_failed_attempts()
+        log.info(
+            "Pairing state loaded",
+            event="pairing_loaded",
+            paired_count=len(self._paired),
+        )
 
 
 # ──────────────────────────────────────────────
@@ -221,11 +243,13 @@ class ApprovalGate:
         self,
         notifier: "Notifier",
         timeouts: dict[str, int] | None = None,
+        state_store: "StateStore | None" = None,
     ) -> None:
         self._notifier = notifier
         self._timeouts: dict[str, int] = timeouts or {}
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, bool] = {}
+        self._state_store = state_store
 
     async def request_approval(
         self,
@@ -255,6 +279,14 @@ class ApprovalGate:
         event = asyncio.Event()
         self._pending[approval_id] = event
 
+        if self._state_store:
+            await self._state_store.save_pending_approval(
+                approval_id,
+                chat_id,
+                description,
+                action_type.name if action_type else "",
+            )
+
         await self._notifier.send_with_buttons(
             chat_id=chat_id,
             text=f"*Approval Required*\n\n{description}",
@@ -279,8 +311,32 @@ class ApprovalGate:
         finally:
             self._pending.pop(approval_id, None)
             self._results.pop(approval_id, None)
+            if self._state_store:
+                await self._state_store.delete_pending_approval(approval_id)
 
         return approved
+
+    async def notify_orphaned(self) -> None:
+        """Tell users about approvals that were pending when the process
+        died mid-wait (normal completion always deletes its row — anything
+        still here means the request was never resolved). Called once at
+        startup. Never re-executes or resumes the original action."""
+        if not self._state_store:
+            return
+        orphaned = await self._state_store.load_pending_approvals()
+        for row in orphaned:
+            await self._notifier.send(
+                row["chat_id"],
+                f"⚠️ Your approval request for _{row['description']}_ expired "
+                f"because the bot restarted. Please resend it.",
+            )
+            log.info(
+                "Notified orphaned approval",
+                event="approval_orphaned",
+                approval_id=row["approval_id"],
+                chat_id=row["chat_id"],
+            )
+        await self._state_store.clear_pending_approvals()
 
     def resolve(self, approval_id: str, approved: bool) -> None:
         """Called from Telegram callback handler when user clicks a button."""
@@ -311,9 +367,10 @@ class Safety:
         approval_timeouts: dict[str, int] | None = None,
         extra_blocked_patterns: list[str] | None = None,
         rate_limit_rpm: int = 20,
+        state_store: "StateStore | None" = None,
     ) -> None:
-        self.pairing = PairingManager(allowed_ids)
-        self.gate = ApprovalGate(notifier, timeouts=approval_timeouts)
+        self.pairing = PairingManager(allowed_ids, state_store=state_store)
+        self.gate = ApprovalGate(notifier, timeouts=approval_timeouts, state_store=state_store)
         self.rate_limiter = RateLimiter(rpm=rate_limit_rpm)
         # Compile extra patterns from settings
         self._extra_patterns = []

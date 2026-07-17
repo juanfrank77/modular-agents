@@ -14,8 +14,8 @@ Endpoints:
   GET  /agents        — list registered agents
   GET  /health        — system health (no auth required)
 
-Session tokens expire after SESSION_TTL_HOURS (default: 24) and are rejected
-with 401. Sessions are in-memory and cleared on restart.
+Session tokens expire after SESSION_TTL_HOURS (default: 24). Sessions
+persist across restarts via StateStore, with expired tokens pruned at load time.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from core.notifier import HTTPNotifier
     from core.safety import Safety
     from core.agent_creator import AgentCreator
+    from core.state_store import StateStore
 
 log = get_logger("http_interface")
 
@@ -62,14 +63,35 @@ class HTTPInterface:
         creator: "AgentCreator",
         notifier: "HTTPNotifier",
         settings: "Settings",
+        state_store: "StateStore | None" = None,
     ) -> None:
         self._bus = bus
         self._safety = safety
         self._creator = creator
         self._notifier = notifier
         self._settings = settings
+        self._state_store = state_store
         self._sessions: dict[str, tuple[str, float]] = {}  # token → (chat_id, created_at_ts)
         self.app = self._build_app()
+
+    async def load_sessions(self) -> None:
+        """Rehydrate session tokens from the state store, dropping any past
+        their TTL. Called once at startup, after construction."""
+        if not self._state_store:
+            return
+        ttl_seconds = self._settings.session_ttl_hours * 3600
+        now = datetime.now(timezone.utc).timestamp()
+        loaded = await self._state_store.load_http_sessions()
+        for token, (chat_id, created_at) in loaded.items():
+            if (now - created_at) < ttl_seconds:
+                self._sessions[token] = (chat_id, created_at)
+            else:
+                await self._state_store.delete_http_session(token)
+        log.info(
+            "HTTP sessions loaded",
+            event="http_sessions_loaded",
+            count=len(self._sessions),
+        )
 
     def _is_session_valid(self, token: str) -> bool:
         """Check if token exists and hasn't expired."""
@@ -91,7 +113,9 @@ class HTTPInterface:
             chat_id = f"http_{token[:8]}"
             created_at = datetime.now(timezone.utc).timestamp()
             self._sessions[token] = (chat_id, created_at)
-            self._safety.pairing.pair_directly(chat_id)
+            if self._state_store:
+                await self._state_store.save_http_session(token, chat_id, created_at)
+            await self._safety.pairing.pair_directly(chat_id)
             log.info("HTTP session paired", event="http_paired", chat_id=chat_id)
             return {"token": token}
 
@@ -101,6 +125,8 @@ class HTTPInterface:
             if creds is None or creds.credentials not in self._sessions:
                 raise HTTPException(status_code=401, detail="unauthorized")
             del self._sessions[creds.credentials]
+            if self._state_store:
+                await self._state_store.delete_http_session(creds.credentials)
             log.info("HTTP session deleted", event="http_session_deleted")
             return {"status": "revoked"}
 

@@ -28,12 +28,16 @@ from core.intent_classifier import classify_agent
 if TYPE_CHECKING:
     from agents.base import BaseAgent
     from core.protocols import LLMProvider
+    from core.state_store import StateStore
 
 log = get_logger("bus")
 
 class MessageBus:
     def __init__(
-        self, llm: "LLMProvider | None" = None, classifier_model: str = ""
+        self,
+        llm: "LLMProvider | None" = None,
+        classifier_model: str = "",
+        state_store: "StateStore | None" = None,
     ) -> None:
         # agent_name → agent instance
         self._agents: dict[str, "BaseAgent"] = {}
@@ -42,6 +46,7 @@ class MessageBus:
         self._chat_agent_map: dict[str, str] = {}
         self._llm = llm
         self._classifier_model = classifier_model
+        self._state_store = state_store
 
     # ── Registration ──────────────────────────
 
@@ -70,6 +75,8 @@ class MessageBus:
         # Track which agent is handling this chat
         if event.chat_id:
             self._chat_agent_map[event.chat_id] = agent.name
+            if self._state_store:
+                await self._state_store.save_chat_agent(event.chat_id, agent.name)
 
         log.info(
             "Routing event",
@@ -198,3 +205,15 @@ class MessageBus:
             return next(iter(self._agents.values()))
 
         return None
+
+    async def load_chat_agent_map(self) -> None:
+        """Rehydrate the chat->agent continuity map from the state store.
+        Called once at startup, after all agents are registered."""
+        if not self._state_store:
+            return
+        self._chat_agent_map = await self._state_store.load_chat_agent_map()
+        log.info(
+            "Chat agent map loaded",
+            event="chat_agent_map_loaded",
+            count=len(self._chat_agent_map),
+        )
