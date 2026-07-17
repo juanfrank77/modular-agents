@@ -37,6 +37,7 @@ from core.safety import Safety
 from core.scheduler import scheduler as _scheduler
 from core.skill_loader import SkillLoader
 from core.storage import Storage
+from core.state_store import StateStore
 from core.agent_creator import AgentCreator
 from agents.business.agent import BusinessAgent
 from agents.devops.agent import DevOpsAgent
@@ -80,6 +81,9 @@ async def bootstrap():
     storage = Storage(settings.db_path, settings.db_encryption_key)
     await storage.init()
 
+    state_store = StateStore(settings.db_path, settings.db_encryption_key)
+    await state_store.init()
+
     telegram_notifier = TelegramNotifier(token=settings.telegram_token)
     cli_notifier = CLINotifier()
     http_notifier = HTTPNotifier()
@@ -100,12 +104,15 @@ async def bootstrap():
         approval_timeouts=settings.approval_timeouts,
         extra_blocked_patterns=settings.extra_blocked_patterns,
         rate_limit_rpm=settings.rate_limit_rpm,
+        state_store=state_store,
     )
+    await safety.pairing.load()
 
     skill_loader = SkillLoader()
     _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
+    _scheduler.configure_jobstore(settings.scheduler_db_path)
 
-    bus = MessageBus(llm=llm, classifier_model=settings.classifier_model)
+    bus = MessageBus(llm=llm, classifier_model=settings.classifier_model, state_store=state_store)
     _scheduler.set_bus(bus)
 
     agent_kwargs = dict(
@@ -145,6 +152,9 @@ async def bootstrap():
                 error=str(e),
             )
 
+    await bus.load_chat_agent_map()
+    await safety.gate.notify_orphaned()
+
     health = await bus.health_check_all()
     all_healthy = True
     for agent_name, healthy in health.items():
@@ -159,7 +169,7 @@ async def bootstrap():
 
     log.info("Bootstrap complete", event="startup_complete", agents=bus.registered_agents)
 
-    return bus, safety, creator, cli_notifier, http_notifier
+    return bus, safety, creator, cli_notifier, http_notifier, state_store
 
 
 # ──────────────────────────────────────────────
@@ -203,7 +213,7 @@ async def _run_http_safe(interface: HTTPInterface) -> None:
 
 
 async def main() -> None:
-    bus, safety, creator, cli_notifier, http_notifier = await bootstrap()
+    bus, safety, creator, cli_notifier, http_notifier, state_store = await bootstrap()
 
     print(f"\n{'=' * 52}")
     print(f"  PAIRING TOKEN:  {safety.pairing.code}")
@@ -218,8 +228,10 @@ async def main() -> None:
         bus=bus, safety=safety, creator=creator, notifier=cli_notifier
     )
     http_interface = HTTPInterface(
-        bus=bus, safety=safety, creator=creator, notifier=http_notifier, settings=settings
+        bus=bus, safety=safety, creator=creator, notifier=http_notifier, settings=settings,
+        state_store=state_store,
     )
+    await http_interface.load_sessions()
 
     _scheduler.start()
     try:

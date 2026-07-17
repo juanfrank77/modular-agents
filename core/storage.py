@@ -24,6 +24,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from core.db import apply_encryption_key
 from core.logger import get_logger
 from core.protocols import Message
 
@@ -36,17 +37,11 @@ class Storage:
         self._db_path_str = str(db_path)
         self._encryption_key = encryption_key
 
-    async def _apply_encryption_key(self, db) -> None:
-        """Apply SQLCipher encryption key if configured."""
-        if self._encryption_key:
-            escaped_key = self._encryption_key.replace("'", "''")
-            await db.execute(f"PRAGMA key = '{escaped_key}'")
-
     async def init(self) -> None:
         """Create tables if they don't exist. Call once at startup."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             await db.executescript("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id          TEXT PRIMARY KEY,
@@ -78,7 +73,7 @@ class Storage:
     async def create_session(self, agent: str) -> str:
         session_id = str(uuid.uuid4())
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             await db.execute(
                 "INSERT INTO sessions (id, agent, started_at) VALUES (?, ?, ?)",
                 (session_id, agent, datetime.now(timezone.utc).isoformat()),
@@ -94,7 +89,7 @@ class Storage:
         """
         session_id = f"{agent}_{chat_id}"
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             cursor = await db.execute(
                 "SELECT id FROM sessions WHERE id = ?", (session_id,)
             )
@@ -114,7 +109,7 @@ class Storage:
     ) -> None:
         msg_id = str(uuid.uuid4())
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             await db.execute(
                 "INSERT INTO messages (id, session_id, agent, role, content, ts) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -126,7 +121,7 @@ class Storage:
         self, session_id: str, limit: int = 50
     ) -> list[Message]:
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             cursor = await db.execute(
                 "SELECT role, content, agent, ts FROM messages "
                 "WHERE session_id = ? ORDER BY ts DESC LIMIT ?",
@@ -145,7 +140,7 @@ class Storage:
         """Simple keyword search across message content."""
         like = f"%{query}%"
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             if agent:
                 cursor = await db.execute(
                     "SELECT role, content, agent, ts FROM messages "
@@ -168,7 +163,7 @@ class Storage:
 
     async def save_session_summary(self, session_id: str, summary: str) -> None:
         async with aiosqlite.connect(self._db_path_str) as db:
-            await self._apply_encryption_key(db)
+            await apply_encryption_key(db, self._encryption_key)
             await db.execute(
                 "UPDATE sessions SET summary = ? WHERE id = ?",
                 (summary, session_id),

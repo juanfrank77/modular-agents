@@ -20,6 +20,9 @@ composio-anthropic==0.18.0
 # Scheduler
 apscheduler==3.11.2
 
+# Scheduler persistence (SQLAlchemyJobStore)
+sqlalchemy==2.0.36
+
 # OpenAI Compatible
 openai==2.30.0
 

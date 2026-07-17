@@ -122,6 +122,9 @@ class TestHTTPInterfaceTagParsing:
 
         safety = MagicMock()
         safety.pairing.code = "000000"
+        # pair_directly is async as of Task 3 (core/safety.py) — a plain
+        # MagicMock isn't awaitable, so it must be an AsyncMock here.
+        safety.pairing.pair_directly = AsyncMock()
 
         settings = MagicMock()
         settings.session_ttl_hours = 24

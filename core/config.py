@@ -49,6 +49,7 @@ class Settings:
 
     # Scheduler / heartbeat
     heartbeat_interval_minutes: int = 30
+    scheduler_db_path: Path = Path("memory/scheduler.db")
 
     # Agent autonomy overrides (can be set per-agent in .env)
     business_agent_autonomy: str = "supervised"
@@ -199,6 +200,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
             _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")
         ),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
+        scheduler_db_path=Path(_optional("SCHEDULER_DB_PATH", "memory/scheduler.db")),
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),

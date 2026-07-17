@@ -112,7 +112,7 @@ class TelegramInterface:
                     "🔒 Too many failed pairing attempts. Restart the bot to try again.",
                 )
                 return
-            if self._safety.pairing.try_pair(chat_id, text):
+            if await self._safety.pairing.try_pair(chat_id, text):
                 await self._bus.send_notification(chat_id, "✅ Paired. You can now use the bot.")
                 log.info("Chat paired via message", event="paired", chat_id=chat_id)
             else:

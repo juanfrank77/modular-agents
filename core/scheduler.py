@@ -21,8 +21,10 @@ Usage:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable, Coroutine, TYPE_CHECKING
 
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -35,6 +37,31 @@ if TYPE_CHECKING:
 
 log = get_logger("scheduler")
 
+# Module-level registry so persisted (pickled) jobs can find the live bus
+# after a restart — a bound method or closure over `bus` isn't picklable,
+# but a plain function looking up a module global is.
+_bus_registry: "MessageBus | None" = None
+
+
+def _set_bus_registry(bus: "MessageBus") -> None:
+    global _bus_registry
+    _bus_registry = bus
+
+
+async def _fire_cron_job(agent_name: str, chat_id: str, task: str) -> None:
+    """The picklable target every add_cron_job()-registered job points at."""
+    if _bus_registry is None:
+        log.warning("Cron job fired but no bus available", event="cron_no_bus", agent=agent_name)
+        return
+    event = AgentEvent(
+        type=EventType.SCHEDULED_TASK,
+        agent_name=agent_name,
+        chat_id=chat_id,
+        data={"task": task},
+    )
+    log.info("Cron job firing", event="cron_fire", agent=agent_name, task=task)
+    await _bus_registry.publish(event)
+
 
 class Scheduler:
     def __init__(self, heartbeat_minutes: int = 30) -> None:
@@ -45,6 +72,20 @@ class Scheduler:
     def set_bus(self, bus: "MessageBus") -> None:
         """Set after construction to break the circular dependency with the bus."""
         self._bus = bus
+        _set_bus_registry(bus)
+
+    def configure_jobstore(self, db_path: Path) -> None:
+        """Swap the default in-memory jobstore for a persistent one backed by
+        SQLite. Must be called before any add_cron_job()/add_job() calls —
+        jobs registered before this point live only in the old jobstore.
+        Uses its own, unencrypted database file (never settings.db_path):
+        SQLAlchemyJobStore's synchronous driver can't open a SQLCipher-
+        encrypted file, and job data isn't sensitive."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._scheduler.add_jobstore(
+            SQLAlchemyJobStore(url=f"sqlite:///{db_path}"), alias="default"
+        )
+        log.info("Scheduler jobstore configured", event="jobstore_configured", db_path=str(db_path))
 
     # ── Low-level: pass your own callback ─────
     def register_schedule(
@@ -80,34 +121,26 @@ class Scheduler:
             event: The AgentEvent to publish when the job fires
             bus:   Optional bus override. Falls back to self._bus.
         """
-        effective_bus = bus or self._bus
+        if bus is not None:
+            self.set_bus(bus)
 
-        async def _fire() -> None:
-            b = effective_bus or self._bus
-            if not b:
-                log.warning(
-                    "Cron job fired but no bus available",
-                    event="cron_no_bus",
-                    agent=event.agent_name,
-                )
-                return
-            log.info(
-                "Cron job firing",
-                event="cron_fire",
-                agent=event.agent_name,
-                task=event.data.get("task", ""),
-            )
-            await b.publish(event)
-
-        job_id = f"{event.agent_name}_{event.data.get('task', cron)}"
+        task = event.data.get("task", cron)
+        job_id = f"{event.agent_name}_{task}"
         trigger = CronTrigger.from_crontab(cron)
-        self._scheduler.add_job(_fire, trigger, id=job_id, replace_existing=True)
+        self._scheduler.add_job(
+            _fire_cron_job,
+            trigger,
+            id=job_id,
+            replace_existing=True,
+            args=[event.agent_name, event.chat_id, task],
+            misfire_grace_time=3600,
+        )
         log.info(
             "Cron job registered",
             event="cron_add",
             agent=event.agent_name,
             cron=cron,
-            task=event.data.get("task", ""),
+            task=task,
         )
 
     # ── Heartbeat ─────────────────────────────

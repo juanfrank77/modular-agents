@@ -4,7 +4,7 @@ interfaces/cli.py
 Interactive terminal REPL interface. Reads stdin, publishes to the bus,
 prints responses via CLINotifier.
 
-The "cli" chat_id is pre-paired at construction — no pairing code required.
+The "cli" chat_id is pre-paired when run() starts — no pairing code required.
 
 Commands supported:
   /planmode [agent]  — toggle plan mode
@@ -52,8 +52,6 @@ class CLIInterface:
         self._safety = safety
         self._creator = creator
         self._notifier = notifier
-        # Auto-pair the CLI chat_id — local users are trusted
-        self._safety.pairing.pair_directly(_CLI_CHAT_ID)
 
     def _make_event(self, text: str) -> AgentEvent:
         agent_name, text = parse_agent_tag(text, self._bus.registered_agents)
@@ -65,6 +63,9 @@ class CLIInterface:
         )
 
     async def run(self) -> None:
+        # Auto-pair the CLI chat_id — local users are trusted
+        await self._safety.pairing.pair_directly(_CLI_CHAT_ID)
+
         loop = asyncio.get_event_loop()
         print("\n[CLI ready — type messages below, or 'exit' to quit]")
         print("> ", end="", flush=True)
