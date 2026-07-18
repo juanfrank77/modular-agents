@@ -82,6 +82,8 @@ class Scheduler:
         SQLAlchemyJobStore's synchronous driver can't open a SQLCipher-
         encrypted file, and job data isn't sensitive."""
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        if "default" in self._scheduler._jobstores:
+            self._scheduler.remove_jobstore("default")
         self._scheduler.add_jobstore(
             SQLAlchemyJobStore(url=f"sqlite:///{db_path}"), alias="default"
         )
