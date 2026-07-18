@@ -250,7 +250,7 @@ async def test_safety() -> None:
         ok("Allowlisted chat is pre-paired")
 
         code = safety.pairing.code
-        assert safety.pairing.try_pair("456", code)
+        assert await safety.pairing.try_pair("456", code)
         assert safety.pairing.is_paired("456")
         ok(f"Pairing code works (code={code})")
 
@@ -894,7 +894,7 @@ async def test_safety_non_telegram() -> None:
 
         safety = Safety(notifier=router, allowed_ids=[])
         # Pre-pair
-        safety.pairing.pair_directly("cli")
+        await safety.pairing.pair_directly("cli")
         assert safety.pairing.is_paired("cli")
         ok("PairingManager.pair_directly() pairs a chat_id")
 
@@ -905,7 +905,7 @@ async def test_safety_non_telegram() -> None:
         ok("ApprovalGate auto-approves non-Telegram supervised actions")
 
 # Telegram chat_id still goes to approval gate
-        safety.pairing.pair_directly("123456789")
+        await safety.pairing.pair_directly("123456789")
         # Mock the gate to avoid waiting for real button press
         safety.gate._notifier = AsyncMock()
         safety.gate._notifier.send_with_buttons = AsyncMock()
