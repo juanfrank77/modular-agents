@@ -1,4 +1,4 @@
-# Semi Autonomous Modular Agents System
+# Modular Agents System
 
 A system for building your own personal AI assistant with modular, domain-specific agents — each expert in their own area, sharing a common infrastructure backbone.
 
