@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import httpx
+from typing import Any
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -25,7 +26,7 @@ from tenacity import (
 
 from core.config import settings
 from core.logger import get_logger
-from core.protocols import LLMProvider, Message
+from core.protocols import LLMProvider, LLMResult, Message, ToolCall, ToolDef, ToolResultInput
 
 log = get_logger("llm")
 
@@ -116,6 +117,8 @@ class KiloLLM:
 class AnthropicLLM:
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
 
+    supports_tools = True
+
     def __init__(self, api_key: str) -> None:
         self._client = AsyncAnthropic(api_key=api_key)
 
@@ -126,19 +129,39 @@ class AnthropicLLM:
         system: str,
         model: str = "",
         max_tokens: int = 0,
-    ) -> str:
+        tools: list["ToolDef"] | None = None,
+        tool_result: "ToolResultInput | None" = None,
+        raw_assistant: Any = None,
+    ) -> "LLMResult":
         model = model or settings.default_model
         max_tokens = max_tokens or settings.default_max_tokens
 
-        # Filter to only user/assistant roles for the API
         api_messages = [
             {"role": m.role, "content": m.content}
             for m in messages
             if m.role in ("user", "assistant")
         ]
 
+        if tool_result is not None and raw_assistant is not None:
+            api_messages.append({"role": "assistant", "content": raw_assistant})
+            api_messages.append({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_result.tool_call_id,
+                    "content": tool_result.content,
+                }],
+            })
+
         if not api_messages:
-            return ""
+            return LLMResult()
+
+        extra_kwargs: dict[str, Any] = {}
+        if tools:
+            extra_kwargs["tools"] = [
+                {"name": t.name, "description": t.description, "input_schema": t.parameters}
+                for t in tools
+            ]
 
         with log.timer() as t:
             response = await self._client.messages.create(
@@ -146,12 +169,17 @@ class AnthropicLLM:
                 max_tokens=max_tokens,
                 system=system,
                 messages=api_messages,  # type: ignore
+                **extra_kwargs,
             )
 
-        # Extract text from response
-        text = response.content[0].text if response.content else ""
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                tool_calls.append(ToolCall(id=block.id, name=block.name, args=block.input))
 
-        # Log token usage
         usage = response.usage
         log.info(
             "LLM call complete",
@@ -162,7 +190,11 @@ class AnthropicLLM:
             duration_ms=t.ms,
         )
 
-        return text
+        return LLMResult(
+            text="".join(text_parts),
+            tool_calls=tool_calls,
+            raw_assistant=list(response.content) if tool_calls else None,
+        )
 
     async def summarize(self, messages: list[Message]) -> str:
         """Summarize a conversation for session compaction."""
@@ -171,7 +203,8 @@ class AnthropicLLM:
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
-        return await self.complete(messages, system=system, max_tokens=512)
+        result = await self.complete(messages, system=system, max_tokens=512)
+        return result.text
 
 class OpenRouterLLM:
     """Implements LLMProvider using OpenRouter's OpenAI-compatible endpoint."""
