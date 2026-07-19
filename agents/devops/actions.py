@@ -25,6 +25,8 @@ class MissingRequiredArg(Exception):
 class ActionSpec:
     required: list[str]
     defaults: dict[str, str]
+    schema: dict[str, dict]
+    description: str
     describe: Callable[[dict[str, str]], str]
     execute: Callable[["DevOpsTools", dict[str, str]], Awaitable[str]]
 
@@ -81,30 +83,56 @@ ACTIONS: dict[str, ActionSpec] = {
     "MERGE_PR": ActionSpec(
         required=["number", "repo"],
         defaults={"method": "rebase"},
+        schema={
+            "number": {"type": "integer", "description": "PR number"},
+            "repo": {"type": "string", "description": "owner/repo, e.g. org/x"},
+            "method": {"type": "string", "enum": ["merge", "squash", "rebase"]},
+        },
+        description="Enable auto-merge for a GitHub pull request.",
         describe=lambda a: f"Merge PR #{a['number']} in {a['repo']} ({a['method']})",
         execute=_run_merge_pr,
     ),
     "CREATE_ISSUE": ActionSpec(
         required=["repo", "title"],
         defaults={"body": ""},
+        schema={
+            "repo": {"type": "string", "description": "owner/repo, e.g. org/x"},
+            "title": {"type": "string", "description": "Issue title"},
+            "body": {"type": "string", "description": "Issue body"},
+        },
+        description="Create a GitHub issue.",
         describe=lambda a: f"Create issue in {a['repo']}: {a['title']}",
         execute=_run_create_issue,
     ),
     "DEPLOY_PROD": ActionSpec(
         required=[],
         defaults={"service": "", "environment": "production"},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+        },
+        description="Deploy a service to production via Railway.",
         describe=lambda a: f"Deploy {_label(a, 'service')} → production",
         execute=_run_deploy,
     ),
     "DEPLOY_STAGING": ActionSpec(
         required=[],
         defaults={"service": "", "environment": "staging"},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+        },
+        description="Deploy a service to staging via Railway.",
         describe=lambda a: f"Deploy {_label(a, 'service')} → staging",
         execute=_run_deploy,
     ),
     "DB_ROLLBACK": ActionSpec(
         required=["deployment_id"],
         defaults={"service": "", "environment": ""},
+        schema={
+            "deployment_id": {"type": "string", "description": "Railway deployment ID to roll back to"},
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+        },
+        description="Roll back a Railway deployment.",
         describe=lambda a: f"Roll back {_label(a, 'service')} to {a['deployment_id']}",
         execute=_run_rollback,
     ),
