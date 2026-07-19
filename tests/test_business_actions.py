@@ -120,3 +120,18 @@ class TestDraft:
         result = await spec.execute(tools, resolved)
         tools.gmail.draft_reply.assert_called_once_with(email_id="msg_123", body="Thanks!")
         assert result == "✅ Draft reply created for msg_123"
+
+
+class TestActionSpecHasToolSchema:
+    def test_every_action_has_schema_and_description(self):
+        for name, spec in ACTIONS.items():
+            assert spec.description, f"{name} missing description"
+            assert isinstance(spec.schema, dict), f"{name} missing schema dict"
+            for key in spec.required:
+                assert key in spec.schema, f"{name} required key '{key}' missing from schema"
+
+    def test_send_email_schema_shape(self):
+        spec = ACTIONS["SEND_EMAIL"]
+        assert spec.schema["to"]["type"] == "string"
+        assert spec.schema["subject"]["type"] == "string"
+        assert spec.schema["body"]["type"] == "string"

@@ -154,3 +154,18 @@ class TestDbRollback:
         spec = ACTIONS["DB_ROLLBACK"]
         with pytest.raises(MissingRequiredArg):
             resolve_args(spec, {"service": "api"})
+
+
+class TestActionSpecHasToolSchema:
+    def test_every_action_has_schema_and_description(self):
+        for name, spec in ACTIONS.items():
+            assert spec.description, f"{name} missing description"
+            assert isinstance(spec.schema, dict), f"{name} missing schema dict"
+            for key in spec.required:
+                assert key in spec.schema, f"{name} required key '{key}' missing from schema"
+
+    def test_merge_pr_schema_shape(self):
+        spec = ACTIONS["MERGE_PR"]
+        assert spec.schema["number"]["type"] == "integer"
+        assert spec.schema["repo"]["type"] == "string"
+        assert spec.schema["method"]["enum"] == ["merge", "squash", "rebase"]
