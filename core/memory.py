@@ -392,7 +392,7 @@ class Memory:
             if not content:
                 continue
 
-            consolidated = await self._llm.complete(
+            consolidated = (await self._llm.complete(
                 messages=[Message(
                     role="user",
                     content=(
@@ -414,7 +414,7 @@ class Memory:
                     "Return only the rewritten content."
                 ),
                 max_tokens=512,
-            )
+            )).text
 
             if consolidated.strip():
                 sol_file.write_text(consolidated.strip(), encoding="utf-8")

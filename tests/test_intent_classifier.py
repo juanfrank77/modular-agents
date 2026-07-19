@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from core.intent_classifier import classify_agent
+from core.protocols import LLMResult
 
 
 class _FakeLLM:
@@ -21,11 +22,11 @@ class _FakeLLM:
         self._raise_exc = raise_exc
         self.calls: list[tuple] = []
 
-    async def complete(self, messages, system, model="", max_tokens=1024):
+    async def complete(self, messages, system, model="", max_tokens=1024, **kwargs):
         self.calls.append((messages, system, model, max_tokens))
         if self._raise_exc:
             raise self._raise_exc
-        return self._reply
+        return LLMResult(text=self._reply)
 
     async def summarize(self, messages):
         return ""

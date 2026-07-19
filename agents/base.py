@@ -115,13 +115,12 @@ class BaseAgent(ABC):
         combined_system = _PLAN_PROMPT + ("\n\n" + agent_system if agent_system else "")
 
         # Phase 1 — generate the plan
-        llm_response = await self.llm.complete(
+        llm_result = await self.llm.complete(
             messages=[Message(role="user", content=event.text)],
             system=combined_system,
             max_tokens=512,
         )
-        # llm.complete() returns a str per the LLMProvider protocol
-        plan_text = llm_response if isinstance(llm_response, str) else str(llm_response)
+        plan_text = llm_result.text
 
         # Guard: truncate plan text to fit Telegram's 4096-char limit
         MAX_TELEGRAM = 3800  # leave room for "Approval Required\n\n" prefix

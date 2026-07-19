@@ -123,13 +123,13 @@ class ProjectsAgent(BaseAgent):
         assert self.memory is not None, "memory required"
 
         projects_md = await self.memory.get_context("projects")
-        parsed = await self.llm.complete(
+        parsed = (await self.llm.complete(
             messages=[Message(role="user", content=_PARSE_UPDATE_PROMPT.format(
                 text=event.text, projects=projects_md
             ))],
             system="You extract structured data. Output only the requested lines.",
             max_tokens=100,
-        )
+        )).text
 
         project, note = _parse_update(parsed)
         if not project or not note:
@@ -202,7 +202,7 @@ class ProjectsAgent(BaseAgent):
             role="user",
             content=f"{event.text}\n\n(Per-project momentum data:\n{momentum})",
         )]
-        response_text = await self.llm.complete(messages=messages, system=system)
+        response_text = (await self.llm.complete(messages=messages, system=system)).text
         await self.memory.save_message(session_id, "assistant", response_text, self.name)
         return await self.reply(event, response_text)
 
@@ -225,9 +225,9 @@ class ProjectsAgent(BaseAgent):
             f"Projects:\n<context>\n{projects_md}\n</context>\n\n"
             f"Momentum data:\n{momentum}"
         )
-        kickoff = await self.llm.complete(
+        kickoff = (await self.llm.complete(
             messages=[Message(role="user", content=prompt)], system=system
-        )
+        )).text
 
         msg = f"🗂 *Weekly Kickoff*\n\n{kickoff}"
         for chat_id in self.settings.telegram_allowed_chat_ids:

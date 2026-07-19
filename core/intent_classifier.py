@@ -45,7 +45,7 @@ async def classify_agent(
     system = _SYSTEM_TEMPLATE.format(agent_list=agent_list)
 
     try:
-        reply = await llm.complete(
+        result = await llm.complete(
             messages=[Message(role="user", content=text)],
             system=system,
             model=model,
@@ -57,7 +57,7 @@ async def classify_agent(
         )
         return None
 
-    candidate = reply.strip().lower().strip(".")
+    candidate = result.text.strip().lower().strip(".")
     if candidate in agents:
         return candidate
 
@@ -68,6 +68,6 @@ async def classify_agent(
             return name
 
     log.warning(
-        "Classifier returned unmatched agent", event="classify_no_match", reply=reply
+        "Classifier returned unmatched agent", event="classify_no_match", reply=result.text
     )
     return None

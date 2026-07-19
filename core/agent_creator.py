@@ -562,7 +562,7 @@ class AgentCreator:
             skills=skills_text,
         )
 
-        return await self._llm.complete(
+        result = await self._llm.complete(
             messages=[Message(role="user", content=prompt)],
             system=(
                 "You are an expert Python developer. Respond ONLY with valid JSON. "
@@ -571,6 +571,7 @@ class AgentCreator:
             ),
             max_tokens=4096,
         )
+        return result.text
 
     async def _send_progress(self, session: WizardSession, text: str) -> None:
         """Hook for sending intermediate progress messages. No-op here —
