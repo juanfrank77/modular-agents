@@ -65,7 +65,13 @@ _llm_retry = retry(
 
 
 def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
-    """Build the `tools=` kwarg for an OpenAI-compatible chat.completions.create call."""
+    """
+    Build the `tools=` (+ `parallel_tool_calls=`) kwargs for an OpenAI-compatible
+    chat.completions.create call. v1's contract is single-tool-call-per-turn, so
+    when tools are offered we also disable parallel tool calls at the API level —
+    a multi-tool-call turn would otherwise crash the continuation request (only
+    one tool_result is ever sent back per turn).
+    """
     if not tools:
         return {}
     return {
@@ -79,7 +85,8 @@ def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
                 },
             }
             for t in tools
-        ]
+        ],
+        "parallel_tool_calls": False,
     }
 
 
@@ -225,6 +232,13 @@ class AnthropicLLM:
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
+            # v1's contract is single-tool-call-per-turn — disable parallel tool
+            # use so the model never returns more tool_use blocks in one turn
+            # than the continuation request can balance with tool_results.
+            extra_kwargs["tool_choice"] = {
+                "type": "auto",
+                "disable_parallel_tool_use": True,
+            }
 
         with log.timer() as t:
             response = await self._client.messages.create(

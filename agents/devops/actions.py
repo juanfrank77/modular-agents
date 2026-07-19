@@ -11,7 +11,7 @@ orchestration flow in agent.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
     from agents.devops.tools import DevOpsTools
@@ -27,11 +27,11 @@ class ActionSpec:
     defaults: dict[str, str]
     schema: dict[str, dict]
     description: str
-    describe: Callable[[dict[str, str]], str]
-    execute: Callable[["DevOpsTools", dict[str, str]], Awaitable[str]]
+    describe: Callable[[dict[str, Any]], str]
+    execute: Callable[["DevOpsTools", dict[str, Any]], Awaitable[str]]
 
 
-def resolve_args(spec: ActionSpec, parsed_args: dict[str, str]) -> dict[str, str]:
+def resolve_args(spec: ActionSpec, parsed_args: dict[str, Any]) -> dict[str, Any]:
     """Merge spec.defaults under parsed_args, then verify all required keys present."""
     resolved = {**spec.defaults, **parsed_args}
     for key in spec.required:

@@ -89,6 +89,30 @@ class TestAnthropicToolCalling:
             {"name": "MERGE_PR", "description": "Merge a PR.",
              "input_schema": {"type": "object", "properties": {}, "required": []}}
         ]
+        # v1 is single-tool-call-per-turn: parallel tool use must be disabled
+        # at the API level whenever tools are offered.
+        assert call_kwargs["tool_choice"] == {
+            "type": "auto",
+            "disable_parallel_tool_use": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_complete_without_tools_omits_tool_choice(self):
+        with patch("core.llm.AsyncAnthropic"):
+            llm = AnthropicLLM(api_key="key")
+            mock_response = SimpleNamespace(
+                content=[_text_block("Hello there")],
+                usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+            )
+            llm._client.messages.create = AsyncMock(return_value=mock_response)
+
+            await llm.complete(
+                messages=[Message(role="user", content="hi")],
+                system="You are helpful.",
+            )
+
+        call_kwargs = llm._client.messages.create.call_args.kwargs
+        assert "tool_choice" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_complete_with_tool_result_appends_continuation_messages(self):
@@ -121,6 +145,7 @@ class TestAnthropicToolCalling:
             }],
         }
         assert "tools" not in call_kwargs
+        assert "tool_choice" not in call_kwargs
 
 
 def _openai_tool_call(id_: str, name: str, arguments: dict):
@@ -182,6 +207,30 @@ class TestOpenAICompatibleToolCalling:
                 "parameters": {"type": "object", "properties": {}, "required": []},
             },
         }]
+        # v1 is single-tool-call-per-turn: parallel tool calls must be disabled
+        # at the API level whenever tools are offered.
+        assert call_kwargs["parallel_tool_calls"] is False
+
+    @pytest.mark.asyncio
+    async def test_kilo_complete_without_tools_omits_parallel_tool_calls(self):
+        from core.llm import KiloLLM
+        llm = KiloLLM(api_key="key")
+
+        message = SimpleNamespace(content="Hi there", tool_calls=None)
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        llm._client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        await llm.complete(
+            messages=[Message(role="user", content="hi")],
+            system="sys",
+        )
+
+        call_kwargs = llm._client.chat.completions.create.call_args.kwargs
+        assert "tools" not in call_kwargs
+        assert "parallel_tool_calls" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_kilo_complete_with_tool_result_appends_continuation_messages(self):
@@ -212,12 +261,64 @@ class TestOpenAICompatibleToolCalling:
         assert sent_messages[-1] == {
             "role": "tool", "tool_call_id": "call_1", "content": "✅ merged",
         }
+        assert "parallel_tool_calls" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_openrouter_supports_tools_is_true(self):
         from core.llm import OpenRouterLLM
         llm = OpenRouterLLM(api_key="key")
         assert llm.supports_tools is True
+
+    @pytest.mark.asyncio
+    async def test_openrouter_complete_with_tools_disables_parallel_tool_calls(self):
+        from core.llm import OpenRouterLLM
+        llm = OpenRouterLLM(api_key="key")
+
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[_openai_tool_call("call_1", "MERGE_PR", {"number": 42, "repo": "org/x"})],
+        )
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        llm._client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        tool_defs = [
+            ToolDef(
+                name="MERGE_PR",
+                description="Merge a PR.",
+                parameters={"type": "object", "properties": {}, "required": []},
+            )
+        ]
+        await llm.complete(
+            messages=[Message(role="user", content="merge pr 42")],
+            system="sys",
+            tools=tool_defs,
+        )
+
+        call_kwargs = llm._client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["parallel_tool_calls"] is False
+
+    @pytest.mark.asyncio
+    async def test_openrouter_complete_without_tools_omits_parallel_tool_calls(self):
+        from core.llm import OpenRouterLLM
+        llm = OpenRouterLLM(api_key="key")
+
+        message = SimpleNamespace(content="Hi there", tool_calls=None)
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        llm._client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        await llm.complete(
+            messages=[Message(role="user", content="hi")],
+            system="sys",
+        )
+
+        call_kwargs = llm._client.chat.completions.create.call_args.kwargs
+        assert "parallel_tool_calls" not in call_kwargs
 
 
 class TestOllamaWrapsPlainText:
