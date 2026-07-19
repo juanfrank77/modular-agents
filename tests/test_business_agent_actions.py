@@ -1,10 +1,11 @@
 """
 test_business_agent_actions.py
 ----------------------------------
-Tests for BusinessAgent.tools and _handle_action_proposal — verifies
-approved SEND_EMAIL/CALENDAR_WRITE/DRAFT actions execute for real,
-unavailable Composio config surfaces a clear error, and unmapped types
-show the "not wired" note (agents/business/agent.py).
+Tests for BusinessAgent.tools, _handle_action_proposal (the Ollama-fallback,
+ACTION:-text-parsing path), and _handle_tool_call (the native tool-calling
+path) — verifies approved SEND_EMAIL/CALENDAR_WRITE/DRAFT actions execute
+for real, unavailable Composio config surfaces a clear error, and unmapped
+types show the "not wired" note (agents/business/agent.py).
 
 Run:
     python -m pytest tests/test_business_agent_actions.py -x -q
@@ -18,6 +19,7 @@ import pytest
 
 from agents.business.agent import BusinessAgent
 from agents.business.tools import BusinessTools, BusinessToolsUnavailable
+from core.protocols import LLMResult, Message, ToolCall
 
 
 def _make_agent(check_action_return=True, composio_api_key="key123"):
@@ -138,3 +140,95 @@ class TestUnmappedActionShowsNotWiredNote:
         result = await agent._handle_action_proposal("chat1", response)
 
         assert "✅ Approved, but no execution handler wired for CALENDAR_DELETE yet." in result
+
+
+def _tool_result(agent, chat_id, name, args, tool_id="call_1"):
+    result = LLMResult(tool_calls=[ToolCall(id=tool_id, name=name, args=args)], raw_assistant={"raw": True})
+    return agent._handle_tool_call(chat_id, [Message(role="user", content="hi")], "system prompt", result)
+
+
+class TestNativeToolCallExecutesOnApproval:
+    @pytest.mark.asyncio
+    async def test_send_email_executes_and_returns_follow_up_text(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools.gmail.send_email = AsyncMock(return_value={"messageId": "msg_1"})
+        agent._tools = fake_tools
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Sent it!"))
+
+        result = await _tool_result(
+            agent, "chat1", "SEND_EMAIL",
+            {"to": "bob@example.com", "subject": "Hi", "body": "Hello there"},
+        )
+
+        assert result == "Sent it!"
+        fake_tools.gmail.send_email.assert_called_once_with(
+            to="bob@example.com", subject="Hi", body="Hello there"
+        )
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Send email to bob@example.com: Hi"
+
+        # Follow-up call carries the tool_result + raw_assistant for continuation
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert follow_up_kwargs["tool_result"].tool_call_id == "call_1"
+        assert "✅ Email sent to bob@example.com" in follow_up_kwargs["tool_result"].content
+        assert follow_up_kwargs["raw_assistant"] == {"raw": True}
+        assert follow_up_kwargs.get("tools") is None
+
+
+class TestNativeToolCallBusinessToolsUnavailable:
+    @pytest.mark.asyncio
+    async def test_no_api_key_surfaces_in_tool_result_content(self):
+        agent = _make_agent(check_action_return=True, composio_api_key="")
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Couldn't send it."))
+
+        await _tool_result(
+            agent, "chat1", "SEND_EMAIL",
+            {"to": "bob@example.com", "subject": "Hi", "body": "Hello there"},
+        )
+
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "Google account not connected" in follow_up_kwargs["tool_result"].content
+
+
+class TestNativeToolCallDenied:
+    @pytest.mark.asyncio
+    async def test_denied_action_not_executed(self):
+        agent = _make_agent(check_action_return=False)
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        agent._tools = fake_tools
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Not sent."))
+
+        await _tool_result(
+            agent, "chat1", "SEND_EMAIL",
+            {"to": "bob@example.com", "subject": "Hi", "body": "Hello there"},
+        )
+
+        fake_tools.gmail.send_email.assert_not_called()
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "approval required" in follow_up_kwargs["tool_result"].content.lower()
+
+
+class TestNativeToolCallMissingRequiredArg:
+    @pytest.mark.asyncio
+    async def test_missing_required_arg_skips_approval(self):
+        agent = _make_agent(check_action_return=True)
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Missing info."))
+
+        await _tool_result(agent, "chat1", "SEND_EMAIL", {"to": "bob@example.com"})
+
+        agent.safety.check_action.assert_not_called()
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "missing required argument 'subject'" in follow_up_kwargs["tool_result"].content
+
+
+class TestNativeToolCallUnwiredType:
+    @pytest.mark.asyncio
+    async def test_unwired_type_reports_not_wired_in_tool_result(self):
+        agent = _make_agent(check_action_return=True)
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="No handler."))
+
+        await _tool_result(agent, "chat1", "CALENDAR_DELETE", {})
+
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "no execution handler wired for calendar_delete" in follow_up_kwargs["tool_result"].content.lower()
