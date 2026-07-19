@@ -28,7 +28,7 @@ from pathlib import Path
 
 from core.bus import MessageBus
 from core.config import settings
-from core.llm import get_llm_provider
+from core.llm import LLMProviderNotConfiguredError, get_llm_provider
 from core.logger import configure_logging, get_logger
 from core.memory import Memory
 from core.notifier import CLINotifier, HTTPNotifier, RouterNotifier, TelegramNotifier
@@ -92,7 +92,11 @@ async def bootstrap():
     router.register_prefix("cli", cli_notifier)
     router.register_prefix("http_", http_notifier)
 
-    llm = get_llm_provider()
+    try:
+        llm = get_llm_provider()
+    except LLMProviderNotConfiguredError as e:
+        print(f"\n[config] FATAL: {e}\n")
+        sys.exit(1)
     await _verify_llm(llm)
 
     creator = AgentCreator(llm=llm, project_root=Path("."))
