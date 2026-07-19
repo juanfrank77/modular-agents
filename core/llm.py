@@ -115,13 +115,29 @@ def _parse_openai_response(response: Any) -> "LLMResult":
     )
 
 
-class KiloLLM:
-    """Implements LLMProvider using Kilo's OpenAI-compatible endpoint."""
+class _SummarizeMixin:
+    """Shared summarize() for session-compaction — delegates to self.complete()."""
+
+    async def summarize(self, messages: list[Message]) -> str:
+        system = (
+            "You are a conversation summarizer. Condense the following conversation "
+            "into a brief summary that preserves key facts, decisions, and context. "
+            "Be concise but retain important details the user mentioned."
+        )
+        model = settings.classifier_model
+        result = await self.complete(messages, system=system, max_tokens=512, model=model)
+        return result.text
+
+
+class _OpenAICompatibleLLM(_SummarizeMixin):
+    """Shared complete() for providers backed by an AsyncOpenAI-compatible client."""
 
     supports_tools = True
+    _provider_name = "openai_compatible"
+    _extra_headers: dict[str, str] | None = None
 
-    def __init__(self, api_key: str) -> None:
-        self._client = AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url)
+    def __init__(self, client: AsyncOpenAI) -> None:
+        self._client = client
 
     @_llm_retry
     async def complete(
@@ -153,12 +169,17 @@ class KiloLLM:
                 "content": tool_result.content,
             })
 
+        extra_kwargs: dict[str, Any] = {}
+        if self._extra_headers:
+            extra_kwargs["extra_headers"] = self._extra_headers
+
         with log.timer() as t:
             response = await self._client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
                 messages=api_messages,  # type: ignore
                 **_openai_tools_kwarg(tools),
+                **extra_kwargs,
             )
 
         result = _parse_openai_response(response)
@@ -166,7 +187,7 @@ class KiloLLM:
         log.info(
             "LLM call complete",
             event="llm_complete",
-            provider="kilo",
+            provider=self._provider_name,
             model=model,
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
@@ -174,17 +195,17 @@ class KiloLLM:
         )
         return result
 
-    async def summarize(self, messages: list[Message]) -> str:
-        """Summarize a conversation for session compaction."""
-        system = (
-            "You are a conversation summarizer. Condense the following conversation "
-            "into a brief summary that preserves key facts, decisions, and context. "
-            "Be concise but retain important details the user mentioned."
-        )
-        result = await self.complete(messages, system=system, max_tokens=512)
-        return result.text
 
-class AnthropicLLM:
+class KiloLLM(_OpenAICompatibleLLM):
+    """Implements LLMProvider using Kilo's OpenAI-compatible endpoint."""
+
+    _provider_name = "kilo"
+
+    def __init__(self, api_key: str) -> None:
+        super().__init__(AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url))
+
+
+class AnthropicLLM(_SummarizeMixin):
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
 
     supports_tools = True
@@ -273,91 +294,20 @@ class AnthropicLLM:
             raw_assistant=list(response.content) if tool_calls else None,
         )
 
-    async def summarize(self, messages: list[Message]) -> str:
-        """Summarize a conversation for session compaction."""
-        system = (
-            "You are a conversation summarizer. Condense the following conversation "
-            "into a brief summary that preserves key facts, decisions, and context. "
-            "Be concise but retain important details the user mentioned."
-        )
-        result = await self.complete(messages, system=system, max_tokens=512)
-        return result.text
 
-class OpenRouterLLM:
+class OpenRouterLLM(_OpenAICompatibleLLM):
     """Implements LLMProvider using OpenRouter's OpenAI-compatible endpoint."""
 
-    supports_tools = True
+    _provider_name = "openrouter"
+    _extra_headers = {
+        "HTTP-Referer": "https://github.com/juanfrank77/modular-agents",
+        "X-Title": "Modular Agents",
+    }
 
     def __init__(self, api_key: str) -> None:
-        self._client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
+        super().__init__(
+            AsyncOpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         )
-
-    @_llm_retry
-    async def complete(
-        self,
-        messages: list[Message],
-        system: str,
-        model: str = "",
-        max_tokens: int = 0,
-        tools: list["ToolDef"] | None = None,
-        tool_result: "ToolResultInput | None" = None,
-        raw_assistant: Any = None,
-    ) -> "LLMResult":
-        model = model or settings.default_model
-        max_tokens = max_tokens or settings.default_max_tokens
-
-        api_messages = [{"role": "system", "content": system}] + [
-            {"role": m.role, "content": m.content}
-            for m in messages
-            if m.role in ("user", "assistant")
-        ]
-
-        if tool_result is not None and raw_assistant is not None:
-            api_messages.append({
-                "role": "assistant", "content": None, "tool_calls": raw_assistant,
-            })
-            api_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_result.tool_call_id,
-                "content": tool_result.content,
-            })
-
-        with log.timer() as t:
-            response = await self._client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=api_messages,
-                extra_headers={
-                    "HTTP-Referer": "https://github.com/juanfrank77/modular-agents",
-                    "X-Title": "Modular Agents",
-                },
-                **_openai_tools_kwarg(tools),
-            )
-
-        result = _parse_openai_response(response)
-        usage = response.usage
-        log.info(
-            "LLM call complete",
-            event="llm_complete",
-            provider="openrouter",
-            model=model,
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-            duration_ms=t.ms,
-        )
-        return result
-
-    async def summarize(self, messages: list[Message]) -> str:
-        """Summarize a conversation for session compaction."""
-        system = (
-            "You are a conversation summarizer. Condense the following conversation "
-            "into a brief summary that preserves key facts, decisions, and context. "
-            "Be concise but retain important details the user mentioned."
-        )
-        result = await self.complete(messages, system=system, max_tokens=512)
-        return result.text
 
 # ──────────────────────────────────────────────
 # Retry decorator for OpenAI-compatible APIs
@@ -372,7 +322,7 @@ _ollama_no_retry = retry(
 )
 
 
-class OllamaLLM:
+class OllamaLLM(_SummarizeMixin):
     """Implements LLMProvider using Ollama's local API."""
 
     supports_tools = False
@@ -429,16 +379,6 @@ class OllamaLLM:
             duration_ms=t.ms,
         )
         return LLMResult(text=text)
-
-    async def summarize(self, messages: list[Message]) -> str:
-        """Summarize a conversation for session compaction."""
-        system = (
-            "You are a conversation summarizer. Condense the following conversation "
-            "into a brief summary that preserves key facts, decisions, and context. "
-            "Be concise but retain important details the user mentioned."
-        )
-        result = await self.complete(messages, system=system, max_tokens=512)
-        return result.text
 
 
 class LLMProviderNotConfiguredError(Exception):
