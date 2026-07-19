@@ -124,7 +124,7 @@ class _SummarizeMixin:
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
-        model = settings.classifier_model
+        model = settings.summarize_model or settings.classifier_model
         result = await self.complete(messages, system=system, max_tokens=512, model=model)
         return result.text
 

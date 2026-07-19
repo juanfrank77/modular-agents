@@ -59,6 +59,7 @@ class BaseAgent(ABC):
         bus: "MessageBus | None" = None,
     ) -> None:
         self.settings = settings
+        self.model: str = getattr(settings, f"{self.name}_agent_model", "")
         self.storage = storage
         self.notifier = notifier
         self.llm = llm
@@ -119,6 +120,7 @@ class BaseAgent(ABC):
             messages=[Message(role="user", content=event.text)],
             system=combined_system,
             max_tokens=512,
+            model=self.model,
         )
         plan_text = llm_result.text
 
