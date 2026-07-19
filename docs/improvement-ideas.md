@@ -130,7 +130,7 @@ design. v1 is single-tool-call-per-turn; multi-step chaining is a future increme
 
 | Phase | Theme | Items | Status |
 |---|---|---|---|
-| A — make it real | Tools actually execute | 1.1, 1.2, 2.1 | 1.1, 1.2 ✅ done; **2.1 next up** |
+| A — make it real | Tools actually execute | 1.1, 1.2, 2.1 | 1.1, 1.2, 2.1 ✅ all done — Phase A complete |
 | B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ mostly done (HTTP sessions still open); rest of 4 open |
 | C — make it usable | Routing + interface parity | 1.3, 6 (CLI @agent, agent indicator), echo removal | 1.3 ✅ done incl. CLI @agent; rest of 6 open |
 | D — make it safe | Trust model + creator gate + systemd hardening | 3 | open |
