@@ -41,6 +41,7 @@ class Settings:
     default_max_tokens: int = 2048
     classifier_model: str = "claude-haiku-4.6"
     llm_provider: str = ""  # explicit override: "kilo"|"openrouter"|"ollama"|"anthropic"
+    summarize_model: str = ""  # falls back to classifier_model when unset — see _SummarizeMixin
 
     # Storage
     db_path: Path = Path("memory/sessions.db")
@@ -57,6 +58,12 @@ class Settings:
     devops_agent_autonomy: str = "autonomous"
     wellbeing_agent_autonomy: str = "autonomous"
     projects_agent_autonomy: str = "supervised"
+
+    # Per-agent model overrides (empty = use default_model)
+    business_agent_model: str = ""
+    devops_agent_model: str = ""
+    wellbeing_agent_model: str = ""
+    projects_agent_model: str = ""
 
     # LLM retry / backoff
     llm_max_retries: int = 3
@@ -195,6 +202,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
         classifier_model=_optional("CLASSIFIER_MODEL", "claude-haiku-4.6"),
         llm_provider=_optional("LLM_PROVIDER", "").strip().lower(),
+        summarize_model=_optional("SUMMARIZE_MODEL", ""),
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),
         db_encryption_key=_optional("DB_ENCRYPTION_KEY", ""),
         memory_context_dir=Path(_optional("MEMORY_CONTEXT_DIR", "memory/context")),
@@ -207,6 +215,10 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),
         projects_agent_autonomy=_optional("PROJECTS_AGENT_AUTONOMY", "supervised"),
+        business_agent_model=_optional("BUSINESS_AGENT_MODEL", ""),
+        devops_agent_model=_optional("DEVOPS_AGENT_MODEL", ""),
+        wellbeing_agent_model=_optional("WELLBEING_AGENT_MODEL", ""),
+        projects_agent_model=_optional("PROJECTS_AGENT_MODEL", ""),
         llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
         llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),

@@ -129,6 +129,7 @@ class ProjectsAgent(BaseAgent):
             ))],
             system="You extract structured data. Output only the requested lines.",
             max_tokens=100,
+            model=self.model,
         )).text
 
         project, note = _parse_update(parsed)
@@ -202,7 +203,7 @@ class ProjectsAgent(BaseAgent):
             role="user",
             content=f"{event.text}\n\n(Per-project momentum data:\n{momentum})",
         )]
-        response_text = (await self.llm.complete(messages=messages, system=system)).text
+        response_text = (await self.llm.complete(messages=messages, system=system, model=self.model)).text
         await self.memory.save_message(session_id, "assistant", response_text, self.name)
         return await self.reply(event, response_text)
 
@@ -226,7 +227,7 @@ class ProjectsAgent(BaseAgent):
             f"Momentum data:\n{momentum}"
         )
         kickoff = (await self.llm.complete(
-            messages=[Message(role="user", content=prompt)], system=system
+            messages=[Message(role="user", content=prompt)], system=system, model=self.model
         )).text
 
         msg = f"🗂 *Weekly Kickoff*\n\n{kickoff}"
