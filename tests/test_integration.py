@@ -78,8 +78,10 @@ def make_mock_notifier() -> AsyncMock:
 
 
 def make_mock_llm(response: str = "Test response") -> AsyncMock:
+    from core.protocols import LLMResult
     llm = AsyncMock()
-    llm.complete = AsyncMock(return_value=response)
+    llm.supports_tools = False
+    llm.complete = AsyncMock(return_value=LLMResult(text=response))
     llm.summarize = AsyncMock(return_value="Summary.")
     return llm
 
