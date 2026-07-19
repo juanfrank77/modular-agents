@@ -130,3 +130,89 @@ class TestUnmappedActionShowsNotWiredNote:
         result = await agent._handle_action_proposal("chat1", response)
 
         assert "⚠️ Action blocked" in result
+
+from core.protocols import LLMResult, Message, ToolCall
+
+
+def _tool_result(agent, chat_id, name, args, tool_id="call_1"):
+    result = LLMResult(tool_calls=[ToolCall(id=tool_id, name=name, args=args)], raw_assistant={"raw": True})
+    return agent._handle_tool_call(chat_id, [Message(role="user", content="hi")], "system prompt", result)
+
+
+class TestNativeToolCallExecutesOnApproval:
+    @pytest.mark.asyncio
+    async def test_merge_pr_executes_and_returns_follow_up_text(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.merge_pr = AsyncMock(
+            return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
+        )
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Merged it!"))
+
+        result = await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
+
+        assert result == "Merged it!"
+        agent.tools.github.merge_pr.assert_called_once_with(number=42, repo="org/x", method="rebase")
+
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Merge PR #42 in org/x (rebase)"
+
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert follow_up_kwargs["tool_result"].tool_call_id == "call_1"
+        assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in follow_up_kwargs["tool_result"].content
+        assert follow_up_kwargs["raw_assistant"] == {"raw": True}
+        assert follow_up_kwargs.get("tools") is None
+
+
+class TestNativeToolCallDenied:
+    @pytest.mark.asyncio
+    async def test_denied_action_not_executed(self):
+        agent = _make_agent(check_action_return=False)
+        agent.tools.railway.deploy = AsyncMock()
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Not deployed."))
+
+        await _tool_result(agent, "chat1", "DEPLOY_PROD", {"service": "api"})
+
+        agent.tools.railway.deploy.assert_not_called()
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "approval required" in follow_up_kwargs["tool_result"].content.lower()
+
+
+class TestNativeToolCallToolError:
+    @pytest.mark.asyncio
+    async def test_tool_error_surfaces_in_tool_result_content(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.merge_pr = AsyncMock(
+            side_effect=ToolError("github", ["gh", "pr", "merge"], "not mergeable", 1)
+        )
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Couldn't merge."))
+
+        await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
+
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "❌ Action failed" in follow_up_kwargs["tool_result"].content
+        assert "not mergeable" in follow_up_kwargs["tool_result"].content
+
+
+class TestNativeToolCallMissingRequiredArg:
+    @pytest.mark.asyncio
+    async def test_missing_required_arg_skips_approval(self):
+        agent = _make_agent(check_action_return=True)
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Missing info."))
+
+        await _tool_result(agent, "chat1", "MERGE_PR", {"repo": "org/x"})
+
+        agent.safety.check_action.assert_not_called()
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "missing required argument 'number'" in follow_up_kwargs["tool_result"].content
+
+
+class TestNativeToolCallUnwiredType:
+    @pytest.mark.asyncio
+    async def test_unwired_type_reports_not_wired_in_tool_result(self):
+        agent = _make_agent(check_action_return=True)
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="No handler."))
+
+        await _tool_result(agent, "chat1", "RESTART_SERVICE", {})
+
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "no execution handler wired for restart_service" in follow_up_kwargs["tool_result"].content.lower()
