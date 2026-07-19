@@ -10,6 +10,7 @@ Run:
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import replace
 
 import pytest
@@ -91,3 +92,12 @@ class TestLLMProviderOverride:
         )
         with pytest.raises(LLMProviderNotConfiguredError):
             get_llm_provider()
+
+
+class TestOllamaCloseIsAwaitable:
+    @pytest.mark.asyncio
+    async def test_close_exists_and_is_awaitable(self):
+        llm = OllamaLLM(base_url="http://localhost:11434")
+        assert hasattr(llm, "close")
+        assert inspect.iscoroutinefunction(llm.close)
+        await llm.close()
