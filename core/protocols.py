@@ -55,6 +55,36 @@ class Message:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+@dataclass
+class ToolDef:
+    """Describes one callable tool to the LLM (JSON-schema `parameters`)."""
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+@dataclass
+class ToolCall:
+    """A tool invocation the model requested — `id` ties it to the follow-up result."""
+    id: str
+    name: str
+    args: dict[str, Any]
+
+
+@dataclass
+class ToolResultInput:
+    """The outcome of executing a ToolCall, fed back to the model on the next turn."""
+    tool_call_id: str
+    content: str
+
+
+@dataclass
+class LLMResult:
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    raw_assistant: Any = None  # opaque, provider-specific assistant turn — pass back unchanged
+
+
 # ──────────────────────────────────────────────
 # Protocols (swappable interfaces)
 # ──────────────────────────────────────────────
@@ -62,13 +92,18 @@ class Message:
 
 @runtime_checkable
 class LLMProvider(Protocol):
+    supports_tools: bool
+
     async def complete(
         self,
         messages: list[Message],
         system: str,
         model: str = "",
         max_tokens: int = 1024,
-    ) -> str: ...
+        tools: list[ToolDef] | None = None,
+        tool_result: ToolResultInput | None = None,
+        raw_assistant: Any = None,
+    ) -> LLMResult: ...
 
     async def summarize(self, messages: list[Message]) -> str: ...
 
