@@ -413,7 +413,7 @@ class BusinessAgent(BaseAgent):
         projects = await self.memory.get_context("projects")
 
         system = _SYSTEM_TEMPLATE.format(
-            action_instructions=_ACTION_INSTRUCTIONS_LEGACY,
+            action_instructions="",
             context=f"## User Context\n{personal}\n\n## Preferences\n{context}",
             skills=f"## Active Skill\n{skill_content}" if skill_content else "",
         )
@@ -442,7 +442,7 @@ class BusinessAgent(BaseAgent):
         projects = await self.memory.get_context("projects")
 
         system = _SYSTEM_TEMPLATE.format(
-            action_instructions=_ACTION_INSTRUCTIONS_LEGACY,
+            action_instructions="",
             context=f"## Preferences\n{context}",
             skills="",
         )

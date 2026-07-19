@@ -552,7 +552,7 @@ class DevOpsAgent(BaseAgent):
 
         projects = await self.memory.get_context("projects")
         system = _SYSTEM_TEMPLATE.format(
-            action_instructions=_ACTION_INSTRUCTIONS_LEGACY,
+            action_instructions="",
             context="## Active Projects\n" + projects,
             skills="## Active Skill\n" + skill_content if skill_content else "",
         )

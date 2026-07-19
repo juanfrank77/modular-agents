@@ -8,7 +8,7 @@ BusinessTools calls (Gmail/Calendar via Composio).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
     from agents.business.tools import BusinessTools
@@ -28,11 +28,11 @@ class ActionSpec:
     defaults: dict[str, str]
     schema: dict[str, dict]
     description: str
-    describe: Callable[[dict[str, str]], str]
-    execute: Callable[["BusinessTools", dict[str, str]], Awaitable[str]]
+    describe: Callable[[dict[str, Any]], str]
+    execute: Callable[["BusinessTools", dict[str, Any]], Awaitable[str]]
 
 
-def resolve_args(spec: ActionSpec, parsed_args: dict[str, str]) -> dict[str, str]:
+def resolve_args(spec: ActionSpec, parsed_args: dict[str, Any]) -> dict[str, Any]:
     """Merge spec.defaults under parsed_args, then verify all required keys present."""
     resolved = {**spec.defaults, **parsed_args}
     for key in spec.required:
