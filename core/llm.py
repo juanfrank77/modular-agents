@@ -441,26 +441,56 @@ class OllamaLLM:
         return result.text
 
 
+class LLMProviderNotConfiguredError(Exception):
+    """Raised when no usable LLM provider credentials are configured."""
+
+
+_PROVIDER_FACTORIES: dict[str, Any] = {
+    "kilo": lambda: KiloLLM(settings.kilo_api_key) if settings.kilo_api_key else None,
+    "openrouter": lambda: (
+        OpenRouterLLM(settings.openrouter_api_key) if settings.openrouter_api_key else None
+    ),
+    "ollama": lambda: OllamaLLM(settings.ollama_base_url) if settings.ollama_base_url else None,
+    "anthropic": lambda: (
+        AnthropicLLM(settings.anthropic_api_key) if settings.anthropic_api_key else None
+    ),
+}
+
+_PROVIDER_PRIORITY = ("kilo", "openrouter", "ollama", "anthropic")
+
+
 def get_llm_provider() -> LLMProvider:
-    """Return the first available LLM provider based on configuration priority."""
-    if settings.kilo_api_key:
-        log.info("LLM provider selected", event="llm_provider", provider="kilo")
-        return KiloLLM(settings.kilo_api_key)
-    if settings.openrouter_api_key:
-        log.info("LLM provider selected", event="llm_provider", provider="openrouter")
-        return OpenRouterLLM(settings.openrouter_api_key)
-    if settings.ollama_base_url:
-        log.info("LLM provider selected", event="llm_provider", provider="ollama")
-        return OllamaLLM(settings.ollama_base_url)
-    if not settings.anthropic_api_key:
-        print(
-            "[config] FATAL: No LLM provider configured. Set at least one of:\n"
-            "  - KILO_API_KEY\n"
-            "  - OPENROUTER_API_KEY\n"
-            "  - OLLAMA_BASE_URL (for local models)\n"
-            "  - ANTHROPIC_API_KEY (fallback)\n"
-        )
-        import sys
-        sys.exit(1)
-    log.info("LLM provider selected", event="llm_provider", provider="anthropic")
-    return AnthropicLLM(settings.anthropic_api_key)
+    """Return the configured LLM provider, or raise if none is usable.
+
+    Honors an explicit `LLM_PROVIDER` override; otherwise falls back through
+    `_PROVIDER_PRIORITY` in order, picking the first provider with credentials.
+    """
+    if settings.llm_provider:
+        factory = _PROVIDER_FACTORIES.get(settings.llm_provider)
+        if factory is None:
+            raise LLMProviderNotConfiguredError(
+                f"LLM_PROVIDER='{settings.llm_provider}' is not a known provider. "
+                f"Choose one of: {', '.join(_PROVIDER_FACTORIES)}"
+            )
+        provider = factory()
+        if provider is None:
+            raise LLMProviderNotConfiguredError(
+                f"LLM_PROVIDER='{settings.llm_provider}' is set but its credentials "
+                "are missing — check the matching *_API_KEY / *_BASE_URL in .env."
+            )
+        log.info("LLM provider selected", event="llm_provider", provider=settings.llm_provider)
+        return provider
+
+    for name in _PROVIDER_PRIORITY:
+        provider = _PROVIDER_FACTORIES[name]()
+        if provider is not None:
+            log.info("LLM provider selected", event="llm_provider", provider=name)
+            return provider
+
+    raise LLMProviderNotConfiguredError(
+        "No LLM provider configured. Set at least one of:\n"
+        "  - KILO_API_KEY\n"
+        "  - OPENROUTER_API_KEY\n"
+        "  - OLLAMA_BASE_URL (for local models)\n"
+        "  - ANTHROPIC_API_KEY (fallback)"
+    )
