@@ -9,6 +9,7 @@ Run:
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -120,3 +121,100 @@ class TestAnthropicToolCalling:
             }],
         }
         assert "tools" not in call_kwargs
+
+
+def _openai_tool_call(id_: str, name: str, arguments: dict):
+    return SimpleNamespace(
+        id=id_,
+        type="function",
+        function=SimpleNamespace(name=name, arguments=json.dumps(arguments)),
+    )
+
+
+class TestOpenAICompatibleToolCalling:
+    @pytest.mark.asyncio
+    async def test_kilo_supports_tools_is_true(self):
+        from core.llm import KiloLLM
+        llm = KiloLLM(api_key="key")
+        assert llm.supports_tools is True
+
+    @pytest.mark.asyncio
+    async def test_kilo_complete_with_tools_returns_tool_call(self):
+        from core.llm import KiloLLM
+        llm = KiloLLM(api_key="key")
+
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[_openai_tool_call("call_1", "MERGE_PR", {"number": 42, "repo": "org/x"})],
+        )
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        llm._client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        tool_defs = [
+            ToolDef(
+                name="MERGE_PR",
+                description="Merge a PR.",
+                parameters={"type": "object", "properties": {}, "required": []},
+            )
+        ]
+        result = await llm.complete(
+            messages=[Message(role="user", content="merge pr 42")],
+            system="sys",
+            tools=tool_defs,
+        )
+
+        assert result.text == ""
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].id == "call_1"
+        assert result.tool_calls[0].name == "MERGE_PR"
+        assert result.tool_calls[0].args == {"number": 42, "repo": "org/x"}
+        assert result.raw_assistant == message.tool_calls
+
+        call_kwargs = llm._client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["tools"] == [{
+            "type": "function",
+            "function": {
+                "name": "MERGE_PR",
+                "description": "Merge a PR.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        }]
+
+    @pytest.mark.asyncio
+    async def test_kilo_complete_with_tool_result_appends_continuation_messages(self):
+        from core.llm import KiloLLM
+        llm = KiloLLM(api_key="key")
+
+        message = SimpleNamespace(content="Done, merged it.", tool_calls=None)
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        llm._client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        raw_tool_calls = [_openai_tool_call("call_1", "MERGE_PR", {"number": 42})]
+        result = await llm.complete(
+            messages=[Message(role="user", content="merge pr 42")],
+            system="sys",
+            tool_result=ToolResultInput(tool_call_id="call_1", content="✅ merged"),
+            raw_assistant=raw_tool_calls,
+        )
+
+        assert result.text == "Done, merged it."
+        call_kwargs = llm._client.chat.completions.create.call_args.kwargs
+        sent_messages = call_kwargs["messages"]
+        assert sent_messages[-2] == {
+            "role": "assistant", "content": None, "tool_calls": raw_tool_calls,
+        }
+        assert sent_messages[-1] == {
+            "role": "tool", "tool_call_id": "call_1", "content": "✅ merged",
+        }
+
+    @pytest.mark.asyncio
+    async def test_openrouter_supports_tools_is_true(self):
+        from core.llm import OpenRouterLLM
+        llm = OpenRouterLLM(api_key="key")
+        assert llm.supports_tools is True

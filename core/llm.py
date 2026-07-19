@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import httpx
 from typing import Any
 
@@ -62,8 +63,55 @@ _llm_retry = retry(
     reraise=True,
 )
 
+
+def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
+    """Build the `tools=` kwarg for an OpenAI-compatible chat.completions.create call."""
+    if not tools:
+        return {}
+    return {
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                },
+            }
+            for t in tools
+        ]
+    }
+
+
+def _parse_openai_response(response: Any) -> "LLMResult":
+    """Extract text/tool_calls from an OpenAI-compatible chat.completions response."""
+    if not response.choices:
+        return LLMResult()
+    message = response.choices[0].message
+    text = message.content or ""
+
+    tool_calls: list[ToolCall] = []
+    if message.tool_calls:
+        for tc in message.tool_calls:
+            tool_calls.append(
+                ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    args=json.loads(tc.function.arguments or "{}"),
+                )
+            )
+
+    return LLMResult(
+        text=text,
+        tool_calls=tool_calls,
+        raw_assistant=message.tool_calls if tool_calls else None,
+    )
+
+
 class KiloLLM:
     """Implements LLMProvider using Kilo's OpenAI-compatible endpoint."""
+
+    supports_tools = True
 
     def __init__(self, api_key: str) -> None:
         self._client = AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url)
@@ -75,7 +123,10 @@ class KiloLLM:
         system: str,
         model: str = "",
         max_tokens: int = 0,
-    ) -> str:
+        tools: list["ToolDef"] | None = None,
+        tool_result: "ToolResultInput | None" = None,
+        raw_assistant: Any = None,
+    ) -> "LLMResult":
         model = model or settings.default_model
         max_tokens = max_tokens or settings.default_max_tokens
 
@@ -85,14 +136,25 @@ class KiloLLM:
             if m.role in ("user", "assistant")
         ]
 
+        if tool_result is not None and raw_assistant is not None:
+            api_messages.append({
+                "role": "assistant", "content": None, "tool_calls": raw_assistant,
+            })
+            api_messages.append({
+                "role": "tool",
+                "tool_call_id": tool_result.tool_call_id,
+                "content": tool_result.content,
+            })
+
         with log.timer() as t:
             response = await self._client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
                 messages=api_messages,  # type: ignore
+                **_openai_tools_kwarg(tools),
             )
 
-        text = response.choices[0].message.content or "" if response.choices else ""
+        result = _parse_openai_response(response)
         usage = response.usage
         log.info(
             "LLM call complete",
@@ -103,7 +165,7 @@ class KiloLLM:
             output_tokens=usage.completion_tokens if usage else 0,
             duration_ms=t.ms,
         )
-        return text
+        return result
 
     async def summarize(self, messages: list[Message]) -> str:
         """Summarize a conversation for session compaction."""
@@ -112,7 +174,8 @@ class KiloLLM:
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
-        return await self.complete(messages, system=system, max_tokens=512)
+        result = await self.complete(messages, system=system, max_tokens=512)
+        return result.text
 
 class AnthropicLLM:
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
@@ -209,6 +272,8 @@ class AnthropicLLM:
 class OpenRouterLLM:
     """Implements LLMProvider using OpenRouter's OpenAI-compatible endpoint."""
 
+    supports_tools = True
+
     def __init__(self, api_key: str) -> None:
         self._client = AsyncOpenAI(
             api_key=api_key,
@@ -222,7 +287,10 @@ class OpenRouterLLM:
         system: str,
         model: str = "",
         max_tokens: int = 0,
-    ) -> str:
+        tools: list["ToolDef"] | None = None,
+        tool_result: "ToolResultInput | None" = None,
+        raw_assistant: Any = None,
+    ) -> "LLMResult":
         model = model or settings.default_model
         max_tokens = max_tokens or settings.default_max_tokens
 
@@ -231,6 +299,16 @@ class OpenRouterLLM:
             for m in messages
             if m.role in ("user", "assistant")
         ]
+
+        if tool_result is not None and raw_assistant is not None:
+            api_messages.append({
+                "role": "assistant", "content": None, "tool_calls": raw_assistant,
+            })
+            api_messages.append({
+                "role": "tool",
+                "tool_call_id": tool_result.tool_call_id,
+                "content": tool_result.content,
+            })
 
         with log.timer() as t:
             response = await self._client.chat.completions.create(
@@ -241,9 +319,10 @@ class OpenRouterLLM:
                     "HTTP-Referer": "https://github.com/juanfrank77/modular-agents",
                     "X-Title": "Modular Agents",
                 },
+                **_openai_tools_kwarg(tools),
             )
 
-        text = response.choices[0].message.content or "" if response.choices else ""
+        result = _parse_openai_response(response)
         usage = response.usage
         log.info(
             "LLM call complete",
@@ -254,7 +333,7 @@ class OpenRouterLLM:
             output_tokens=usage.completion_tokens if usage else 0,
             duration_ms=t.ms,
         )
-        return text
+        return result
 
     async def summarize(self, messages: list[Message]) -> str:
         """Summarize a conversation for session compaction."""
@@ -263,7 +342,8 @@ class OpenRouterLLM:
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
-        return await self.complete(messages, system=system, max_tokens=512)
+        result = await self.complete(messages, system=system, max_tokens=512)
+        return result.text
 
 # ──────────────────────────────────────────────
 # Retry decorator for OpenAI-compatible APIs
