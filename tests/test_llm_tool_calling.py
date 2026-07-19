@@ -218,3 +218,31 @@ class TestOpenAICompatibleToolCalling:
         from core.llm import OpenRouterLLM
         llm = OpenRouterLLM(api_key="key")
         assert llm.supports_tools is True
+
+
+class TestOllamaWrapsPlainText:
+    @pytest.mark.asyncio
+    async def test_supports_tools_is_false(self):
+        from core.llm import OllamaLLM
+        llm = OllamaLLM(base_url="http://localhost:11434")
+        assert llm.supports_tools is False
+        await llm.close()
+
+    @pytest.mark.asyncio
+    async def test_complete_returns_llmresult_with_no_tool_calls(self):
+        from core.llm import OllamaLLM
+        llm = OllamaLLM(base_url="http://localhost:11434")
+
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = lambda: None
+        mock_response.json = lambda: {"message": {"content": "Hello from ollama"}}
+        llm._client.post = AsyncMock(return_value=mock_response)
+
+        result = await llm.complete(
+            messages=[Message(role="user", content="hi")],
+            system="sys",
+        )
+
+        assert result.text == "Hello from ollama"
+        assert result.tool_calls == []
+        await llm.close()

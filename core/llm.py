@@ -361,6 +361,8 @@ _ollama_no_retry = retry(
 class OllamaLLM:
     """Implements LLMProvider using Ollama's local API."""
 
+    supports_tools = False
+
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=120.0)
@@ -376,7 +378,10 @@ class OllamaLLM:
         system: str,
         model: str = "",
         max_tokens: int = 0,
-    ) -> str:
+        tools: list["ToolDef"] | None = None,
+        tool_result: "ToolResultInput | None" = None,
+        raw_assistant: Any = None,
+    ) -> "LLMResult":
         model = model or settings.default_model or "llama3"
         max_tokens = max_tokens or settings.default_max_tokens
 
@@ -409,7 +414,7 @@ class OllamaLLM:
             model=model,
             duration_ms=t.ms,
         )
-        return text
+        return LLMResult(text=text)
 
     async def summarize(self, messages: list[Message]) -> str:
         """Summarize a conversation for session compaction."""
@@ -418,7 +423,8 @@ class OllamaLLM:
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
-        return await self.complete(messages, system=system, max_tokens=512)
+        result = await self.complete(messages, system=system, max_tokens=512)
+        return result.text
 
 
 def get_llm_provider() -> LLMProvider:
