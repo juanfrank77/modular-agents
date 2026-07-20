@@ -21,6 +21,7 @@ from core.llm import (
     KiloLLM,
     LLMProviderNotConfiguredError,
     OllamaLLM,
+    OpenAILLM,
     OpenRouterLLM,
     get_llm_provider,
 )
@@ -31,6 +32,7 @@ def _settings(**overrides):
         real_settings,
         kilo_api_key="",
         openrouter_api_key="",
+        openai_api_key="",
         ollama_base_url="",
         anthropic_api_key="",
         llm_provider="",
@@ -51,6 +53,12 @@ class TestProviderPriority:
             "core.llm.settings", _settings(openrouter_api_key="o")
         )
         assert isinstance(get_llm_provider(), OpenRouterLLM)
+
+    def test_falls_back_to_openai(self, monkeypatch):
+        monkeypatch.setattr(
+            "core.llm.settings", _settings(openai_api_key="oa")
+        )
+        assert isinstance(get_llm_provider(), OpenAILLM)
 
     def test_falls_back_to_ollama(self, monkeypatch):
         monkeypatch.setattr(
@@ -84,6 +92,13 @@ class TestLLMProviderOverride:
         )
         with pytest.raises(LLMProviderNotConfiguredError):
             get_llm_provider()
+
+    def test_openai_override_wins_over_priority(self, monkeypatch):
+        monkeypatch.setattr(
+            "core.llm.settings",
+            _settings(kilo_api_key="k", openai_api_key="oa", llm_provider="openai"),
+        )
+        assert isinstance(get_llm_provider(), OpenAILLM)
 
     def test_unknown_override_raises(self, monkeypatch):
         monkeypatch.setattr(

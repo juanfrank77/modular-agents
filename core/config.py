@@ -36,6 +36,7 @@ class Settings:
     kilo_base_url: str = "https://api.kilo.ai/api/gateway"
     anthropic_api_key: str = ""
     openrouter_api_key: str = ""
+    openai_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_model: str = "claude-sonnet-4.6"
     default_max_tokens: int = 2048
@@ -196,6 +197,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         kilo_api_key=_optional("KILO_API_KEY", ""),
         anthropic_api_key=_optional("ANTHROPIC_API_KEY", ""),
         openrouter_api_key=_optional("OPENROUTER_API_KEY", ""),
+        openai_api_key=_optional("OPENAI_API_KEY", ""),
         ollama_base_url=_optional("OLLAMA_BASE_URL", "http://localhost:11434"),
         # Optional with defaults
         default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),

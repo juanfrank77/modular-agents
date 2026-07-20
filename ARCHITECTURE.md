@@ -88,7 +88,7 @@ The core layer is built once and never reimplemented per agent. It exposes clean
 | Module | Responsibility |
 |---|---|
 | `config.py` | Loads and validates `.env`. Exposes typed settings object. Fails fast if required keys are missing. Single source of truth for all configuration. |
-| `llm.py` | Single shared LLM client. Wraps Kilo/OpenRouter/Ollama/Anthropic SDKs behind a Protocol. Configurable per-agent (model, temperature, max tokens). Swap providers in one place. |
+| `llm.py` | Single shared LLM client. Wraps Kilo/OpenRouter/OpenAI/Ollama/Anthropic SDKs behind a Protocol. Configurable per-agent (model, temperature, max tokens). Swap providers in one place. |
 | `notifier.py` | Telegram send/receive abstraction. Agents never import `python-telegram-bot` directly. Future channels (Slack, Discord) implement the same `Notifier` Protocol. |
 | `storage.py` | SQLite wrapper for session history. Async interface. Handles all DB connection management. Agents call `save_message()` and `search_history()` only. |
 | `memory.py` | Two-layer memory. Layer 1: SQLite sessions (queryable history). Layer 2: Markdown files (preferences, personal context, projects). Agents call `get_context()` and `save_solution()`. |
@@ -452,7 +452,7 @@ framework/
 | Docker Isolation | Agent Zero | WSL2 provides sufficient isolation for this use case. |
 | Agent Team Collaboration | TinyClaw | Unnecessary for 2-agent setup. Revisit at 4+ agents. |
 | Voice Wake Word | OpenClaw | Telegram voice messages cover this use case sufficiently. |
-| Multi-Provider AI Failover | IronClaw | Implemented — Kilo/OpenRouter/Ollama/Anthropic providers with automatic fallback. |
+| Multi-Provider AI Failover | IronClaw | Implemented — Kilo/OpenRouter/OpenAI/Ollama/Anthropic providers with automatic fallback. |
 | Local LLM (Ollama) | Multiple | Implemented — supports self-hosted models like Llama and No-Lama. |
 | Webhook Triggers | OpenClaw / ZeroClaw | Not needed for current automation scope. |
 
