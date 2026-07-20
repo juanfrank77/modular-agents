@@ -127,7 +127,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 - **Backups are manual** — one `cp` example in the RUNBOOK. Add a cron/systemd-timer backing up `sessions.db` + `memory/context` + `memory/knowledge` + agent `state.json` files.
 - **No log rotation** for the `nohup >> logs/bot.log` path; configure journald caps or logrotate.
 - **RUNBOOK drift:** says grep `"PAIRING CODE"` in one place and `"PAIRING TOKEN"` in another (lines 148 vs 211) — one won't match. Document that restarts de-pair users and drop approvals (until 1.4 is fixed).
-- `setup.sh` doesn't check for `gh`/`railway` CLIs that the devops agent hard-requires.
+- `~~setup.sh doesn't check for gh/railway CLIs~~` — **DONE (2026-07-19)**: added step 7 ("External CLIs (optional)") — warns (doesn't fail) if either is missing, with install links. Also fixed a related bug found while touching this file: step 10's integration-test runner still pointed at `test_integration.py` in the repo root, which moved to `tests/test_integration.py` — it was silently no-op'ing on every run.
 
 ---
 

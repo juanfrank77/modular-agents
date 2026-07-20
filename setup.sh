@@ -11,10 +11,11 @@
 #   4. Validates .env exists and has required keys
 #   5. Locks down file permissions (.env, sessions.db)
 #   6. Creates required directories (memory/context, memory/solutions)
-#   7. Renames skill-loader.py if the old hyphenated name exists
-#   8. Installs and enables the systemd service (Linux only)
-#   9. Runs the integration test suite
-#   10. Prints a final status summary
+#   7. Checks for gh/railway CLIs (needed by the DevOps agent)
+#   8. Renames skill-loader.py if the old hyphenated name exists
+#   9. Installs and enables the systemd service (Linux only)
+#   10. Runs the integration test suite
+#   11. Prints a final status summary
 #
 # Usage:
 #   chmod +x setup.sh
@@ -216,8 +217,26 @@ for f in "${CONTEXT_FILES[@]}"; do
 done
 
 
-# ── 7. Rename skill-loader.py if needed ──────────────────────────────────────
-section "7. File naming"
+# ── 7. External CLIs (optional — DevOps agent) ────────────────────────────────
+section "7. External CLIs (optional)"
+
+if command -v gh &>/dev/null; then
+    ok "gh CLI found"
+else
+    warn "gh CLI not found — the DevOps agent's GitHub tools will fail at runtime"
+    warn "Install: https://cli.github.com/  then run: gh auth login"
+fi
+
+if command -v railway &>/dev/null; then
+    ok "railway CLI found"
+else
+    warn "railway CLI not found — the DevOps agent's deployment tools will fail at runtime"
+    warn "Install: https://docs.railway.app/develop/cli  then run: railway login"
+fi
+
+
+# ── 8. Rename skill-loader.py if needed ──────────────────────────────────────
+section "8. File naming"
 
 OLD="$PROJECT_DIR/core/skill-loader.py"
 NEW="$PROJECT_DIR/core/skill_loader.py"
@@ -232,8 +251,8 @@ elif [ ! -f "$OLD" ] && [ ! -f "$NEW" ]; then
 fi
 
 
-# ── 8. Systemd service ────────────────────────────────────────────────────────
-section "8. Systemd service"
+# ── 9. Systemd service ────────────────────────────────────────────────────────
+section "9. Systemd service"
 
 if [ "$SKIP_SYSTEMD" = "1" ]; then
     warn "SKIP_SYSTEMD=1 set — skipping service installation"
@@ -270,12 +289,12 @@ else
 fi
 
 
-# ── 9. Integration tests ──────────────────────────────────────────────────────
-section "9. Integration tests"
+# ── 10. Integration tests ──────────────────────────────────────────────────────
+section "10. Integration tests"
 
-TEST_FILE="$PROJECT_DIR/test_integration.py"
+TEST_FILE="$PROJECT_DIR/tests/test_integration.py"
 if [ ! -f "$TEST_FILE" ]; then
-    warn "test_integration.py not found — skipping"
+    warn "tests/test_integration.py not found — skipping"
 else
     info "Running integration tests..."
     if "$VENV_PYTHON" "$TEST_FILE"; then
@@ -287,7 +306,7 @@ else
 fi
 
 
-# ── 10. Summary ───────────────────────────────────────────────────────────────
+# ── 11. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}─────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}  Setup complete${RESET}"
