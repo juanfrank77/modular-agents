@@ -15,7 +15,7 @@ from agents.projects.agent import (
     _parse_update,
     _project_names,
 )
-from core.protocols import AgentEvent, EventType
+from core.protocols import AgentEvent, EventType, LLMResult
 
 _PROJECTS_MD = """# Projects
 
@@ -51,7 +51,7 @@ def _make_agent(cls, tmp_path: Path, llm_response: str = ""):
     storage = AsyncMock()
     storage.get_or_create_session = AsyncMock(return_value="sess1")
     llm = AsyncMock()
-    llm.complete = AsyncMock(return_value=llm_response)
+    llm.complete = AsyncMock(return_value=LLMResult(text=llm_response))
     safety = AsyncMock()
     safety.check_action = AsyncMock(return_value=True)
     agent = cls(
