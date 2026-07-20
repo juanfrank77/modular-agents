@@ -64,6 +64,35 @@ class TestPairingManagerLockout:
         assert await pm.try_pair("456", pm.code) is True
 
 
+class TestPairingManagerAttemptsRemaining:
+    @pytest.mark.asyncio
+    async def test_full_attempts_remaining_for_unseen_chat(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.attempts_remaining("never-tried") == PairingManager.MAX_FAILED_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_decrements_per_failed_attempt(self):
+        pm = PairingManager(allowed_ids=[])
+        await pm.try_pair("123", "wrong-code")
+        assert pm.attempts_remaining("123") == PairingManager.MAX_FAILED_ATTEMPTS - 1
+        await pm.try_pair("123", "wrong-code")
+        assert pm.attempts_remaining("123") == PairingManager.MAX_FAILED_ATTEMPTS - 2
+
+    @pytest.mark.asyncio
+    async def test_zero_when_locked(self):
+        pm = PairingManager(allowed_ids=[])
+        for _ in range(PairingManager.MAX_FAILED_ATTEMPTS):
+            await pm.try_pair("123", "wrong-code")
+        assert pm.attempts_remaining("123") == 0
+
+    @pytest.mark.asyncio
+    async def test_resets_to_full_after_successful_pair(self):
+        pm = PairingManager(allowed_ids=[])
+        await pm.try_pair("123", "wrong-code")
+        await pm.try_pair("123", pm.code)
+        assert pm.attempts_remaining("123") == PairingManager.MAX_FAILED_ATTEMPTS
+
+
 class TestApprovalGateTimeout:
     @pytest.mark.asyncio
     async def test_unresolved_approval_times_out_and_returns_false(self):

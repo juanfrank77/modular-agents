@@ -100,7 +100,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 - **Pairing/rate-limit logic is triplicated** across telegram/http/cli with diverging UX (only Telegram shows attempts remaining). Extract a shared guard the interfaces call.
 - **`/model` mutates the global default for everyone** (`telegram.py:293`) — scope it per-chat or per-agent.
 - **Duplicate `_on_message` registration** in groups 0 and 1 (`telegram.py:55-79`) — the group-1 private-chat handler looks redundant and risks double-processing; verify and remove.
-- **Telegram reaches into `pairing._failed_attempts`** (private attr, `telegram.py:126`) — add a public `attempts_remaining()`.
+- `~~Telegram reaches into pairing._failed_attempts~~` — **DONE (2026-07-19)**: added `PairingManager.attempts_remaining()` (`core/safety.py`), `interfaces/telegram.py` now calls it instead of the private attr. Also fixed a stale message found alongside it: the locked-chat reply said "Restart the bot to try again" — no longer true since §1.4's lockout persistence; now points to the administrator instead.
 - **No HTTP streaming/SSE** and the `notifier.get_and_clear()` out-of-band capture (`http.py:139-148`) is race-prone across concurrent requests for one chat.
 - **Echo agent is still registered in production** (`main.py:129-130`) and can receive stray routed messages — gate it behind a debug flag.
 - **No "which agent am I talking to?"** indicator anywhere; with sticky routing this is disorienting. Cheap fix: prefix replies with the agent emoji/name, or add `/agents` listing who's registered and who's active for this chat.
@@ -142,4 +142,4 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 | D — make it safe | Trust model + creator gate + systemd hardening | 3 | open |
 | E — make it last | Tests, CI, backups, FTS5, retention | 8, 5 | open |
 
-Quick wins doable in an afternoon: `attempts_remaining()` accessor, RUNBOOK grep fix, echo debug-gate, ~~composio-anthropic in requirements~~ (done), ~~CLI @agent parsing~~ (done), duplicate Telegram handler removal, declarative `SCHEDULES` on BaseAgent, §2 (LLM layer) fully closed, ~~time.monotonic() in rate limiter~~ (done), ~~unencrypted-DB warning~~ (done), ~~StartLimitBurst → [Unit]~~ (done), §8's core unit-test suite gap closed.
+Quick wins doable in an afternoon: echo debug-gate, duplicate Telegram handler removal, declarative `SCHEDULES` on BaseAgent, ~~composio-anthropic in requirements~~ (done), ~~CLI @agent parsing~~ (done), ~~time.monotonic() in rate limiter~~ (done), ~~unencrypted-DB warning~~ (done), ~~StartLimitBurst → [Unit]~~ (done), ~~attempts_remaining() accessor~~ (done), ~~RUNBOOK grep fix~~ (done), §2 (LLM layer) fully closed, §8's core unit-test suite gap closed.

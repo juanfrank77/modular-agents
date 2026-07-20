@@ -76,6 +76,10 @@ class PairingManager:
     def is_locked(self, chat_id: str) -> bool:
         return self._failed_attempts.get(chat_id, 0) >= self.MAX_FAILED_ATTEMPTS
 
+    def attempts_remaining(self, chat_id: str) -> int:
+        """Failed pairing attempts left before this chat_id locks out."""
+        return max(0, self.MAX_FAILED_ATTEMPTS - self._failed_attempts.get(chat_id, 0))
+
     async def try_pair(self, chat_id: str, text: str) -> bool:
         """Returns True if the text matches the pairing code."""
         # Check if locked
