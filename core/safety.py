@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 import uuid
 from enum import Enum, auto
 from typing import TYPE_CHECKING
@@ -201,8 +202,7 @@ class RateLimiter:
 
     def is_allowed(self, chat_id: str) -> bool:
         """Check if chat_id is within rate limit. Returns True if allowed."""
-        import time
-        now = time.time()
+        now = time.monotonic()
         self._prune_old(chat_id, now)
         count = len(self._buckets.get(chat_id, []))
         if count >= self._rpm:
@@ -218,8 +218,7 @@ class RateLimiter:
 
     def wait_time(self, chat_id: str) -> float:
         """Return seconds until oldest message expires (for cooldown messages)."""
-        import time
-        now = time.time()
+        now = time.monotonic()
         if chat_id not in self._buckets or not self._buckets[chat_id]:
             return 0
         oldest = min(self._buckets[chat_id])
