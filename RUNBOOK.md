@@ -145,7 +145,7 @@ It's a 32-character cryptographically random token that regenerates each time th
 
 To find it after startup:
 ```bash
-journalctl -u modular-agents | grep "PAIRING CODE"
+journalctl -u modular-agents | grep "PAIRING TOKEN"
 # or check the service output
 sudo systemctl status modular-agents
 ```
@@ -212,7 +212,7 @@ If you've started the service but the bot doesn't respond to any messages, verif
    ```
 3. Send the pairing token to the bot on Telegram before expecting any response
 
-The bot will not respond to messages until pairing is complete. After 5 failed pairing attempts, the bot locks — restart the service to reset.
+The bot will not respond to messages until pairing is complete. After 5 failed pairing attempts, the chat locks. This lockout is now persisted (`core/state_store.py`) and survives a restart — there is currently no built-in way to clear it short of deleting that chat_id's row from the `failed_attempts` table in the state DB directly.
 
 ### Bot not responding to messages
 
