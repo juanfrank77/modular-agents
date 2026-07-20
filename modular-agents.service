@@ -2,6 +2,8 @@
 Description=Modular Agents — Semi Autonomous AI Assistant
 After=network-online.target
 Wants=network-online.target
+StartLimitInterval=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -17,10 +19,20 @@ Environment="HOME=/home/YOUR_USERNAME"
 ExecStart=/home/YOUR_USERNAME/modular-agents/.venv/bin/python /home/YOUR_USERNAME/modular-agents/main.py
 Restart=on-failure
 RestartSec=10
-StartLimitInterval=120
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+# ProtectSystem=strict makes the filesystem read-only outside these paths —
+# the app only ever writes to its own memory/ dir (sessions.db, scheduler.db,
+# context/, solutions/). Logs go to journald (StandardOutput/StandardError
+# above), not to a file, so no log directory is needed here.
+ReadWritePaths=/home/YOUR_USERNAME/modular-agents/memory
+# Adjust to your workload — headroom for a Python asyncio bot process.
+MemoryMax=512M
 
 [Install]
 WantedBy=multi-user.target
