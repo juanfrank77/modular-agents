@@ -30,6 +30,9 @@ _SKILL_XML_TEMPLATE = """<skill>
 
 
 class SkillLoader:
+    def __init__(self, min_score: float = _MIN_SCORE) -> None:
+        self._min_score = min_score
+
     @staticmethod
     def _tokenize(text: str) -> set[str]:
         """Simple word tokenization — lowercase, alpha-only, 2+ chars."""
@@ -55,7 +58,7 @@ class SkillLoader:
                 continue
             overlap = len(task_tokens & skill_tokens)
             score = overlap / len(task_tokens)
-            if score >= _MIN_SCORE:
+            if score >= self._min_score:
                 scored.append((score, content))
 
         scored.sort(key=lambda x: x[0], reverse=True)

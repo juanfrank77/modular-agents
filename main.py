@@ -116,11 +116,13 @@ async def bootstrap():
         extra_blocked_patterns=settings.extra_blocked_patterns,
         rate_limit_rpm=settings.rate_limit_rpm,
         state_store=state_store,
+        pairing_max_failed_attempts=settings.pairing_max_failed_attempts,
+        approval_default_timeout=settings.approval_default_timeout,
     )
     await safety.pairing.load()
 
-    skill_loader = SkillLoader()
-    _scheduler._heartbeat_minutes = settings.heartbeat_interval_minutes
+    skill_loader = SkillLoader(min_score=settings.skill_min_score)
+    _scheduler.set_heartbeat_minutes(settings.heartbeat_interval_minutes)
     _scheduler.configure_jobstore(settings.scheduler_db_path)
 
     bus = MessageBus(llm=llm, classifier_model=settings.classifier_model, state_store=state_store)

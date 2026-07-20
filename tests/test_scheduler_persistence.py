@@ -86,3 +86,17 @@ class TestConfigureJobstore:
         from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
         assert isinstance(s._scheduler._jobstores["default"], SQLAlchemyJobStore)
+
+
+class TestSetHeartbeatMinutes:
+    """Public setter for the module-level singleton — main.py previously
+    reached into scheduler._heartbeat_minutes directly (private attr)."""
+
+    def test_constructor_default(self):
+        s = Scheduler()
+        assert s._heartbeat_minutes == 30
+
+    def test_public_setter_updates_value(self):
+        s = Scheduler()
+        s.set_heartbeat_minutes(15)
+        assert s._heartbeat_minutes == 15

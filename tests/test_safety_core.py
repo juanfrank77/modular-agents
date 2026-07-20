@@ -93,6 +93,28 @@ class TestPairingManagerAttemptsRemaining:
         assert pm.attempts_remaining("123") == PairingManager.MAX_FAILED_ATTEMPTS
 
 
+class TestPairingManagerConfigurableMaxFailedAttempts:
+    def test_class_default_is_unaffected_by_instance_override(self):
+        PairingManager(allowed_ids=[], max_failed_attempts=2)
+        assert PairingManager.MAX_FAILED_ATTEMPTS == 5
+
+    def test_instance_uses_default_when_not_overridden(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.MAX_FAILED_ATTEMPTS == 5
+
+    def test_instance_uses_override_value(self):
+        pm = PairingManager(allowed_ids=[], max_failed_attempts=2)
+        assert pm.MAX_FAILED_ATTEMPTS == 2
+
+    @pytest.mark.asyncio
+    async def test_lockout_triggers_at_overridden_threshold(self):
+        pm = PairingManager(allowed_ids=[], max_failed_attempts=2)
+        await pm.try_pair("123", "wrong-code")
+        assert pm.is_locked("123") is False
+        await pm.try_pair("123", "wrong-code")
+        assert pm.is_locked("123") is True
+
+
 class TestApprovalGateTimeout:
     @pytest.mark.asyncio
     async def test_unresolved_approval_times_out_and_returns_false(self):
@@ -167,3 +189,24 @@ class TestApprovalGateTimeout:
             chat_id="cli", description="do a thing", action_type=ActionType.WRITE_HIGH
         )
         assert approved is True
+
+
+class TestApprovalGateConfigurableDefaultTimeout:
+    @pytest.mark.asyncio
+    async def test_unknown_action_type_times_out_at_overridden_default(self):
+        # timeouts has no DESTRUCTIVE entry, and default_timeout is small —
+        # if the override isn't honored this would hang for the module's
+        # real 300s default instead of timing out almost immediately.
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={}, default_timeout=0.05)
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.DESTRUCTIVE
+        )
+        assert approved is False
+
+    @pytest.mark.asyncio
+    async def test_no_action_type_times_out_at_overridden_default(self):
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={}, default_timeout=0.05)
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=None
+        )
+        assert approved is False

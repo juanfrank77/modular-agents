@@ -33,9 +33,10 @@ class FileTool:
     filesystem.  This prevents directory-traversal and symlink-escape attacks.
     """
 
-    def __init__(self, allowed_paths: list[Path]) -> None:
+    def __init__(self, allowed_paths: list[Path], max_read_bytes: int = _MAX_READ_BYTES) -> None:
         self._allowed = [p.resolve() for p in allowed_paths]
         self._cache: dict[str, dict[str, Any]] = {}
+        self._max_read_bytes = max_read_bytes
         log.debug("FileTool initialised", count=len(self._allowed))
 
     # ------------------------------------------------------------------
@@ -131,14 +132,18 @@ class FileTool:
                 return cached["content"]
 
         raw = resolved.read_bytes()
-        if len(raw) > _MAX_READ_BYTES:
+        if len(raw) > self._max_read_bytes:
             log.warning(
-                "read_file exceeds 100 KB, truncating",
+                "read_file exceeds max_read_bytes, truncating",
                 path=str(resolved),
                 size=len(raw),
+                max_read_bytes=self._max_read_bytes,
             )
-            content = raw[:_MAX_READ_BYTES].decode("utf-8", errors="replace")
-            content += f"\n\n[... truncated: file is {len(raw)} bytes, only first {_MAX_READ_BYTES} bytes shown ...]"
+            content = raw[: self._max_read_bytes].decode("utf-8", errors="replace")
+            content += (
+                f"\n\n[... truncated: file is {len(raw)} bytes, "
+                f"only first {self._max_read_bytes} bytes shown ...]"
+            )
             log.debug("read_file", path=resolved_str, chars=len(content))
             return content
 

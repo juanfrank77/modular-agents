@@ -123,6 +123,13 @@ class Settings:
     # Rate limiting
     rate_limit_rpm: int = 20  # messages per minute per chat_id
 
+    # Pairing / approvals
+    pairing_max_failed_attempts: int = 5
+    approval_default_timeout: int = 300  # fallback when action type not in approval_timeouts
+
+    # Skill matching
+    skill_min_score: float = 0.05  # relevance threshold for find_relevant()
+
     # Local file access
     local_file_paths: list[Path] = field(default_factory=list)
 
@@ -271,6 +278,9 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         session_ttl_hours=int(_optional("SESSION_TTL_HOURS", "24")),
         rate_limit_rpm=int(_optional("RATE_LIMIT_RPM", "20")),
         debug_echo_agent=_optional("DEBUG_ECHO_AGENT", "false").lower() == "true",
+        pairing_max_failed_attempts=int(_optional("PAIRING_MAX_FAILED_ATTEMPTS", "5")),
+        approval_default_timeout=int(_optional("APPROVAL_DEFAULT_TIMEOUT", "300")),
+        skill_min_score=float(_optional("SKILL_MIN_SCORE", "0.05")),
     )
 
 

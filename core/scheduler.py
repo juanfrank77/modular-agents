@@ -74,6 +74,11 @@ class Scheduler:
         self._bus = bus
         _set_bus_registry(bus)
 
+    def set_heartbeat_minutes(self, minutes: int) -> None:
+        """Set after construction — the module-level singleton is built
+        before Settings is available, matching set_bus()'s pattern."""
+        self._heartbeat_minutes = minutes
+
     def configure_jobstore(self, db_path: Path) -> None:
         """Swap the default in-memory jobstore for a persistent one backed by
         SQLite. Must be called before any add_cron_job()/add_job() calls —

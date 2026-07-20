@@ -53,14 +53,21 @@ class PairingManager:
     Locks pairing after 5 failed attempts to prevent brute-force.
     """
 
-    MAX_FAILED_ATTEMPTS = 5
+    MAX_FAILED_ATTEMPTS = 5  # class-level default; override per instance via max_failed_attempts
 
-    def __init__(self, allowed_ids: list[str], state_store: "StateStore | None" = None) -> None:
+    def __init__(
+        self,
+        allowed_ids: list[str],
+        state_store: "StateStore | None" = None,
+        max_failed_attempts: int | None = None,
+    ) -> None:
         self._token = uuid.uuid4().hex  # 32-char cryptographically random token
         self._allowed_ids = set(allowed_ids)
         self._paired: set[str] = set()
         self._failed_attempts: dict[str, int] = {}  # chat_id -> attempt count
         self._state_store = state_store
+        if max_failed_attempts is not None:
+            self.MAX_FAILED_ATTEMPTS = max_failed_attempts
 
     @property
     def code(self) -> str:
@@ -247,12 +254,14 @@ class ApprovalGate:
         notifier: "Notifier",
         timeouts: dict[str, int] | None = None,
         state_store: "StateStore | None" = None,
+        default_timeout: int = _DEFAULT_TIMEOUT,
     ) -> None:
         self._notifier = notifier
         self._timeouts: dict[str, int] = timeouts or {}
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, bool] = {}
         self._state_store = state_store
+        self._default_timeout = default_timeout
 
     async def request_approval(
         self,
@@ -273,9 +282,9 @@ class ApprovalGate:
             return True
 
         timeout = (
-            self._timeouts.get(action_type.name, _DEFAULT_TIMEOUT)
+            self._timeouts.get(action_type.name, self._default_timeout)
             if action_type is not None
-            else _DEFAULT_TIMEOUT
+            else self._default_timeout
         )
 
         approval_id = str(uuid.uuid4())[:8]
@@ -371,9 +380,20 @@ class Safety:
         extra_blocked_patterns: list[str] | None = None,
         rate_limit_rpm: int = 20,
         state_store: "StateStore | None" = None,
+        pairing_max_failed_attempts: int | None = None,
+        approval_default_timeout: int = _DEFAULT_TIMEOUT,
     ) -> None:
-        self.pairing = PairingManager(allowed_ids, state_store=state_store)
-        self.gate = ApprovalGate(notifier, timeouts=approval_timeouts, state_store=state_store)
+        self.pairing = PairingManager(
+            allowed_ids,
+            state_store=state_store,
+            max_failed_attempts=pairing_max_failed_attempts,
+        )
+        self.gate = ApprovalGate(
+            notifier,
+            timeouts=approval_timeouts,
+            state_store=state_store,
+            default_timeout=approval_default_timeout,
+        )
         self.rate_limiter = RateLimiter(rpm=rate_limit_rpm)
         # Compile extra patterns from settings
         self._extra_patterns = []
