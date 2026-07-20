@@ -205,6 +205,15 @@ class KiloLLM(_OpenAICompatibleLLM):
         super().__init__(AsyncOpenAI(api_key=api_key, base_url=settings.kilo_base_url))
 
 
+class OpenAILLM(_OpenAICompatibleLLM):
+    """Implements LLMProvider using OpenAI's API directly (user's own API key)."""
+
+    _provider_name = "openai"
+
+    def __init__(self, api_key: str) -> None:
+        super().__init__(AsyncOpenAI(api_key=api_key))
+
+
 class AnthropicLLM(_SummarizeMixin):
     """Implements the LLMProvider Protocol using Anthropic's Messages API."""
 
@@ -391,13 +400,14 @@ _PROVIDER_FACTORIES: dict[str, Any] = {
     "openrouter": lambda: (
         OpenRouterLLM(settings.openrouter_api_key) if settings.openrouter_api_key else None
     ),
+    "openai": lambda: OpenAILLM(settings.openai_api_key) if settings.openai_api_key else None,
     "ollama": lambda: OllamaLLM(settings.ollama_base_url) if settings.ollama_base_url else None,
     "anthropic": lambda: (
         AnthropicLLM(settings.anthropic_api_key) if settings.anthropic_api_key else None
     ),
 }
 
-_PROVIDER_PRIORITY = ("kilo", "openrouter", "ollama", "anthropic")
+_PROVIDER_PRIORITY = ("kilo", "openrouter", "openai", "ollama", "anthropic")
 
 
 def get_llm_provider() -> LLMProvider:
@@ -432,6 +442,7 @@ def get_llm_provider() -> LLMProvider:
         "No LLM provider configured. Set at least one of:\n"
         "  - KILO_API_KEY\n"
         "  - OPENROUTER_API_KEY\n"
+        "  - OPENAI_API_KEY\n"
         "  - OLLAMA_BASE_URL (for local models)\n"
         "  - ANTHROPIC_API_KEY (fallback)"
     )

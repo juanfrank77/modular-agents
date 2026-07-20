@@ -82,9 +82,10 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (most common) |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one API |
 | **Kilo** | `KILO_API_KEY` | Primary provider (default) |
+| **OpenAI** | `OPENAI_API_KEY` | Direct OpenAI API access (your own API key — not a ChatGPT subscription; ChatGPT Plus/Pro don't grant API access) |
 | **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Llama, No-Lama, etc.) |
 
-Configure at least one provider. Provider priority: Kilo → OpenRouter → Ollama → Anthropic.
+Configure at least one provider. Provider priority: Kilo → OpenRouter → OpenAI → Ollama → Anthropic. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
 
 ---
 
@@ -123,6 +124,8 @@ LLM Provider (configure at least one):
 KILO_API_KEY=your_key_here              # Kilo (default primary)
 # OR
 OPENROUTER_API_KEY=your_key_here          # OpenRouter
+# OR
+OPENAI_API_KEY=your_key_here            # OpenAI (direct, your own API key)
 # OR
 OLLAMA_BASE_URL=http://localhost:11434  # Ollama for local models
 # OR
@@ -529,7 +532,7 @@ modular-agents/
 │   ├── composio_tool.py         ← Composio SDK wrapper (external app integrations)
 │   ├── config.py                ← environment and settings
 │   ├── file_tool.py             ← local filesystem access with path allowlist
-│   ├── llm.py                   ← LLM providers (Kilo/OpenRouter/Ollama/Anthropic)
+│   ├── llm.py                   ← LLM providers (Kilo/OpenRouter/OpenAI/Ollama/Anthropic)
 │   ├── memory.py                ← enhanced two-layer memory system
 │   ├── quiet_hours.py           ← quiet hours gating logic
 │   ├── safety.py                ← approval gates and blocklist
