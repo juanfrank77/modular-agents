@@ -12,10 +12,9 @@
 #   5. Locks down file permissions (.env, sessions.db)
 #   6. Creates required directories (memory/context, memory/solutions)
 #   7. Checks for gh/railway CLIs (needed by the DevOps agent)
-#   8. Renames skill-loader.py if the old hyphenated name exists
-#   9. Installs and enables the systemd service (Linux only)
-#   10. Runs the integration test suite
-#   11. Prints a final status summary
+#   8. Installs and enables the systemd service (Linux only)
+#   9. Runs the integration test suite
+#   10. Prints a final status summary
 #
 # Usage:
 #   chmod +x setup.sh
@@ -235,24 +234,8 @@ else
 fi
 
 
-# ── 8. Rename skill-loader.py if needed ──────────────────────────────────────
-section "8. File naming"
-
-OLD="$PROJECT_DIR/core/skill-loader.py"
-NEW="$PROJECT_DIR/core/skill_loader.py"
-
-if [ -f "$OLD" ] && [ ! -f "$NEW" ]; then
-    mv "$OLD" "$NEW"
-    ok "Renamed core/skill-loader.py → core/skill_loader.py"
-elif [ -f "$NEW" ]; then
-    ok "core/skill_loader.py already correctly named"
-elif [ ! -f "$OLD" ] && [ ! -f "$NEW" ]; then
-    warn "core/skill_loader.py not found — ensure it exists before running the bot"
-fi
-
-
-# ── 9. Systemd service ────────────────────────────────────────────────────────
-section "9. Systemd service"
+# ── 8. Systemd service ────────────────────────────────────────────────────────
+section "8. Systemd service"
 
 if [ "$SKIP_SYSTEMD" = "1" ]; then
     warn "SKIP_SYSTEMD=1 set — skipping service installation"
@@ -289,8 +272,8 @@ else
 fi
 
 
-# ── 10. Integration tests ──────────────────────────────────────────────────────
-section "10. Integration tests"
+# ── 9. Integration tests ──────────────────────────────────────────────────────
+section "9. Integration tests"
 
 TEST_FILE="$PROJECT_DIR/tests/test_integration.py"
 if [ ! -f "$TEST_FILE" ]; then
@@ -306,7 +289,7 @@ else
 fi
 
 
-# ── 11. Summary ───────────────────────────────────────────────────────────────
+# ── 10. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}─────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}  Setup complete${RESET}"

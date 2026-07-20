@@ -115,7 +115,8 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 - **Scheduler job-ID collisions:** `f"{agent}_{task}"` with `replace_existing=True` silently overwrites (`scheduler.py:102`); no error isolation around fired jobs.
 - **Config-worthy hardcodes:** `MAX_FAILED_ATTEMPTS`, approval default timeout, `_MAX_READ_BYTES`, skill `_MIN_SCORE`, heartbeat default, quiet-hours window names (only two, hardwired in `quiet_hours.py:40-43`).
 - **FileTool:** write path has no size cap (reads capped at 100 KB), non-atomic writes (temp-file+rename would survive crashes), unbounded read cache.
-- Dead cruft: `setup.sh` step 7 renames a long-gone `skill-loader.py`; `_snake` alias in agent_creator; `_send_progress` is a no-op so `/newagent` looks frozen during generation.
+- `~~Dead cruft: setup.sh step renames a long-gone skill-loader.py; _snake alias in agent_creator~~` — **DONE (2026-07-19)**: removed the stale rename step from `setup.sh` (subsequent steps renumbered) and the redundant `_snake()` wrapper in `core/agent_creator.py` (its two call sites now call `_to_snake()` directly).
+- **`_send_progress` is a no-op so `/newagent` looks frozen during generation** — turns out to be more than cruft: `AgentCreator.__init__` (`core/agent_creator.py:312`) doesn't even take a `notifier`, so there's currently no way for `_send_progress` to send anything without a constructor change plus updating its one call site in `main.py:109`. Left open — needs a small design decision (thread a notifier through, or drop the hook entirely), not a trivial removal.
 
 ---
 

@@ -210,11 +210,11 @@ def _patch_main(main_path: Path, module_name: str, class_name: str) -> bool:
 
     # Add instantiation and registration before echo registration
     instantiation = (
-        f"\n    {_snake(module_name)} = {class_name}(\n"
+        f"\n    {_to_snake(module_name)} = {class_name}(\n"
         f"        settings=settings, storage=storage, notifier=notifier,\n"
         f"        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader,\n"
         f"    )\n"
-        f"    bus.register({_snake(module_name)})\n"
+        f"    bus.register({_to_snake(module_name)})\n"
     )
 
     content = content.replace(
@@ -300,10 +300,6 @@ def _to_snake(name: str) -> str:
 def _to_pascal(name: str) -> str:
     """'my_agent_name' → 'MyAgentName'"""
     return "".join(w.title() for w in name.split("_"))
-
-
-def _snake(name: str) -> str:
-    return _to_snake(name)
 
 
 # ── AgentCreator ──────────────────────────────
