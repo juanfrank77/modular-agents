@@ -46,11 +46,9 @@ class TelegramInterface:
         self._creator = creator
         self._settings = settings
 
-    async def run(self) -> None:
-        import asyncio
-
-        app = ApplicationBuilder().token(self._settings.telegram_token).build()
-
+    def _register_handlers(self, app) -> None:
+        """Register all Telegram handlers on `app`. Split out from run() so
+        registration can be tested without starting the polling loop."""
         app.add_handler(
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
@@ -63,13 +61,13 @@ class TelegramInterface:
         app.add_handler(
             CommandHandler(["newagent", "help"], self._on_command)
         )
-        app.add_handler(
-            MessageHandler(
-                filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-                self._on_message,
-            ),
-            group=1,
-        )
+
+    async def run(self) -> None:
+        import asyncio
+
+        app = ApplicationBuilder().token(self._settings.telegram_token).build()
+
+        self._register_handlers(app)
 
         log.info("Telegram bot starting", event="bot_start", mode="polling")
 
