@@ -143,16 +143,22 @@ async def bootstrap():
     devops = DevOpsAgent(**agent_kwargs)
     bus.register(devops)
 
-    echo = EchoAgent(settings=settings, storage=storage, notifier=router)
-    bus.register(echo)
+    registered_agents = [business, devops]
+
+    if settings.debug_echo_agent:
+        echo = EchoAgent(settings=settings, storage=storage, notifier=router)
+        bus.register(echo)
+        registered_agents.append(echo)
 
     wellbeing = WellbeingAgent(settings=settings, storage=storage, notifier=router)
     bus.register(wellbeing)
+    registered_agents.append(wellbeing)
 
     projects = ProjectsAgent(**agent_kwargs)
     bus.register(projects)
+    registered_agents.append(projects)
 
-    for agent in [business, devops, echo, wellbeing, projects]:
+    for agent in registered_agents:
         try:
             await agent.register_schedules(bus)
         except Exception as e:

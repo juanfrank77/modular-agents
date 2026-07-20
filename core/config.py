@@ -129,6 +129,9 @@ class Settings:
     # Web tools
     tavily_api_key: str = ""
 
+    # Debug
+    debug_echo_agent: bool = False  # construct/register EchoAgent (off by default in production)
+
 
 # ──────────────────────────────────────────────
 # Loader
@@ -267,6 +270,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         http_port=int(_optional("HTTP_PORT", "8080")),
         session_ttl_hours=int(_optional("SESSION_TTL_HOURS", "24")),
         rate_limit_rpm=int(_optional("RATE_LIMIT_RPM", "20")),
+        debug_echo_agent=_optional("DEBUG_ECHO_AGENT", "false").lower() == "true",
     )
 
 
