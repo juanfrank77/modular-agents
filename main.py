@@ -67,6 +67,13 @@ async def bootstrap():
     )
     log.info("Framework starting", event="startup")
 
+    if not settings.db_encryption_key:
+        log.warning(
+            "Database encryption is disabled (DB_ENCRYPTION_KEY unset) — "
+            "messages and history are stored in plaintext",
+            event="db_unencrypted",
+        )
+
     # Security check: TELEGRAM_ALLOWED_CHAT_IDS required in production
     env = os.getenv("ENV", "development").lower()
     if env == "production":
