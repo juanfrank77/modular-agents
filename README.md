@@ -1,8 +1,20 @@
 # Modular Agents System
 
-A system for building your own personal AI assistant with modular, domain-specific agents — each expert in their own area, sharing a common infrastructure backbone.
+A system for building your own personal AI assistants with modular, domain-specific agents — each expert in their own area, sharing a common infrastructure backbone.
 
-Built for people who want a capable AI assistant running on their own machine, connected to their own tools, without handing their data to a third-party service.
+Built for people who want a capable AI assistant running on their own machine, connected to their own tools, without depending on a third-party service.
+
+---
+
+## Design principles
+
+This system is built on three ideas:
+
+**Modular over monolithic** — each agent is expert in one domain. Add a new agent by dropping in a file. Remove one without touching anything else.
+
+**Behaviour via text, not code** — agent behaviour is defined in Markdown skill files. Improving how an agent works means editing text, not deploying Python.
+
+**Your data stays yours** — everything runs on your machine (either a local pc or a VPS). Context files are plain Markdown. Conversation history is in a local SQLite database. No third-party service sees your data except the LLM API calls (and you can use Ollama with a local LLM for extra privacy).
 
 ---
 
@@ -30,7 +42,7 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Automated health checks every hour
 
 **Projects Agent** — your chief of staff
-- Log progress in one line: `@projects update: NINA — shipped onboarding`
+- Log progress in one line: `@projects update: SaaS app — shipped onboarding`
 - Tracks per-project momentum and flags projects with no update in 7+ days
 - Monday kickoff message with stale-project nudges and the week's top 3 priorities
 - Progress log is appended to `memory/context/projects.md`, so history stays human-readable
@@ -51,7 +63,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 - **Agents** are Python classes that each handle a domain
 - **Skills** are Markdown files that define how agents approach tasks — edit them without touching code
-- **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences and context, with learned patterns
+- **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences & context, with learned patterns
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
 - **Safety** is built in — supervised agents ask for approval before consequential actions
 - **Reliability** includes LLM retry logic and typing indicators during processing
@@ -73,7 +85,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | LLM inference | Any provider API key | See LLM Provider Options table below |
 | DevOps agent | `gh` CLI, `railway` CLI | `gh auth login` and `railway login` |
 | Web search | `TAVILY_API_KEY` (optional) | Get key from [tavily.com](https://tavily.com) |
-| External apps (Gmail, Calendar, etc.) | `COMPOSIO_API_KEY` + OAuth | `composio login` and `composio link <service>` |
+| External apps (Gmail, Calendar Notion, etc.) | `COMPOSIO_API_KEY` + OAuth | `composio login` and `composio link <service>` |
 
 ### LLM Provider Options
 
@@ -82,10 +94,10 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (most common) |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one API |
 | **Kilo** | `KILO_API_KEY` | Primary provider (default) |
-| **OpenAI** | `OPENAI_API_KEY` | Direct OpenAI API access (your own API key — not a ChatGPT subscription; ChatGPT Plus/Pro don't grant API access) |
-| **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Llama, No-Lama, etc.) |
+| **OpenAI** | `OPENAI_API_KEY` | OpenAI API access (your own API key — ChatGPT Plus/Pro don't grant API access) |
+| **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Qwen, Kimi, Deepseek,  etc.) |
 
-Configure at least one provider. Provider priority: Kilo → OpenRouter → OpenAI → Ollama → Anthropic. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
+Configure at least one provider. Provider priority: Kilo → OpenRouter → Anthropic → OpenAI → Ollama. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
 
 ---
 
@@ -123,9 +135,9 @@ LLM Provider (configure at least one):
 ```
 KILO_API_KEY=your_key_here              # Kilo (default primary)
 # OR
-OPENROUTER_API_KEY=your_key_here          # OpenRouter
+OPENROUTER_API_KEY=your_key_here        # OpenRouter
 # OR
-OPENAI_API_KEY=your_key_here            # OpenAI (direct, your own API key)
+OPENAI_API_KEY=your_key_here            # OpenAI (direct)
 # OR
 OLLAMA_BASE_URL=http://localhost:11434  # Ollama for local models
 # OR
@@ -139,7 +151,7 @@ TELEGRAM_ALLOWED_CHAT_IDS=your_chat_id   # get this from @userinfobot on Telegra
 
 #### Using Ollama (self-hosted models)
 
-If you want to use local/self-hosted models like Llama or No-Lama:
+If you want to use local/self-hosted models:
 
 1. **Install Ollama** from https://ollama.com or run:
    ```bash
@@ -148,14 +160,14 @@ If you want to use local/self-hosted models like Llama or No-Lama:
 
 2. **Pull your model**:
     ```bash
-    ollama pull llama3.2      # recommended
-    ollama pull mistral       # alternative option
+    ollama pull deepseek 
+    ollama pull mistral 
     ```
 
 3. **Configure in `.env`** (default URL works for local installation):
    ```
    OLLAMA_BASE_URL=http://localhost:11434
-   DEFAULT_MODEL=llama3    # or your preferred model name
+   DEFAULT_MODEL=deepseek    # or your preferred model name
    ```
 
 4. **Start the Ollama service** (if not auto-started):
@@ -212,7 +224,7 @@ When the bot starts, it prints a cryptographically random pairing token to the c
 4. The bot will reply: `✅ Paired. You can now use the bot.`
 5. After 5 failed attempts, the bot locks — restart the service to reset the pairing flow
 
-You only need to do this once per chat. The pairing persists across restarts.
+You only need to do this process once. The pairing persists across restarts.
 
 **Can't find your bot on Telegram?** Search by the username you set in @BotFather (e.g. `@myagentbot`). If you haven't created a bot yet, open Telegram, search for `@BotFather`, send `/newbot`, and follow the prompts — it takes about 2 minutes.
 
@@ -235,8 +247,7 @@ These are plain Markdown files in `memory/context/`. Edit them any time — no r
 specific to *your* installation and are gitignored once created. The repo
 ships `*.md.template` files with example structure and HTML comments
 explaining what to fill in. `setup.sh` copies each template to its real
-`.md` name on first run, and from then on `git pull` will never touch your
-files. See `memory/context/README.md` for the full pattern.
+`.md` name on first run. See `memory/context/README.md` for the full pattern.
 
 ### `preferences.md`
 Your operational preferences: timezone, communication style, notification rules, work hours. Example:
@@ -391,7 +402,7 @@ If you don't set `APPROVAL_TIMEOUTS`, the defaults above apply. Any action type 
 
 ---
 
-## Connecting external apps (Composio)
+## Connecting external apps 
 
 [Composio](https://composio.dev) gives agents access to 1000+ integrations — Gmail, Google Calendar, Slack, Notion, and more — through a single Python SDK.
 
@@ -502,10 +513,12 @@ When you connect external apps like Gmail and Google Calendar, the bot uses [Com
 - Or use: `composio unlink <service>` to remove the connection
 
 **Alternatives:**
-- For maximum isolation, skip Composio and use local tools only (gh CLI, railway CLI)
+- For maximum isolation, skip Composio and use local tools only (gh CLI, railway CLI, Neon CLI)
 - Each agent can use other integration methods without Composio
 
 Treat Composio as you would any third-party integration — it's a trust boundary similar to your LLM provider.
+
+> **Security note:** `sessions.db` is a plaintext SQLite file. Anyone with filesystem access can read it with `sqlite3`. For sensitive deployments, treat this file as containing confidential data and back it up securely. Set `DB_ENCRYPTION_KEY` in `.env` to enable SQLCipher encryption so that conversation data is encrypted at rest.
 
 ---
 
@@ -572,24 +585,6 @@ python test_integration.py              # run the test suite
 
 ---
 
-## Design principles
-
-This system is built on three ideas:
-
-**Modular over monolithic** — each agent is expert in one domain. Add a new agent by dropping in a file. Remove one without touching anything else.
-
-**Behaviour via text, not code** — agent behaviour is defined in Markdown skill files. Improving how an agent works means editing text, not deploying Python.
-
-**Your data stays yours** — everything runs on your machine. Conversation history is in a local SQLite database (`memory/sessions.db`). Context files are plain Markdown. No third-party service sees your data except the LLM API calls themselves.
-
-> **Security note:** `sessions.db` is a plaintext SQLite file. Anyone with filesystem access can read it with `sqlite3`. For sensitive deployments, treat this file as containing confidential data. Back it up securely and consider filesystem encryption (e.g., fscrypt on Linux) to protect conversation history at rest.
-
-**Optional encryption** — Set `DB_ENCRYPTION_KEY` in `.env` to enable SQLCipher encryption. When set, conversation data is encrypted at rest. Without it, the SQLite file is plaintext but protected by filesystem permissions (chmod 600).
-
-For the full architecture and design decisions behind, see [ARCHITECTURE.md](./ARCHITECTURE.md).
-
----
-
 ## Acknowledgements
 
-Framework design informed by analysis of: OpenClaw, NanoBot, ZeroClaw, Agent Zero, IronClaw, NanoClaw, TinyClaw, and PicoClaw.
+Framework design informed by analysis of: OpenClaw, NanoBot, ZeroClaw, IronClaw, NanoClaw, TinyClaw, and PicoClaw.
