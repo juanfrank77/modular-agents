@@ -83,6 +83,13 @@ class PairingManager:
     def is_locked(self, chat_id: str) -> bool:
         return self._failed_attempts.get(chat_id, 0) >= self.MAX_FAILED_ATTEMPTS
 
+    def unlock(self, chat_id: str) -> None:
+        """Admin unlock: clear failed attempts for a locked-out chat_id."""
+        self._failed_attempts.pop(chat_id, None)
+        if self._state_store:
+            asyncio.create_task(self._state_store.delete_failed_attempts(chat_id))
+        log.info("Chat unlocked", event="pairing_unlocked", chat_id=chat_id)
+
     def attempts_remaining(self, chat_id: str) -> int:
         """Failed pairing attempts left before this chat_id locks out."""
         return max(0, self.MAX_FAILED_ATTEMPTS - self._failed_attempts.get(chat_id, 0))

@@ -13,13 +13,15 @@ Endpoints:
   POST /message       — send a message to an agent
   GET  /agents        — list registered agents
   GET  /health        — system health (no auth required)
+  POST /admin/unlock  — unlock a locked-out chat_id (requires pairing code)
 
 Session tokens expire after SESSION_TTL_HOURS (default: 24). Sessions
-persist across restarts via StateStore, with expired tokens pruned at load time.
+persist across restarts via StateStore, with expired tokens pruned on access.
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -48,6 +50,11 @@ _bearer = HTTPBearer(auto_error=False)
 
 class PairRequest(BaseModel):
     code: str
+
+
+class UnlockRequest(BaseModel):
+    code: str
+    chat_id: str
 
 
 class MessageRequest(BaseModel):
@@ -93,13 +100,32 @@ class HTTPInterface:
             count=len(self._sessions),
         )
 
+    def _prune_expired_sessions(self) -> None:
+        """Remove expired session tokens from memory and state store."""
+        ttl_seconds = self._settings.session_ttl_hours * 3600
+        now = datetime.now(timezone.utc).timestamp()
+        expired = [
+            token for token, (_, created_at) in self._sessions.items()
+            if (now - created_at) >= ttl_seconds
+        ]
+        for token in expired:
+            del self._sessions[token]
+        if expired and self._state_store:
+            for token in expired:
+                asyncio.create_task(self._state_store.delete_http_session(token))
+
     def _is_session_valid(self, token: str) -> bool:
-        """Check if token exists and hasn't expired."""
+        """Check if token exists and hasn't expired. Also prunes expired tokens."""
         if token not in self._sessions:
             return False
-        chat_id, created_at = self._sessions[token]
         ttl_seconds = self._settings.session_ttl_hours * 3600
-        return (datetime.now(timezone.utc).timestamp() - created_at) < ttl_seconds
+        chat_id, created_at = self._sessions[token]
+        if (datetime.now(timezone.utc).timestamp() - created_at) >= ttl_seconds:
+            del self._sessions[token]
+            if self._state_store:
+                asyncio.create_task(self._state_store.delete_http_session(token))
+            return False
+        return True
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="modular-agents HTTP API", docs_url=None, redoc_url=None)
@@ -129,6 +155,17 @@ class HTTPInterface:
                 await self._state_store.delete_http_session(creds.credentials)
             log.info("HTTP session deleted", event="http_session_deleted")
             return {"status": "revoked"}
+
+        @app.post("/admin/unlock")
+        async def admin_unlock(req: UnlockRequest):
+            """Admin endpoint: unlock a chat_id locked out from pairing (requires pairing code)."""
+            if req.code.strip() != self._safety.pairing.code:
+                raise HTTPException(status_code=403, detail="invalid admin code")
+            if not self._safety.pairing.is_locked(req.chat_id):
+                raise HTTPException(status_code=400, detail="chat not locked")
+            self._safety.pairing.unlock(req.chat_id)
+            log.info("Admin unlocked chat", event="admin_unlock", chat_id=req.chat_id)
+            return {"status": "unlocked", "chat_id": req.chat_id}
 
         def _get_chat_id(
             creds: HTTPAuthorizationCredentials | None = Depends(_bearer),

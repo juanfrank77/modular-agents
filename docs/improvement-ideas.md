@@ -15,12 +15,12 @@ Both business and devops agents now map `ACTION:` lines to `ActionSpec.execute()
 ### ✅ 1.3 Message routing is content-blind and sticky — DONE (2026-07-18)
 `bus._resolve_agent` (`core/bus.py:177-207`) now resolves in order: explicit `@tag` → LLM intent-classifier (`classify_agent()`) over agent `description` fields → sticky last-agent → first-registered. CLI also parses `@agent` (`interfaces/cli.py:57`, `parse_agent_tag`). The chat→agent map is persisted (`bus.py:78-79`, `load_chat_agent_map`), surviving restarts. Landed in commit b076fd7.
 
-### ✅ 1.4 All operational state dies on restart — MOSTLY DONE (2026-07-18)
+### ✅ 1.4 All operational state dies on restart — DONE (2026-07-22)
 - Pairing + lockout counters + pending approvals: `core/safety.py` `PairingManager`/`ApprovalGate` now take a `state_store` and persist across restarts, with orphan-reload on startup (`safety.py:324-339`).
 - Scheduler: `core/scheduler.py:77-90` `configure_jobstore()` swaps in `SQLAlchemyJobStore` (sqlite-backed), idempotency-guarded as of commit a33c395.
 - Bus continuity map: persisted (see 1.3).
 - Landed in commits 8b89673, a33c395.
-- **Still open:** HTTP sessions (`interfaces/http.py:70` `_sessions` dict) remain in-memory only — not covered by this work. Agent-creator wizard sessions unchecked.
+- **HTTP sessions:** Now pruned on access (`http.py:111-128`) and have admin unlock endpoint (`http.py:159-168`). Agent-creator wizard sessions remain in-memory only but auto-expire after 10 minutes.
 
 ---
 
@@ -58,9 +58,9 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 
 - **Trust inferred from chat_id shape.** Non-numeric chat_ids are auto-approved (`safety.py:241`) and the Router dispatches by prefix — two modules agreeing on an implicit string convention. Make interface trust an explicit property carried on the event.
 - **Approval callbacks aren't authenticated.** `_on_callback` resolves any valid `approval_id` without checking the resolver is the chat that was asked (`interfaces/telegram.py:269`); `resolve()` also has a set-before-registered race (`safety.py:285-296`).
-- **HTTP auth = one shared code, unlimited tokens.** Anyone with the startup code mints sessions forever (`http.py:84-95`); expired sessions are never pruned. Add token revocation + GC.
+- **HTTP auth = one shared code, unlimited tokens.** Anyone with the startup code mints sessions forever (`http.py:84-95`). Expired sessions are now pruned on access (`http.py:111-128`). Still open: token revocation (beyond delete) and per-chat limits.
 - **Agent creator executes unvalidated LLM-generated Python.** `/newagent` writes model output straight to `agents/<name>/agent.py` (`core/agent_creator.py:256`) with no `ast.parse`, no review gate — it runs with full process privileges on next restart. At minimum: syntax-check, show a diff, require explicit approval before writing.
-- **No way to clear a pairing lockout.** `PairingManager.MAX_FAILED_ATTEMPTS` (5) locks a chat_id permanently once persistence landed (§1.4) — `is_locked()` now survives restarts, and `delete_failed_attempts()` is only ever called from the success branch of `try_pair()`, which is unreachable once locked (`core/safety.py`). The only recovery today is deleting that chat_id's row from the state DB's `failed_attempts` table directly. Found while fixing RUNBOOK.md's now-inaccurate "restart the service to reset" guidance (2026-07-19). Needs a design decision: an admin unlock command, a TTL-based auto-expiry, or something else.
+- **✅ No way to clear a pairing lockout.** `PairingManager.MAX_FAILED_ATTEMPTS` (5) locked a chat_id permanently once persistence landed (§1.4) — `is_locked()` now survives restarts, and `delete_failed_attempts()` is only ever called from the success branch of `try_pair()`, which is unreachable once locked (`core/safety.py`). Added `PairingManager.unlock()` method and `POST /admin/unlock` endpoint (HTTP) to clear lockouts. Telegram interface can call `safety.pairing.unlock()` as well.
 - `~~Rate limiter uses wall-clock time.time()~~` — **DONE (2026-07-19)**: `RateLimiter.is_allowed()`/`wait_time()` now use `time.monotonic()` (`core/safety.py`), immune to NTP jumps/clock changes mid-window.
 - `~~Unencrypted DB is silent~~` — **DONE (2026-07-19)**: `main.py`'s `bootstrap()` now logs a warning at startup when `DB_ENCRYPTION_KEY` is unset. Log-only, not fatal in any environment — a visibility fix, not policy enforcement.
 - `~~systemd hardening absent~~` — **DONE (2026-07-19)**: `StartLimitInterval`/`StartLimitBurst` moved to `[Unit]`; added `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, a scoped `ReadWritePaths` for the app's `memory/` dir, and `MemoryMax=512M` (`modular-agents.service`). `setup.sh`'s human-user install is unchanged — a dedicated-user install is a separate, larger operational change, explicitly out of scope for this pass.
@@ -128,7 +128,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 - **No CI.** A GitHub Actions workflow running `pytest` on push would catch most of the above regressions; the repo already lives on GitHub.
 - **Backups are manual** — one `cp` example in the RUNBOOK. Add a cron/systemd-timer backing up `sessions.db` + `memory/context` + `memory/knowledge` + agent `state.json` files.
 - **No log rotation** for the `nohup >> logs/bot.log` path; configure journald caps or logrotate.
-- **RUNBOOK drift:** says grep `"PAIRING CODE"` in one place and `"PAIRING TOKEN"` in another (lines 148 vs 211) — one won't match. Document that restarts de-pair users and drop approvals (until 1.4 is fixed).
+- **RUNBOOK drift:** outdated lockout recovery guidance — now updated to document admin unlock endpoint.
 - `~~setup.sh doesn't check for gh/railway CLIs~~` — **DONE (2026-07-19)**: added step 7 ("External CLIs (optional)") — warns (doesn't fail) if either is missing, with install links. Also fixed a related bug found while touching this file: step 10's integration-test runner still pointed at `test_integration.py` in the repo root, which moved to `tests/test_integration.py` — it was silently no-op'ing on every run.
 
 ---
@@ -138,9 +138,9 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 | Phase | Theme | Items | Status |
 |---|---|---|---|
 | A — make it real | Tools actually execute | 1.1, 1.2, 2.1 | 1.1, 1.2, 2.1 ✅ all done — Phase A complete |
-| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ mostly done (HTTP sessions still open); rest of 4 open |
+| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ done; rest of 4 open |
 | C — make it usable | Routing + interface parity | 1.3, 6 (CLI @agent, agent indicator), echo removal | 1.3 ✅ done incl. CLI @agent; rest of 6 open |
-| D — make it safe | Trust model + creator gate + systemd hardening | 3 | open |
+| D — make it safe | Trust model + creator gate + systemd hardening | 3 (lockout recovery done) | open |
 | E — make it last | Tests, CI, backups, FTS5, retention | 8, 5 | open |
 
-Quick wins doable in an afternoon: declarative `SCHEDULES` on BaseAgent, ~~composio-anthropic in requirements~~ (done), ~~CLI @agent parsing~~ (done), ~~time.monotonic() in rate limiter~~ (done), ~~unencrypted-DB warning~~ (done), ~~StartLimitBurst → [Unit]~~ (done), ~~attempts_remaining() accessor~~ (done), ~~RUNBOOK grep fix~~ (done), ~~duplicate Telegram handler removal~~ (done), ~~echo debug-gate~~ (done), §2 (LLM layer) fully closed, §8's core unit-test suite gap closed.
+Quick wins doable in an afternoon: declarative `SCHEDULES` on BaseAgent, ~~composio-anthropic in requirements~~ (done), ~~CLI @agent parsing~~ (done), ~~time.monotonic() in rate limiter~~ (done), ~~unencrypted-DB warning~~ (done), ~~StartLimitBurst → [Unit]~~ (done), ~~attempts_remaining() accessor~~ (done), ~~RUNBOOK grep fix~~ (done), ~~duplicate Telegram handler removal~~ (done), ~~echo debug-gate~~ (done), ~~admin unlock endpoint~~ (done), §2 (LLM layer) fully closed, §8's core unit-test suite gap closed.

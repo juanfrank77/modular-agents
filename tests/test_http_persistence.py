@@ -27,13 +27,16 @@ async def store(tmp_path: Path) -> StateStore:
     return s
 
 
-def _interface(store):
+def _interface(store, pairing_code="000000"):
     from interfaces.http import HTTPInterface
 
     bus = MagicMock()
     bus.registered_agents = ["business"]
     safety = MagicMock()
-    safety.pairing.code = "000000"
+    safety.pairing.code = pairing_code
+    safety.pairing.is_locked = lambda chat_id: safety.pairing._locked.get(chat_id, False)
+    safety.pairing._locked = {}
+    safety.pairing.unlock = MagicMock()
     # pair_directly is async as of Task 3 (core/safety.py) — a plain
     # MagicMock isn't awaitable, so it must be an AsyncMock here.
     safety.pairing.pair_directly = AsyncMock()
@@ -92,3 +95,63 @@ class TestHTTPSessionRehydration:
         assert interface._is_session_valid("tok-stale") is False
         remaining = await store.load_http_sessions()
         assert "tok-stale" not in remaining
+
+
+class TestHTTPSessionRuntimePruning:
+    @pytest.mark.asyncio
+    async def test_expired_session_pruned_on_access(self, store: StateStore):
+        # Create a valid session, load it, then expire it in memory
+        valid_ts = time.time()
+        await store.save_http_session("tok-soon", "http_abcd1234", valid_ts)
+        interface = _interface(store)
+
+        await interface.load_sessions()
+        assert "tok-soon" in interface._sessions
+
+        # Manually expire the session in memory (simulate time passing)
+        interface._sessions["tok-soon"] = ("http_abcd1234", time.time() - (25 * 3600))
+
+        # Accessing an expired session should prune it
+        result = interface._is_session_valid("tok-soon")
+
+        assert result is False
+        assert "tok-soon" not in interface._sessions
+
+    @pytest.mark.asyncio
+    async def test_valid_session_not_pruned(self, store: StateStore):
+        await store.save_http_session("tok-valid", "http_abcd1234", time.time())
+        interface = _interface(store)
+
+        await interface.load_sessions()
+        assert interface._is_session_valid("tok-valid") is True
+        assert "tok-valid" in interface._sessions
+
+
+class TestAdminUnlock:
+    @pytest.mark.asyncio
+    async def test_unlock_endpoint_requires_valid_code(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        r = client.post("/admin/unlock", json={"code": "wrong", "chat_id": "123"})
+        assert r.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_unlock_unlocks_locked_chat(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+        interface._safety.pairing._locked["123"] = True
+
+        r = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "unlocked"
+        interface._safety.pairing.unlock.assert_called_once_with("123")
+
+    @pytest.mark.asyncio
+    async def test_unlock_fails_for_unlocked_chat(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+        interface._safety.pairing._locked["123"] = False
+
+        r = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
+        assert r.status_code == 400
