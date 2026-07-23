@@ -14,8 +14,9 @@
 #   7. Checks for gh/railway CLIs (needed by the DevOps agent)
 #   8. Installs and enables the systemd service (Linux only)
 #   9. Installs and enables a daily backup timer (Linux only)
-#   10. Runs the integration test suite
-#   11. Prints a final status summary
+#   10. Installs log rotation for the manual run path (Linux only)
+#   11. Runs the integration test suite
+#   12. Prints a final status summary
 #
 # Usage:
 #   chmod +x setup.sh
@@ -186,6 +187,7 @@ DIRS=(
     "agents/business/skills"
     "agents/devops/skills"
     "agents/devops/tools"
+    "logs"
 )
 
 for dir in "${DIRS[@]}"; do
@@ -305,8 +307,31 @@ else
 fi
 
 
-# ── 10. Integration tests ──────────────────────────────────────────────────────
-section "10. Integration tests"
+# ── 10. Log rotation ────────────────────────────────────────────────────────────
+section "10. Log rotation"
+
+LOGROTATE_CONF="$PROJECT_DIR/scripts/logrotate.conf"
+
+if [ ! -f "$LOGROTATE_CONF" ]; then
+    warn "scripts/logrotate.conf not found — skipping logrotate installation"
+elif ! command -v logrotate &>/dev/null; then
+    warn "logrotate not available — skipping log rotation setup for manual logs/bot.log"
+else
+    USERNAME="$(whoami)"
+    sed \
+        -e "s|YOUR_USERNAME|$USERNAME|g" \
+        -e "s|/home/YOUR_USERNAME/modular-agents|$PROJECT_DIR|g" \
+        "$LOGROTATE_CONF" > /tmp/${SERVICE_NAME}-logrotate.conf
+
+    sudo cp /tmp/${SERVICE_NAME}-logrotate.conf "/etc/logrotate.d/${SERVICE_NAME}-bot"
+    ok "Log rotation installed: /etc/logrotate.d/${SERVICE_NAME}-bot"
+    info "Manual logs/bot.log will rotate daily, keeping 7 compressed archives"
+    info "Test with: sudo logrotate -d /etc/logrotate.d/${SERVICE_NAME}-bot"
+fi
+
+
+# ── 11. Integration tests ──────────────────────────────────────────────────────
+section "11. Integration tests"
 
 TEST_FILE="$PROJECT_DIR/tests/test_integration.py"
 if [ ! -f "$TEST_FILE" ]; then
@@ -322,7 +347,7 @@ else
 fi
 
 
-# ── 11. Summary ───────────────────────────────────────────────────────────────
+# ── 12. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}─────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}  Setup complete${RESET}"
@@ -345,7 +370,7 @@ if command -v systemctl &>/dev/null && [ "$SKIP_SYSTEMD" != "1" ]; then
     echo "  Logs:    journalctl -u $SERVICE_NAME -f"
 else
     echo "  Start:   source .venv/bin/activate && python main.py"
-    echo "  Logs:    stdout / stderr directly"
+    echo "  Logs:    tail -f logs/bot.log"
 fi
 
 echo ""

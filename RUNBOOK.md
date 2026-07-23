@@ -94,6 +94,22 @@ LOG_FORMAT=pretty
 ```
 Then restart the service.
 
+### Log rotation
+
+Under systemd, all output goes to **journald**, which manages its own retention and caps.
+
+For manual background runs via `nohup`, logs are written to `logs/bot.log`. `setup.sh` can install a logrotate config (`/etc/logrotate.d/modular-agents-bot`) that rotates this file daily, keeps 7 compressed archives, and uses `copytruncate` so the running process doesn't need a restart.
+
+To trigger a manual rotation:
+```bash
+sudo logrotate -f /etc/logrotate.d/modular-agents-bot
+```
+
+To inspect rotated archives:
+```bash
+ls -lh logs/bot.log*
+```
+
 ---
 
 ## Updating the bot
