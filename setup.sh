@@ -13,8 +13,9 @@
 #   6. Creates required directories (memory/context, memory/solutions)
 #   7. Checks for gh/railway CLIs (needed by the DevOps agent)
 #   8. Installs and enables the systemd service (Linux only)
-#   9. Runs the integration test suite
-#   10. Prints a final status summary
+#   9. Installs and enables a daily backup timer (Linux only)
+#   10. Runs the integration test suite
+#   11. Prints a final status summary
 #
 # Usage:
 #   chmod +x setup.sh
@@ -272,8 +273,40 @@ else
 fi
 
 
-# ── 9. Integration tests ──────────────────────────────────────────────────────
-section "9. Integration tests"
+# ── 9. Backup timer ────────────────────────────────────────────────────────────
+section "9. Backup timer"
+
+BACKUP_DIR="$PROJECT_DIR/backups"
+mkdir -p "$BACKUP_DIR"
+
+BACKUP_SERVICE_FILE="$PROJECT_DIR/modular-agents-backup.service"
+BACKUP_TIMER_FILE="$PROJECT_DIR/modular-agents-backup.timer"
+
+if [ ! -f "$BACKUP_SERVICE_FILE" ] || [ ! -f "$BACKUP_TIMER_FILE" ]; then
+    warn "Backup timer files not found in project root — skipping backup timer installation"
+else
+    if [ "$SKIP_SYSTEMD" = "1" ] || ! command -v systemctl &>/dev/null; then
+        warn "SKIP_SYSTEMD=1 or systemctl unavailable — skipping backup timer"
+    else
+        USERNAME="$(whoami)"
+        sed \
+            -e "s|YOUR_USERNAME|$USERNAME|g" \
+            -e "s|/home/YOUR_USERNAME/modular-agents|$PROJECT_DIR|g" \
+            "$BACKUP_SERVICE_FILE" > /tmp/${SERVICE_NAME}-backup.service
+
+        sudo cp /tmp/${SERVICE_NAME}-backup.service "/etc/systemd/system/${SERVICE_NAME}-backup.service"
+        sudo cp "$BACKUP_TIMER_FILE" "/etc/systemd/system/${SERVICE_NAME}-backup.timer"
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now "${SERVICE_NAME}-backup.timer"
+        ok "Backup timer installed and enabled: ${SERVICE_NAME}-backup.timer"
+        ok "Backups run daily to: $BACKUP_DIR"
+        info "Run now with: sudo systemctl start ${SERVICE_NAME}-backup.service"
+    fi
+fi
+
+
+# ── 10. Integration tests ──────────────────────────────────────────────────────
+section "10. Integration tests"
 
 TEST_FILE="$PROJECT_DIR/tests/test_integration.py"
 if [ ! -f "$TEST_FILE" ]; then
@@ -289,7 +322,7 @@ else
 fi
 
 
-# ── 10. Summary ───────────────────────────────────────────────────────────────
+# ── 11. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}─────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}  Setup complete${RESET}"

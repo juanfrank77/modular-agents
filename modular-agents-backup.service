@@ -1,0 +1,6 @@
+[Unit]
+Description=Modular Agents — backup stateful files
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/YOUR_USERNAME/modular-agents/scripts/backup.sh

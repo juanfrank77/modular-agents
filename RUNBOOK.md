@@ -309,16 +309,26 @@ The stateful files are:
 | `memory/solutions/**` | Agent-learned patterns | Commit to git |
 | `.env` | Secrets | Keep secure copy — do NOT commit |
 
-Quick backup:
+Automated daily backups are configured during setup via a systemd timer. Backups are stored in `$PROJECT_DIR/backups/` as timestamped tarballs and pruned after 7 days.
+
+To trigger a manual backup:
 ```bash
-cp memory/sessions.db memory/sessions.db.bak.$(date +%Y%m%d)
+sudo systemctl start modular-agents-backup.service
 ```
 
-Or add to cron for daily backups:
+To inspect recent backups:
 ```bash
-crontab -e
-# Add:
-0 2 * * * cp /path/to/modular-agents/memory/sessions.db /path/to/backups/sessions.db.$(date +\%Y\%m\%d)
+ls -lh backups/
+```
+
+To check backup timer status:
+```bash
+systemctl list-timers | grep backup
+```
+
+Manual alternative (without systemd):
+```bash
+cp memory/sessions.db memory/sessions.db.bak.$(date +%Y%m%d)
 ```
 
 ---

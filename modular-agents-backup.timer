@@ -1,0 +1,10 @@
+[Unit]
+Description=Modular Agents — daily backup timer
+Requires=modular-agents-backup.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
