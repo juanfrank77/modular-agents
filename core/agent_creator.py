@@ -3,14 +3,17 @@ core/agent_creator.py
 ---------------------
 The agent creator wizard. Drives the /newagent conversation,
 collects requirements, calls the LLM to generate code and skills,
-writes files to disk, and patches main.py.
+writes files to disk.
+
+Agents are auto-discovered on startup via core/agent_discovery.py,
+so new agents are detected without main.py patching.
 
 Each chat that starts /newagent gets its own WizardSession stored
 in an in-memory dict. Sessions expire after 10 minutes of inactivity.
 
-Usage (from Telegram handler):
+Usage (from main.py):
     from core.agent_creator import AgentCreator
-    creator = AgentCreator(llm=llm, project_root=Path("."))
+    creator = AgentCreator(llm=llm, project_root=Path("."), notifier=router)
     response = await creator.handle(chat_id, text)
     # response is a string to send back to the user
 """
@@ -22,12 +25,17 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from core.logger import get_logger
 
 if TYPE_CHECKING:
     from core.llm import LLMProvider
+
+
+class _Notifier(Protocol):
+    async def send(self, chat_id: str, text: str) -> None: ...
+
 
 log = get_logger("agent_creator")
 
@@ -78,12 +86,12 @@ class BaseAgent(ABC):
     name: str
     description: str
     autonomy_level: str  # "read_only" | "supervised" | "autonomous"
+    SCHEDULES: list[tuple[str, str]] = []  # [(task_name, cron_expr), ...]
 
     def __init__(self, settings, storage, notifier, llm=None,
                  memory=None, safety=None, skill_loader=None): ...
 
     async def handle(self, event: AgentEvent) -> AgentResponse: ...
-    async def register_schedules(self, bus) -> None: ...
     async def health_check(self) -> bool: ...
     async def reply(self, event, text) -> AgentResponse: ...
     def _is_authorized(self, chat_id) -> bool: ...
@@ -126,7 +134,7 @@ no markdown fences, no explanation:
     "system_prompt": "Full system prompt template with {{context}} and {{skills}} placeholders. Be specific to this agent's domain.",
     "autonomy_level": "{autonomy}",
     "has_tools": {has_tools_bool},
-    "agent_py": "Complete Python source for agents/{module_name}/agent.py. Must import from agents.base, core.protocols, core.logger. Must implement handle(), register_schedules(), health_check(). Follow the exact same pattern as BusinessAgent."
+    "agent_py": "Complete Python source for agents/{module_name}/agent.py. Must import from agents.base, core.protocols, core.logger. Must implement handle(), health_check(). Optionally define SCHEDULES class attribute for scheduled tasks. Follow the exact same pattern as BusinessAgent."
   }},
   "skills": [
     {{
@@ -174,57 +182,6 @@ class {class_name}Tools:
 def build_tools(memory: "Memory") -> {class_name}Tools:
     return {class_name}Tools()
 '''
-
-
-# ── Main.py patcher ───────────────────────────
-
-_IMPORT_MARKER = "from agents.echo.agent import EchoAgent"
-_REGISTER_MARKER = "bus.register(echo)"
-
-
-def _patch_main(main_path: Path, module_name: str, class_name: str) -> bool:
-    """
-    Patches main.py to import and register the new agent.
-    Returns True if patched, False if already present or file not found.
-    """
-    if not main_path.exists():
-        log.warning(
-            "main.py not found for patching", event="patch_skip", path=str(main_path)
-        )
-        return False
-
-    content = main_path.read_text(encoding="utf-8")
-
-    import_line = f"from agents.{module_name}.agent import {class_name}"
-    if import_line in content:
-        log.info(
-            "Agent already registered in main.py", event="patch_skip", agent=module_name
-        )
-        return False
-
-    # Add import after the echo agent import
-    content = content.replace(
-        _IMPORT_MARKER,
-        f"{_IMPORT_MARKER}\n{import_line}",
-    )
-
-    # Add instantiation and registration before echo registration
-    instantiation = (
-        f"\n    {_to_snake(module_name)} = {class_name}(\n"
-        f"        settings=settings, storage=storage, notifier=notifier,\n"
-        f"        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader,\n"
-        f"    )\n"
-        f"    bus.register({_to_snake(module_name)})\n"
-    )
-
-    content = content.replace(
-        "    bus.register(echo)",
-        f"{instantiation}    bus.register(echo)",
-    )
-
-    main_path.write_text(content, encoding="utf-8")
-    log.info("main.py patched", event="patch_done", agent=module_name)
-    return True
 
 
 # ── File writer ───────────────────────────────
@@ -305,10 +262,16 @@ def _to_pascal(name: str) -> str:
 # ── AgentCreator ──────────────────────────────
 
 class AgentCreator:
-    def __init__(self, llm: "LLMProvider", project_root: Path) -> None:
+    def __init__(
+        self,
+        llm: "LLMProvider",
+        project_root: Path,
+        notifier: "_Notifier | None" = None,
+    ) -> None:
         self._llm = llm
         self._root = project_root
         self._sessions: dict[str, WizardSession] = {}
+        self._notifier = notifier
 
     # ── Public entry point ────────────────────
 
@@ -513,26 +476,16 @@ class AgentCreator:
             del self._sessions[session.chat_id]
             return f"❌ Failed to write agent files: {e}"
 
-        # Patch main.py
-        patched = _patch_main(self._root / "main.py", module_name, class_name)
-
         # Clean up session
         del self._sessions[session.chat_id]
 
-        # Build success message
-        file_list = "\n".join(f"  ✅ `{f}`" for f in created)
-        main_status = (
-            "  ✅ Registered in `main.py`"
-            if patched
-            else "  ⚠️ Already registered in `main.py`"
-        )
-
         return (
             f"🎉 *{class_name} created successfully!*\n\n"
-            f"*Files created:*\n{file_list}\n{main_status}\n\n"
+            f"*Files created:*\n" + "\n".join(f"  ✅ `{f}`" for f in created) + "\n\n"
             f"*To activate:*\n"
             f"```\nsudo systemctl restart modular-agents\n```\n\n"
             f"Your new agent will be available immediately after restart.\n"
+            f"(It's auto-discovered on startup — no manual main.py patching needed.)\n"
             f"You can refine its behaviour by editing the SKILL.md files "
             f"in `agents/{module_name}/skills/` — no restart needed for skill changes."
         )
@@ -570,9 +523,8 @@ class AgentCreator:
         return result.text
 
     async def _send_progress(self, session: WizardSession, text: str) -> None:
-        """Hook for sending intermediate progress messages. No-op here —
-        the Telegram handler calls this via the notifier."""
-        pass
+        if self._notifier is not None:
+            await self._notifier.send(session.chat_id, text)
 
 
 # ── JSON parser ───────────────────────────────

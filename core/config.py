@@ -88,17 +88,23 @@ class Settings:
     # Command blocklist — additional patterns beyond core defaults
     extra_blocked_patterns: list[str] = field(default_factory=list)
 
-    # Quiet hours gating
+    # Quiet hours gating — arbitrary named windows, each {name, start, end, allowed}
     quiet_hours_enabled: bool = True
-    quiet_hours_morning_start: str = "07:00"
-    quiet_hours_morning_end: str = "09:30"
-    quiet_hours_morning_allowed: list[str] = field(
-        default_factory=lambda: ["wellbeing-nudge"]
-    )
-    quiet_hours_evening_start: str = "19:30"
-    quiet_hours_evening_end: str = "07:00"
-    quiet_hours_evening_allowed: list[str] = field(
-        default_factory=lambda: ["wellbeing-nudge", "emergency"]
+    quiet_hours_windows: list[dict] = field(
+        default_factory=lambda: [
+            {
+                "name": "morning_routine",
+                "start": "07:00",
+                "end": "09:30",
+                "allowed": ["wellbeing-nudge"],
+            },
+            {
+                "name": "evening",
+                "start": "19:30",
+                "end": "07:00",
+                "allowed": ["wellbeing-nudge", "emergency"],
+            },
+        ]
     )
     emergency_keywords: list[str] = field(
         default_factory=lambda: ["server_down", "security", "data_loss", "payment_failure"]
@@ -195,6 +201,37 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
                 except ValueError:
                     pass  # ignore malformed entries
 
+    # Parse quiet-hours windows: which named windows are active, then each
+    # window's own start/end/allowed via QUIET_HOURS_<NAME>_{START,END,ALLOWED}.
+    _DEFAULT_QUIET_WINDOWS = {
+        "morning_routine": ("07:00", "09:30", ["wellbeing-nudge"]),
+        "evening": ("19:30", "07:00", ["wellbeing-nudge", "emergency"]),
+    }
+    window_names = [
+        n.strip()
+        for n in _optional(
+            "QUIET_HOURS_WINDOWS", "morning_routine,evening"
+        ).split(",")
+        if n.strip()
+    ]
+    quiet_hours_windows = []
+    for name in window_names:
+        default_start, default_end, default_allowed = _DEFAULT_QUIET_WINDOWS.get(
+            name, ("00:00", "00:00", [])
+        )
+        key = name.upper()
+        allowed_raw = _optional(
+            f"QUIET_HOURS_{key}_ALLOWED", ",".join(default_allowed)
+        )
+        quiet_hours_windows.append(
+            {
+                "name": name,
+                "start": _optional(f"QUIET_HOURS_{key}_START", default_start),
+                "end": _optional(f"QUIET_HOURS_{key}_END", default_end),
+                "allowed": [a.strip() for a in allowed_raw.split(",") if a.strip()],
+            }
+        )
+
     # Parse extra blocked patterns (comma-separated in .env)
     raw_patterns = _optional("EXTRA_BLOCKED_PATTERNS", "")
     extra_patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()]
@@ -243,20 +280,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
             if p.strip()
         ],
         quiet_hours_enabled=_optional("QUIET_HOURS_ENABLED", "true").lower() == "true",
-        quiet_hours_morning_start=_optional("QUIET_HOURS_MORNING_START", "07:00"),
-        quiet_hours_morning_end=_optional("QUIET_HOURS_MORNING_END", "09:30"),
-        quiet_hours_morning_allowed=[
-            x.strip()
-            for x in _optional("QUIET_HOURS_MORNING_ALLOWED", "wellbeing-nudge").split(",")
-            if x.strip()
-        ],
-        quiet_hours_evening_start=_optional("QUIET_HOURS_EVENING_START", "19:30"),
-        quiet_hours_evening_end=_optional("QUIET_HOURS_EVENING_END", "07:00"),
-        quiet_hours_evening_allowed=[
-            x.strip()
-            for x in _optional("QUIET_HOURS_EVENING_ALLOWED", "wellbeing-nudge,emergency").split(",")
-            if x.strip()
-        ],
+        quiet_hours_windows=quiet_hours_windows,
         emergency_keywords=[
             x.strip()
             for x in _optional(

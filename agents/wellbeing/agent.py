@@ -23,6 +23,7 @@ Autonomy level = autonomous. No LLM required for scheduled tasks.
 from __future__ import annotations
 
 import json
+import random
 import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -43,7 +44,6 @@ _SKILLS_DIR = Path(__file__).parent / "skills"
 
 # ── Skill names for each scheduled task ────────────────────────────────────
 
-_SKILL_MORNING = "morning-nudge"
 _SKILL_EVENING = "evening-wind-down"
 _SKILL_BEDTIME = "bedtime-reminder"
 _SKILL_WEEKLY = "weekly-check-in"
@@ -79,6 +79,14 @@ class WellbeingAgent(BaseAgent):
         "Respects quiet hours. No LLM required."
     )
     autonomy_level = "autonomous"
+    SCHEDULES = [
+        ("wellbeing_morning_weekday", "0 6 * * 1-5"),
+        ("wellbeing_morning_weekend", "0 7 * * 0,6"),
+        ("wellbeing_followup", "00 8 * * 1-5"),
+        ("wellbeing_evening", "30 20 * * *"),
+        ("wellbeing_bedtime", "0 23 * * *"),
+        ("wellbeing_weekly", "0 9 * * 0"),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -117,6 +125,9 @@ class WellbeingAgent(BaseAgent):
     def _pick_cyclic(self, messages: list[str]) -> str:
         day_num = datetime.now().timetuple().tm_yday
         return messages[day_num % len(messages)]
+
+    def _pick_message(self, messages: list[str]) -> str:
+        return random.choice(messages)
 
     # ── Weather ───────────────────────────────────────────────────────────────
 
@@ -186,6 +197,14 @@ class WellbeingAgent(BaseAgent):
 
     # ── Morning nudge ────────────────────────────────────────────────────────
 
+    def _build_morning_message(self, is_weekend: bool) -> str:
+        weather = self._get_weather()
+        weather_part = f"{weather['temp']}C, {weather['desc']}. " if weather else ""
+        if is_weekend:
+            return f"Morning. {weather_part}Routine when you're ready. Enjoy the day."
+        activity = self._suggest_activity(weather)
+        return f"Morning. {weather_part}Good day for {activity}."
+
     async def _do_morning(self, event: AgentEvent, is_weekend: bool) -> AgentResponse:
         if not self.should_notify("wellbeing-nudge"):
             return AgentResponse(text="", agent_name=self.name)
@@ -193,37 +212,7 @@ class WellbeingAgent(BaseAgent):
         if self._already_sent_today(state, "morning_nudge_sent_at"):
             return AgentResponse(text="", agent_name=self.name)
 
-        weather = self._get_weather()
-        activity = self._suggest_activity(weather)
-
-        # Build the message using the skill if available
-        skill = self._load_skill(_SKILL_MORNING)
-        if skill and not is_weekend:
-            # Use skill for weekday morning
-            weather_part = ""
-            if weather:
-                weather_part = f"{weather['temp']}C, {weather['desc']}. "
-            if weather:
-                msg = f"Morning. {weather_part}Good day for {activity}."
-            else:
-                msg = f"Morning. Good day for {activity}."
-        elif skill and is_weekend:
-            if weather:
-                msg = f"Morning. {weather['temp']}C, {weather['desc']}. Routine when you're ready. Enjoy the day."
-            else:
-                msg = "Morning. Routine when you're ready. Enjoy the day."
-        else:
-            # Fallback
-            if is_weekend:
-                if weather:
-                    msg = f"Morning. {weather['temp']}C, {weather['desc']}. Routine when you're ready. Enjoy the day."
-                else:
-                    msg = "Morning. Routine when you're ready. Enjoy the day."
-            else:
-                if weather:
-                    msg = f"Morning. {weather['temp']}C, {weather['desc']}. Good day for {activity}."
-                else:
-                    msg = f"Morning. Good day for {activity}."
+        msg = self._build_morning_message(is_weekend)
 
         await self._send_to_all_chats(msg)
         state["morning_nudge_sent_at"] = datetime.now().isoformat()
@@ -452,41 +441,6 @@ class WellbeingAgent(BaseAgent):
     async def _send_to_all_chats(self, msg: str) -> None:
         for chat_id in self.settings.telegram_allowed_chat_ids:
             await self.notifier.send(chat_id, msg)
-
-    # ── Lifecycle ────────────────────────────────────────────────────────────
-
-    async def register_schedules(self, bus: "MessageBus") -> None:
-        await super().register_schedules(bus)
-        try:
-            from core.scheduler import scheduler
-
-            chat_id = (
-                self.settings.telegram_allowed_chat_ids[0]
-                if self.settings.telegram_allowed_chat_ids
-                else ""
-            )
-            schedules = [
-                ("wellbeing_morning_weekday", "0 6 * * 1-5"),
-                ("wellbeing_morning_weekend", "0 7 * * 0,6"),
-                ("wellbeing_followup", "00 8 * * 1-5"),
-                ("wellbeing_evening", "30 20 * * *"),
-                ("wellbeing_bedtime", "0 23 * * *"),
-                ("wellbeing_weekly", "0 9 * * 0"),
-            ]
-            for task, cron in schedules:
-                scheduler.add_cron_job(
-                    cron=cron,
-                    event=AgentEvent(
-                        type=EventType.SCHEDULED_TASK,
-                        agent_name=self.name,
-                        chat_id=chat_id,
-                        data={"task": task},
-                    ),
-                    bus=bus,
-                )
-            log.info("Schedules registered", event="schedules_registered", agent=self.name)
-        except (ImportError, AttributeError) as e:
-            log.warning("Could not register schedules", event="schedule_error", error=str(e))
 
     async def health_check(self) -> bool:
         return True

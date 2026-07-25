@@ -10,7 +10,7 @@ Two ways to register a job:
 
   2. add_cron_job() — high-level, pass a cron string + AgentEvent.
      The scheduler publishes the event to the bus on schedule.
-     This is what agents call from register_schedules().
+     BaseAgent iterates over SCHEDULES and calls add_cron_job() automatically.
 
 Usage:
     from core.scheduler import Scheduler
@@ -49,7 +49,10 @@ def _set_bus_registry(bus: "MessageBus") -> None:
 
 
 async def _fire_cron_job(agent_name: str, chat_id: str, task: str) -> None:
-    """The picklable target every add_cron_job()-registered job points at."""
+    """The picklable target every add_cron_job()-registered job points at.
+    
+    Wrapped in error handling so one job's failure doesn't crash the scheduler.
+    """
     if _bus_registry is None:
         log.warning("Cron job fired but no bus available", event="cron_no_bus", agent=agent_name)
         return
@@ -60,7 +63,10 @@ async def _fire_cron_job(agent_name: str, chat_id: str, task: str) -> None:
         data={"task": task},
     )
     log.info("Cron job firing", event="cron_fire", agent=agent_name, task=task)
-    await _bus_registry.publish(event)
+    try:
+        await _bus_registry.publish(event)
+    except Exception as e:
+        log.error("Cron job execution failed", event="cron_job_error", agent=agent_name, task=task, error=str(e))
 
 
 class Scheduler:
@@ -103,7 +109,9 @@ class Scheduler:
     ) -> None:
         """Add a cron job that calls an arbitrary async function."""
         trigger = CronTrigger.from_crontab(cron_expr)
-        job_id = f"{agent_name}_{cron_expr}"
+        # Include agent name in ID to prevent collisions when multiple agents
+        # use the same cron expression
+        job_id = f"{agent_name}_schedule_{cron_expr}"
         self._scheduler.add_job(callback, trigger, id=job_id, replace_existing=True)
         log.info(
             "Schedule registered",
@@ -132,7 +140,9 @@ class Scheduler:
             self.set_bus(bus)
 
         task = event.data.get("task", cron)
-        job_id = f"{event.agent_name}_{task}"
+        # Use agent+task+cron as composite key to prevent collisions
+        # when different agents have tasks with the same name
+        job_id = f"{event.agent_name}_{task}_{cron}"
         trigger = CronTrigger.from_crontab(cron)
         self._scheduler.add_job(
             _fire_cron_job,

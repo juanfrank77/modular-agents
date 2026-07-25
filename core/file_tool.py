@@ -15,6 +15,9 @@ Usage:
 
 from __future__ import annotations
 
+import os
+import tempfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +26,8 @@ from core.logger import get_logger
 log = get_logger("file_tool")
 
 _MAX_READ_BYTES = 102400  # 100 KB
+_MAX_WRITE_BYTES = 102400  # 100 KB
+_MAX_CACHE_ENTRIES = 100
 
 
 class FileTool:
@@ -33,10 +38,18 @@ class FileTool:
     filesystem.  This prevents directory-traversal and symlink-escape attacks.
     """
 
-    def __init__(self, allowed_paths: list[Path], max_read_bytes: int = _MAX_READ_BYTES) -> None:
+    def __init__(
+        self,
+        allowed_paths: list[Path],
+        max_read_bytes: int = _MAX_READ_BYTES,
+        max_write_bytes: int = _MAX_WRITE_BYTES,
+        max_cache_entries: int = _MAX_CACHE_ENTRIES,
+    ) -> None:
         self._allowed = [p.resolve() for p in allowed_paths]
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._max_read_bytes = max_read_bytes
+        self._max_write_bytes = max_write_bytes
+        self._max_cache_entries = max_cache_entries
         log.debug("FileTool initialised", count=len(self._allowed))
 
     # ------------------------------------------------------------------
@@ -129,6 +142,7 @@ class FileTool:
             cached = self._cache[resolved_str]
             if cached["mtime"] == current_mtime and cached["size"] == current_size:
                 log.debug("read_file cache hit", path=resolved_str)
+                self._cache.move_to_end(resolved_str)
                 return cached["content"]
 
         raw = resolved.read_bytes()
@@ -154,6 +168,9 @@ class FileTool:
             "mtime": current_mtime,
             "size": current_size,
         }
+        self._cache.move_to_end(resolved_str)
+        while len(self._cache) > self._max_cache_entries:
+            self._cache.popitem(last=False)
 
         log.debug("read_file", path=resolved_str, chars=len(content))
         return content
@@ -161,13 +178,49 @@ class FileTool:
     def write_file(self, path: str | Path, content: str) -> None:
         """Write *content* to *path*, creating parent directories if needed.
 
+        Writes are size-capped (default 100 KB) and atomic: content lands in
+        a temp file in the same directory, then is renamed into place, so a
+        crash mid-write never leaves a truncated/corrupt target file.
+
         Args:
             path: Destination file.  Must be within an allowed path.
             content: Text to write (UTF-8).
+
+        Raises:
+            ValueError: If the encoded content exceeds ``max_write_bytes``.
         """
+        encoded = content.encode("utf-8")
+        if len(encoded) > self._max_write_bytes:
+            log.warning(
+                "write_file exceeds max_write_bytes, rejecting",
+                path=str(path),
+                size=len(encoded),
+                max_write_bytes=self._max_write_bytes,
+            )
+            raise ValueError(
+                f"Content too large: {len(encoded)} bytes exceeds "
+                f"max_write_bytes={self._max_write_bytes}"
+            )
+
         resolved = self._validate_path(Path(path))
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=resolved.parent, prefix=f".{resolved.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(encoded)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, resolved)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
         resolved_str = str(resolved)
         if resolved_str in self._cache:
             del self._cache[resolved_str]
