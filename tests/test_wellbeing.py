@@ -13,12 +13,25 @@ import pytest
 def _make_settings(**overrides):
     s = MagicMock()
     s.quiet_hours_enabled = overrides.get("enabled", True)
-    s.quiet_hours_morning_start = overrides.get("morning_start", "07:00")
-    s.quiet_hours_morning_end = overrides.get("morning_end", "09:30")
-    s.quiet_hours_morning_allowed = overrides.get("morning_allowed", ["wellbeing-nudge"])
-    s.quiet_hours_evening_start = overrides.get("evening_start", "19:30")
-    s.quiet_hours_evening_end = overrides.get("evening_end", "07:00")
-    s.quiet_hours_evening_allowed = overrides.get("evening_allowed", ["wellbeing-nudge", "emergency"])
+    s.quiet_hours_windows = overrides.get(
+        "windows",
+        [
+            {
+                "name": "morning_routine",
+                "start": overrides.get("morning_start", "07:00"),
+                "end": overrides.get("morning_end", "09:30"),
+                "allowed": overrides.get("morning_allowed", ["wellbeing-nudge"]),
+            },
+            {
+                "name": "evening",
+                "start": overrides.get("evening_start", "19:30"),
+                "end": overrides.get("evening_end", "07:00"),
+                "allowed": overrides.get(
+                    "evening_allowed", ["wellbeing-nudge", "emergency"]
+                ),
+            },
+        ],
+    )
     s.emergency_keywords = overrides.get("emergency_keywords", ["server_down", "security"])
     s.wellbeing_location = overrides.get("location", "")
     s.wellbeing_wake_time = overrides.get("wake_time", "07:00")
@@ -54,6 +67,18 @@ class TestIsQuietHours:
         now = datetime(2024, 1, 1, 3, 0, 0)
         assert is_quiet_hours(settings, now) == "evening"
 
+    def test_arbitrary_third_named_window(self):
+        from core.quiet_hours import is_quiet_hours
+        settings = _make_settings(
+            windows=[
+                {"name": "morning_routine", "start": "07:00", "end": "09:30", "allowed": []},
+                {"name": "evening", "start": "19:30", "end": "07:00", "allowed": []},
+                {"name": "focus_block", "start": "13:00", "end": "15:00", "allowed": ["urgent"]},
+            ]
+        )
+        now = datetime(2024, 1, 1, 14, 0, 0)
+        assert is_quiet_hours(settings, now) == "focus_block"
+
     def test_disabled_returns_none(self):
         from core.quiet_hours import is_quiet_hours
         settings = _make_settings(enabled=False)
@@ -62,6 +87,17 @@ class TestIsQuietHours:
 
 
 class TestShouldNotify:
+    def test_custom_window_allows_only_its_tags(self):
+        from core.quiet_hours import should_notify
+        settings = _make_settings(
+            windows=[
+                {"name": "focus_block", "start": "13:00", "end": "15:00", "allowed": ["urgent"]},
+            ]
+        )
+        now = datetime(2024, 1, 1, 14, 0, 0)
+        assert should_notify(settings, tag="urgent", now=now) is True
+        assert should_notify(settings, tag="deploy-alert", now=now) is False
+
     def test_midday_any_tag_allowed(self):
         from core.quiet_hours import should_notify
         settings = _make_settings()

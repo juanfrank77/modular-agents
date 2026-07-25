@@ -37,13 +37,9 @@ def is_quiet_hours(settings: "Settings", now: datetime | None = None) -> str | N
     if not settings.quiet_hours_enabled:
         return None
     now_time = (now or datetime.now()).time()
-    windows = {
-        "morning_routine": (settings.quiet_hours_morning_start, settings.quiet_hours_morning_end),
-        "evening": (settings.quiet_hours_evening_start, settings.quiet_hours_evening_end),
-    }
-    for name, (start, end) in windows.items():
-        if _in_window(now_time, start, end):
-            return name
+    for window in settings.quiet_hours_windows:
+        if _in_window(now_time, window["start"], window["end"]):
+            return window["name"]
     return None
 
 
@@ -63,8 +59,8 @@ def should_notify(
     window_name = is_quiet_hours(settings, now)
     if window_name is None:
         return True
-    allowed_map = {
-        "morning_routine": settings.quiet_hours_morning_allowed,
-        "evening": settings.quiet_hours_evening_allowed,
-    }
-    return tag in allowed_map.get(window_name, [])
+    allowed = next(
+        (w["allowed"] for w in settings.quiet_hours_windows if w["name"] == window_name),
+        [],
+    )
+    return tag in allowed

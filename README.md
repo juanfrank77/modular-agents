@@ -332,9 +332,10 @@ The Wellbeing Agent respects quiet hours to avoid sending nudges at inconvenient
 
 ```
 QUIET_HOURS_ENABLED=true                    # toggle quiet hours on/off
-QUIET_HOURS_MORNING_START=07:00             # morning routine window start
-QUIET_HOURS_MORNING_END=09:30               # morning routine window end
-QUIET_HOURS_MORNING_ALLOWED=wellbeing-nudge # allowed during morning quiet hours
+QUIET_HOURS_WINDOWS=morning_routine,evening # active window names (comma-separated)
+QUIET_HOURS_MORNING_ROUTINE_START=07:00     # morning routine window start
+QUIET_HOURS_MORNING_ROUTINE_END=09:30       # morning routine window end
+QUIET_HOURS_MORNING_ROUTINE_ALLOWED=wellbeing-nudge  # allowed during morning quiet hours
 QUIET_HOURS_EVENING_START=19:30             # evening wind-down start
 QUIET_HOURS_EVENING_END=07:00               # overnight window (spans midnight)
 QUIET_HOURS_EVENING_ALLOWED=wellbeing-nudge,emergency  # allowed during evening
@@ -342,6 +343,8 @@ EMERGENCY_KEYWORDS=server_down,security,data_loss,payment_failure  # bypass all 
 ```
 
 The Wellbeing Agent is autonomous but will skip nudges if they fall within quiet hours. Emergency keywords (e.g., `server_down`) always bypass quiet hours.
+
+Windows are arbitrary and named — add your own by listing it in `QUIET_HOURS_WINDOWS` and setting `QUIET_HOURS_<NAME>_{START,END,ALLOWED}`, e.g. `QUIET_HOURS_WINDOWS=morning_routine,evening,focus_block` with `QUIET_HOURS_FOCUS_BLOCK_START=13:00`.
 
 ### Giving agents access to local files
 
