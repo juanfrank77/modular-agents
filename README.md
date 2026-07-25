@@ -310,9 +310,10 @@ For initial setup or full control, create the agent manually:
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design. The short version:
 
 1. Create `agents/youragent/agent.py` and subclass `BaseAgent`
-2. Implement `handle()`, `register_schedules()`, and `health_check()`
-3. Add skill files in `agents/youragent/skills/`
-4. Register the agent in `main.py`
+2. Implement `handle()` and `health_check()`
+3. Optionally define `SCHEDULES = [("task_name", "cron_expr"), ...]` class attribute
+4. Add skill files in `agents/youragent/skills/`
+5. Register the agent in `main.py`
 
 The echo agent in `agents/echo/` is a minimal working example.
 

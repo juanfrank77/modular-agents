@@ -78,12 +78,12 @@ class BaseAgent(ABC):
     name: str
     description: str
     autonomy_level: str  # "read_only" | "supervised" | "autonomous"
+    SCHEDULES: list[tuple[str, str]] = []  # [(task_name, cron_expr), ...]
 
     def __init__(self, settings, storage, notifier, llm=None,
                  memory=None, safety=None, skill_loader=None): ...
 
     async def handle(self, event: AgentEvent) -> AgentResponse: ...
-    async def register_schedules(self, bus) -> None: ...
     async def health_check(self) -> bool: ...
     async def reply(self, event, text) -> AgentResponse: ...
     def _is_authorized(self, chat_id) -> bool: ...
@@ -126,7 +126,7 @@ no markdown fences, no explanation:
     "system_prompt": "Full system prompt template with {{context}} and {{skills}} placeholders. Be specific to this agent's domain.",
     "autonomy_level": "{autonomy}",
     "has_tools": {has_tools_bool},
-    "agent_py": "Complete Python source for agents/{module_name}/agent.py. Must import from agents.base, core.protocols, core.logger. Must implement handle(), register_schedules(), health_check(). Follow the exact same pattern as BusinessAgent."
+    "agent_py": "Complete Python source for agents/{module_name}/agent.py. Must import from agents.base, core.protocols, core.logger. Must implement handle(), health_check(). Optionally define SCHEDULES class attribute for scheduled tasks. Follow the exact same pattern as BusinessAgent."
   }},
   "skills": [
     {{

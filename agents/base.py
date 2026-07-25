@@ -8,8 +8,9 @@ concrete agent implementations.
 To add a new agent:
   1. Create agents/myagent/agent.py
   2. Subclass BaseAgent
-  3. Implement handle(), register_schedules(), health_check()
-  4. Register with the bus in main.py
+  3. Implement handle(), health_check()
+  4. Optionally define SCHEDULES = [("task_name", "cron_expr"), ...]
+  5. Register with the bus in main.py (or use auto-discovery when implemented)
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ class BaseAgent(ABC):
     description: str  # used by bus for routing decisions
     autonomy_level: str  # "read_only" | "supervised" | "autonomous"
     routable: bool = True  # False = never picked by the intent classifier (e.g. echo)
+    SCHEDULES: list[tuple[str, str]] = []  # [(task_name, cron_expr), ...]
 
     def __init__(
         self,
@@ -155,12 +157,45 @@ class BaseAgent(ABC):
 
     async def register_schedules(self, bus: "MessageBus") -> None:
         """
-        Register cron jobs and heartbeat handlers at startup.
-        Called once by main.py during initialisation.
-        Stores the bus reference — subclasses should call
-        await super().register_schedules(bus) then register their own cron jobs.
+        Register cron jobs at startup. Called once by main.py during initialisation.
+        
+        Subclasses define SCHEDULES = [(task_name, cron_expr), ...] as a class attribute.
+        This base implementation iterates over SCHEDULES and registers each job.
         """
         self.bus = bus
+        if not self.SCHEDULES:
+            return
+
+        try:
+            from core.scheduler import scheduler
+
+            chat_id = (
+                self.settings.telegram_allowed_chat_ids[0]
+                if self.settings.telegram_allowed_chat_ids
+                else ""
+            )
+
+            for task_name, cron_expr in self.SCHEDULES:
+                scheduler.add_cron_job(
+                    cron=cron_expr,
+                    event=AgentEvent(
+                        type=EventType.SCHEDULED_TASK,
+                        agent_name=self.name,
+                        chat_id=chat_id,
+                        data={"task": task_name},
+                    ),
+                    bus=bus,
+                )
+
+            log.info("Schedules registered", event="schedules_registered", agent=self.name)
+
+        except (ImportError, AttributeError) as e:
+            log.warning(
+                "Could not register schedules — check scheduler.py interface",
+                event="schedule_error",
+                agent=self.name,
+                error=str(e),
+            )
 
     @abstractmethod
     async def health_check(self) -> bool:

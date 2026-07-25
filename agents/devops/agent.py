@@ -113,6 +113,10 @@ class DevOpsAgent(BaseAgent):
         "infrastructure health checks, incident response, and system diagnostics."
     )
     autonomy_level = "autonomous"
+    SCHEDULES = [
+        ("github_digest", "0 9 * * 1-5"),
+        ("incident_watchdog", "0 * * * *"),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -657,52 +661,6 @@ class DevOpsAgent(BaseAgent):
         )
 
     # ── Lifecycle ─────────────────────────────
-
-    async def register_schedules(self, bus: "MessageBus") -> None:
-        await super().register_schedules(bus)
-        try:
-            from core.scheduler import scheduler
-
-            primary_chat = (
-                self.settings.telegram_allowed_chat_ids[0]
-                if self.settings.telegram_allowed_chat_ids
-                else ""
-            )
-
-            # GitHub digest — weekdays at 9am
-            scheduler.add_cron_job(
-                cron="0 9 * * 1-5",
-                event=AgentEvent(
-                    type=EventType.SCHEDULED_TASK,
-                    agent_name=self.name,
-                    chat_id=primary_chat,
-                    data={"task": "github_digest"},
-                ),
-                bus=bus,
-            )
-
-            # Incident watchdog — hourly
-            scheduler.add_cron_job(
-                cron="0 * * * *",
-                event=AgentEvent(
-                    type=EventType.SCHEDULED_TASK,
-                    agent_name=self.name,
-                    chat_id=primary_chat,
-                    data={"task": "incident_watchdog"},
-                ),
-                bus=bus,
-            )
-
-            log.info(
-                "Schedules registered", event="schedules_registered", agent=self.name
-            )
-
-        except (ImportError, AttributeError) as e:
-            log.warning(
-                "Could not register schedules — check scheduler.py interface",
-                event="schedule_error",
-                error=str(e),
-            )
 
     async def health_check(self) -> bool:
         import shutil

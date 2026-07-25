@@ -79,6 +79,14 @@ class WellbeingAgent(BaseAgent):
         "Respects quiet hours. No LLM required."
     )
     autonomy_level = "autonomous"
+    SCHEDULES = [
+        ("wellbeing_morning_weekday", "0 6 * * 1-5"),
+        ("wellbeing_morning_weekend", "0 7 * * 0,6"),
+        ("wellbeing_followup", "00 8 * * 1-5"),
+        ("wellbeing_evening", "30 20 * * *"),
+        ("wellbeing_bedtime", "0 23 * * *"),
+        ("wellbeing_weekly", "0 9 * * 0"),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -452,41 +460,6 @@ class WellbeingAgent(BaseAgent):
     async def _send_to_all_chats(self, msg: str) -> None:
         for chat_id in self.settings.telegram_allowed_chat_ids:
             await self.notifier.send(chat_id, msg)
-
-    # ── Lifecycle ────────────────────────────────────────────────────────────
-
-    async def register_schedules(self, bus: "MessageBus") -> None:
-        await super().register_schedules(bus)
-        try:
-            from core.scheduler import scheduler
-
-            chat_id = (
-                self.settings.telegram_allowed_chat_ids[0]
-                if self.settings.telegram_allowed_chat_ids
-                else ""
-            )
-            schedules = [
-                ("wellbeing_morning_weekday", "0 6 * * 1-5"),
-                ("wellbeing_morning_weekend", "0 7 * * 0,6"),
-                ("wellbeing_followup", "00 8 * * 1-5"),
-                ("wellbeing_evening", "30 20 * * *"),
-                ("wellbeing_bedtime", "0 23 * * *"),
-                ("wellbeing_weekly", "0 9 * * 0"),
-            ]
-            for task, cron in schedules:
-                scheduler.add_cron_job(
-                    cron=cron,
-                    event=AgentEvent(
-                        type=EventType.SCHEDULED_TASK,
-                        agent_name=self.name,
-                        chat_id=chat_id,
-                        data={"task": task},
-                    ),
-                    bus=bus,
-                )
-            log.info("Schedules registered", event="schedules_registered", agent=self.name)
-        except (ImportError, AttributeError) as e:
-            log.warning("Could not register schedules", event="schedule_error", error=str(e))
 
     async def health_check(self) -> bool:
         return True

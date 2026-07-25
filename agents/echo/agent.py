@@ -59,10 +59,6 @@ class EchoAgent(BaseAgent):
         log.info("Message echoed", event="echo", chat_id=event.chat_id)
         return await self.reply(event, reply_text)
 
-    async def register_schedules(self, bus) -> None:
-        # Echo agent has no scheduled tasks
-        pass
-
     async def health_check(self) -> bool:
         try:
             # Verify storage is reachable

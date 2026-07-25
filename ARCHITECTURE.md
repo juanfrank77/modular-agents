@@ -144,14 +144,11 @@ class BaseAgent(ABC):
     name: str            # e.g. 'business', 'devops'
     description: str     # used by the bus for routing
     autonomy_level: str  # 'read_only' | 'supervised' | 'autonomous'
+    SCHEDULES: list       # [(task_name, cron_expr), ...], optional
 
     @abstractmethod
     async def handle(self, event: AgentEvent) -> AgentResponse:
         """Process an incoming event and return a response."""
-
-    @abstractmethod
-    async def register_schedules(self, scheduler: Scheduler) -> None:
-        """Declare cron jobs and heartbeat handlers at startup."""
 
     @abstractmethod
     async def health_check(self) -> bool:

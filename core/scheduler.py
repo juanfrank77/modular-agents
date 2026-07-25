@@ -10,7 +10,7 @@ Two ways to register a job:
 
   2. add_cron_job() — high-level, pass a cron string + AgentEvent.
      The scheduler publishes the event to the bus on schedule.
-     This is what agents call from register_schedules().
+     BaseAgent iterates over SCHEDULES and calls add_cron_job() automatically.
 
 Usage:
     from core.scheduler import Scheduler

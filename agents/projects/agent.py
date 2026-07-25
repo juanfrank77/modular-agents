@@ -85,6 +85,9 @@ class ProjectsAgent(BaseAgent):
         "Monday kickoff with the week's priorities."
     )
     autonomy_level = "supervised"
+    SCHEDULES = [
+        ("projects_weekly_kickoff", "0 10 * * 1"),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -286,28 +289,6 @@ class ProjectsAgent(BaseAgent):
             context=f"## User Context\n{markdown_context}" if markdown_context else "",
             skills=skill_content,
         )
-
-    # ── Lifecycle ─────────────────────────────
-
-    async def register_schedules(self, bus: "MessageBus") -> None:
-        await super().register_schedules(bus)
-        try:
-            from core.scheduler import scheduler
-
-            scheduler.add_cron_job(
-                cron="0 10 * * 1",  # Monday 10am — outside quiet hours
-                event=AgentEvent(
-                    type=EventType.SCHEDULED_TASK,
-                    agent_name=self.name,
-                    chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
-                    data={"task": "projects_weekly_kickoff"},
-                ),
-                bus=bus,
-            )
-            log.info("Schedules registered", event="schedules_registered", agent=self.name)
-        except (ImportError, AttributeError) as e:
-            log.warning("Could not register schedules", event="schedule_error", error=str(e))
 
     async def health_check(self) -> bool:
         try:

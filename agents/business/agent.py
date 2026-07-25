@@ -93,6 +93,10 @@ class BusinessAgent(BaseAgent):
         "morning briefings, weekly reviews, and project tracking."
     )
     autonomy_level = "supervised"
+    SCHEDULES = [
+        ("morning_briefing", "0 8 * * 1-5"),
+        ("weekly_review", "0 17 * * 5"),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -497,54 +501,6 @@ class BusinessAgent(BaseAgent):
         )
 
     # ── Lifecycle ─────────────────────────────
-
-    async def register_schedules(self, bus: "MessageBus") -> None:
-        """
-        Register cron jobs. Called once at startup by main.py.
-
-        Assumes a scheduler is accessible via bus or imported directly.
-        Adjust the import path to match your scheduler.py implementation.
-        """
-        await super().register_schedules(bus)
-        try:
-            from core.scheduler import scheduler
-
-            # Morning briefing — weekdays at 8am
-            scheduler.add_cron_job(
-                cron="0 8 * * 1-5",
-                event=AgentEvent(
-                    type=EventType.SCHEDULED_TASK,
-                    agent_name=self.name,
-                    chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
-                    data={"task": "morning_briefing"},
-                ),
-                bus=bus,
-            )
-
-            # Weekly review — Fridays at 5pm
-            scheduler.add_cron_job(
-                cron="0 17 * * 5",
-                event=AgentEvent(
-                    type=EventType.SCHEDULED_TASK,
-                    agent_name=self.name,
-                    chat_id=self.settings.telegram_allowed_chat_ids[0]
-                    if self.settings.telegram_allowed_chat_ids else "",
-                    data={"task": "weekly_review"},
-                ),
-                bus=bus,
-            )
-
-            log.info(
-                "Schedules registered", event="schedules_registered", agent=self.name
-            )
-
-        except (ImportError, AttributeError) as e:
-            log.warning(
-                "Could not register schedules — check scheduler.py interface",
-                event="schedule_error",
-                error=str(e),
-            )
 
     async def health_check(self) -> bool:
         try:
