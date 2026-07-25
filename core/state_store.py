@@ -67,6 +67,11 @@ class StateStore:
                     chat_id     TEXT PRIMARY KEY,
                     agent_name  TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS chat_model_map (
+                    chat_id  TEXT PRIMARY KEY,
+                    model    TEXT NOT NULL
+                );
             """)
             await db.commit()
         log.info("StateStore initialised", event="state_store_init", path=self._db_path_str)
@@ -214,5 +219,29 @@ class StateStore:
         async with aiosqlite.connect(self._db_path_str) as db:
             await apply_encryption_key(db, self._encryption_key)
             cursor = await db.execute("SELECT chat_id, agent_name FROM chat_agent_map")
+            rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    # ── chat_model_map ───────────────────────────
+
+    async def save_chat_model(self, chat_id: str, model: str) -> None:
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            await db.execute(
+                "INSERT OR REPLACE INTO chat_model_map (chat_id, model) VALUES (?, ?)",
+                (chat_id, model),
+            )
+            await db.commit()
+
+    async def delete_chat_model(self, chat_id: str) -> None:
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            await db.execute("DELETE FROM chat_model_map WHERE chat_id = ?", (chat_id,))
+            await db.commit()
+
+    async def load_chat_model_map(self) -> dict[str, str]:
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            cursor = await db.execute("SELECT chat_id, model FROM chat_model_map")
             rows = await cursor.fetchall()
         return {row[0]: row[1] for row in rows}

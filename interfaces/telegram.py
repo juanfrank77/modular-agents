@@ -187,23 +187,29 @@ class TelegramInterface:
         if not await self._require_paired(chat_id):
             return
 
-        if context.args:
-            new_model = context.args[0].strip()
-            old_model = self._settings.default_model
-            self._settings.default_model = new_model
+        args = context.args or []
+        if args and args[0].strip().lower() == "reset":
+            await self._bus.clear_chat_model(chat_id)
+            log.info("Model override cleared", event="model_reset", chat_id=chat_id)
+            await update.message.reply_text("Model override cleared for this chat.")
+            return
+
+        if args:
+            new_model = args[0].strip()
+            await self._bus.set_chat_model(chat_id, new_model)
             log.info(
-                "Model changed",
-                event="model_change",
-                chat_id=chat_id,
-                old=old_model,
-                new=new_model,
+                "Model changed", event="model_change", chat_id=chat_id, new=new_model
             )
             await update.message.reply_text(
-                f"Model set to `{new_model}`.", parse_mode="Markdown"
+                f"Model set to `{new_model}` for this chat.", parse_mode="Markdown"
             )
         else:
+            override = self._bus.get_chat_model(chat_id)
+            effective = override or self._settings.default_model
+            note = "override for this chat" if override else "default, no override set"
             await update.message.reply_text(
-                f"Current model: `{self._settings.default_model}`.\nUsage: `/model <model-id>`",
+                f"Current model: `{effective}` ({note}).\n"
+                f"Usage: `/model <model-id>` to override, `/model reset` to clear.",
                 parse_mode="Markdown",
             )
 

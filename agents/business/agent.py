@@ -173,7 +173,7 @@ class BusinessAgent(BaseAgent):
                 messages=messages,
                 system=system_prompt,
                 tools=self.tool_defs if supports_tools else None,
-                model=self.model,
+                model=self.resolve_model(event.chat_id),
             )
         log.info("LLM responded", event="llm_done", duration_ms=t.ms)
 
@@ -385,7 +385,7 @@ class BusinessAgent(BaseAgent):
             tools=None,
             tool_result=ToolResultInput(tool_call_id=tool_call.id, content=tool_result_text),
             raw_assistant=result.raw_assistant,
-            model=self.model,
+            model=self.resolve_model(chat_id),
         )
         return follow_up.text
 
@@ -432,7 +432,7 @@ class BusinessAgent(BaseAgent):
         briefing = (await self.llm.complete(
             messages=[Message(role="user", content=prompt)],
             system=system,
-            model=self.model,
+            model=self.resolve_model(event.chat_id),
         )).text
 
         await self.notifier.send(event.chat_id, f"🌅 *Morning Briefing*\n\n{briefing}")
@@ -463,7 +463,7 @@ class BusinessAgent(BaseAgent):
         review = (await self.llm.complete(
             messages=[Message(role="user", content=prompt)],
             system=system,
-            model=self.model,
+            model=self.resolve_model(event.chat_id),
         )).text
 
         await self.notifier.send(event.chat_id, f"📋 *Weekly Review*\n\n{review}")

@@ -154,6 +154,7 @@ async def bootstrap():
             )
 
     await bus.load_chat_agent_map()
+    await bus.load_chat_model_map()
     await safety.gate.notify_orphaned()
 
     health = await bus.health_check_all()

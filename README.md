@@ -582,7 +582,7 @@ python test_integration.py              # run the test suite
 
 | Command | Description |
 |---------|-------------|
-| `/model <model-id>` | Change the default LLM model for this session |
+| `/model [model-id\|reset]` | Show or set a model override for this chat (persists across restarts); `/model reset` clears it, falling back to the agent's own default, then the global default |
 | `/newagent` | Start interactive wizard to create a new agent |
 | `/planmode [agent]` | Toggle plan mode: agent shows a numbered action plan and waits for Approve/Deny before executing. Optionally target a specific agent by name. |
 | `/help` | Show available commands |

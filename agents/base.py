@@ -122,7 +122,7 @@ class BaseAgent(ABC):
             messages=[Message(role="user", content=event.text)],
             system=combined_system,
             max_tokens=512,
-            model=self.model,
+            model=self.resolve_model(event.chat_id),
         )
         plan_text = llm_result.text
 
@@ -307,8 +307,21 @@ class BaseAgent(ABC):
 
     async def reply(self, event: AgentEvent, text: str) -> AgentResponse:
         """Send a message back to the user and return a response object."""
-        await self.notifier.send(event.chat_id, text)
+        await self.notifier.send(event.chat_id, f"[{self.name}] {text}")
         return AgentResponse(text=text, agent_name=self.name)
+
+    def resolve_model(self, chat_id: str) -> str:
+        """
+        Effective model for a chat, in precedence order:
+          1. This chat's /model override (core/bus.py's chat_model_map)
+          2. This agent's <AGENT>_AGENT_MODEL env var (self.model)
+          3. "" — caller falls back to settings.default_model
+        """
+        if self.bus:
+            override = self.bus.get_chat_model(chat_id)
+            if override:
+                return override
+        return self.model
 
     def _is_authorized(self, chat_id: str) -> bool:
         """Check if a chat_id is in the allowlist."""
