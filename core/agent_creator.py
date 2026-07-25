@@ -11,9 +11,9 @@ so new agents are detected without main.py patching.
 Each chat that starts /newagent gets its own WizardSession stored
 in an in-memory dict. Sessions expire after 10 minutes of inactivity.
 
-Usage (from Telegram handler):
+Usage (from main.py):
     from core.agent_creator import AgentCreator
-    creator = AgentCreator(llm=llm, project_root=Path("."))
+    creator = AgentCreator(llm=llm, project_root=Path("."), notifier=router)
     response = await creator.handle(chat_id, text)
     # response is a string to send back to the user
 """
@@ -25,12 +25,17 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from core.logger import get_logger
 
 if TYPE_CHECKING:
     from core.llm import LLMProvider
+
+
+class _Notifier(Protocol):
+    async def send(self, chat_id: str, text: str) -> None: ...
+
 
 log = get_logger("agent_creator")
 
@@ -257,10 +262,16 @@ def _to_pascal(name: str) -> str:
 # ── AgentCreator ──────────────────────────────
 
 class AgentCreator:
-    def __init__(self, llm: "LLMProvider", project_root: Path) -> None:
+    def __init__(
+        self,
+        llm: "LLMProvider",
+        project_root: Path,
+        notifier: "_Notifier | None" = None,
+    ) -> None:
         self._llm = llm
         self._root = project_root
         self._sessions: dict[str, WizardSession] = {}
+        self._notifier = notifier
 
     # ── Public entry point ────────────────────
 
@@ -512,9 +523,8 @@ class AgentCreator:
         return result.text
 
     async def _send_progress(self, session: WizardSession, text: str) -> None:
-        """Hook for sending intermediate progress messages. No-op here —
-        the Telegram handler calls this via the notifier."""
-        pass
+        if self._notifier is not None:
+            await self._notifier.send(session.chat_id, text)
 
 
 # ── JSON parser ───────────────────────────────

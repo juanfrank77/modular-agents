@@ -101,7 +101,7 @@ async def bootstrap():
         sys.exit(1)
     await _verify_llm(llm)
 
-    creator = AgentCreator(llm=llm, project_root=Path("."))
+    creator = AgentCreator(llm=llm, project_root=Path("."), notifier=router)
     memory = Memory(storage=storage, llm=llm, settings=settings)
 
     safety = Safety(
