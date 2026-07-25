@@ -31,7 +31,7 @@ class TestAddCronJobIsPicklable:
         )
         s.add_cron_job(cron="0 8 * * 1-5", event=event)
 
-        job = s._scheduler.get_job("business_morning_briefing")
+        job = s._scheduler.get_job("business_morning_briefing_0 8 * * 1-5")
         assert job.func is _fire_cron_job
 
         # Pickling job.func + job.args must round-trip without error — this
@@ -40,7 +40,7 @@ class TestAddCronJobIsPicklable:
         assert restored_func is _fire_cron_job
         assert restored_args == ("business", "123", "morning_briefing")
 
-    def test_job_id_uses_agent_and_task(self):
+    def test_job_id_uses_agent_task_and_cron(self):
         s = Scheduler()
         event = AgentEvent(
             type=EventType.SCHEDULED_TASK,
@@ -49,7 +49,29 @@ class TestAddCronJobIsPicklable:
             data={"task": "github_digest"},
         )
         s.add_cron_job(cron="0 9 * * 1-5", event=event)
-        assert s._scheduler.get_job("devops_github_digest") is not None
+        assert s._scheduler.get_job("devops_github_digest_0 9 * * 1-5") is not None
+
+    def test_job_ids_are_unique_per_agent(self):
+        """Two agents with same task name should not collide."""
+        s = Scheduler()
+        event1 = AgentEvent(
+            type=EventType.SCHEDULED_TASK,
+            agent_name="business",
+            chat_id="123",
+            data={"task": "daily_summary"},
+        )
+        event2 = AgentEvent(
+            type=EventType.SCHEDULED_TASK,
+            agent_name="wellbeing",
+            chat_id="456",
+            data={"task": "daily_summary"},
+        )
+        s.add_cron_job(cron="0 8 * * 1-5", event=event1)
+        s.add_cron_job(cron="0 9 * * 1-5", event=event2)
+        
+        # Both jobs should exist with distinct IDs
+        assert s._scheduler.get_job("business_daily_summary_0 8 * * 1-5") is not None
+        assert s._scheduler.get_job("wellbeing_daily_summary_0 9 * * 1-5") is not None
 
 
 class TestFireCronJobUsesRegistry:
@@ -76,6 +98,22 @@ class TestFireCronJobUsesRegistry:
         scheduler_module._bus_registry = None
         # Must not raise even with no bus set.
         await _fire_cron_job("business", "123", "morning_briefing")
+
+    @pytest.mark.asyncio
+    async def test_error_isolation_on_publish_failure(self):
+        """Cron job should log error but not crash on publish failure."""
+        from unittest.mock import AsyncMock
+
+        s = Scheduler()
+        bus = AsyncMock()
+        bus.publish = AsyncMock(side_effect=RuntimeError("publish failed"))
+        s.set_bus(bus)
+
+        # Should not raise
+        await _fire_cron_job("business", "123", "morning_briefing")
+        
+        # Publish was attempted
+        bus.publish.assert_awaited_once()
 
 
 class TestConfigureJobstore:

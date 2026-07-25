@@ -39,11 +39,6 @@ from core.skill_loader import SkillLoader
 from core.storage import Storage
 from core.state_store import StateStore
 from core.agent_creator import AgentCreator
-from agents.business.agent import BusinessAgent
-from agents.devops.agent import DevOpsAgent
-from agents.echo.agent import EchoAgent
-from agents.projects.agent import ProjectsAgent
-from agents.wellbeing.agent import WellbeingAgent
 from interfaces.telegram import TelegramInterface
 from interfaces.cli import CLIInterface
 from interfaces.http import HTTPInterface
@@ -139,28 +134,15 @@ async def bootstrap():
         bus=bus,
     )
 
-    business = BusinessAgent(**agent_kwargs)
-    bus.register(business)
+    # Auto-discover agents instead of manual registration
+    from core.agent_discovery import discover_agents
+    discovered_agents, failed = discover_agents(**agent_kwargs)
 
-    devops = DevOpsAgent(**agent_kwargs)
-    bus.register(devops)
+    # Register discovered agents
+    for agent in discovered_agents:
+        bus.register(agent)
 
-    registered_agents = [business, devops]
-
-    if settings.debug_echo_agent:
-        echo = EchoAgent(settings=settings, storage=storage, notifier=router)
-        bus.register(echo)
-        registered_agents.append(echo)
-
-    wellbeing = WellbeingAgent(settings=settings, storage=storage, notifier=router)
-    bus.register(wellbeing)
-    registered_agents.append(wellbeing)
-
-    projects = ProjectsAgent(**agent_kwargs)
-    bus.register(projects)
-    registered_agents.append(projects)
-
-    for agent in registered_agents:
+    for agent in bus.registered_agents:
         try:
             await agent.register_schedules(bus)
         except Exception as e:

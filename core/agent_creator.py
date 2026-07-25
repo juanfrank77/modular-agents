@@ -3,7 +3,10 @@ core/agent_creator.py
 ---------------------
 The agent creator wizard. Drives the /newagent conversation,
 collects requirements, calls the LLM to generate code and skills,
-writes files to disk, and patches main.py.
+writes files to disk.
+
+Agents are auto-discovered on startup via core/agent_discovery.py,
+so new agents are detected without main.py patching.
 
 Each chat that starts /newagent gets its own WizardSession stored
 in an in-memory dict. Sessions expire after 10 minutes of inactivity.
@@ -174,57 +177,6 @@ class {class_name}Tools:
 def build_tools(memory: "Memory") -> {class_name}Tools:
     return {class_name}Tools()
 '''
-
-
-# ── Main.py patcher ───────────────────────────
-
-_IMPORT_MARKER = "from agents.echo.agent import EchoAgent"
-_REGISTER_MARKER = "bus.register(echo)"
-
-
-def _patch_main(main_path: Path, module_name: str, class_name: str) -> bool:
-    """
-    Patches main.py to import and register the new agent.
-    Returns True if patched, False if already present or file not found.
-    """
-    if not main_path.exists():
-        log.warning(
-            "main.py not found for patching", event="patch_skip", path=str(main_path)
-        )
-        return False
-
-    content = main_path.read_text(encoding="utf-8")
-
-    import_line = f"from agents.{module_name}.agent import {class_name}"
-    if import_line in content:
-        log.info(
-            "Agent already registered in main.py", event="patch_skip", agent=module_name
-        )
-        return False
-
-    # Add import after the echo agent import
-    content = content.replace(
-        _IMPORT_MARKER,
-        f"{_IMPORT_MARKER}\n{import_line}",
-    )
-
-    # Add instantiation and registration before echo registration
-    instantiation = (
-        f"\n    {_to_snake(module_name)} = {class_name}(\n"
-        f"        settings=settings, storage=storage, notifier=notifier,\n"
-        f"        llm=llm, memory=memory, safety=safety, skill_loader=skill_loader,\n"
-        f"    )\n"
-        f"    bus.register({_to_snake(module_name)})\n"
-    )
-
-    content = content.replace(
-        "    bus.register(echo)",
-        f"{instantiation}    bus.register(echo)",
-    )
-
-    main_path.write_text(content, encoding="utf-8")
-    log.info("main.py patched", event="patch_done", agent=module_name)
-    return True
 
 
 # ── File writer ───────────────────────────────
@@ -513,26 +465,16 @@ class AgentCreator:
             del self._sessions[session.chat_id]
             return f"❌ Failed to write agent files: {e}"
 
-        # Patch main.py
-        patched = _patch_main(self._root / "main.py", module_name, class_name)
-
         # Clean up session
         del self._sessions[session.chat_id]
 
-        # Build success message
-        file_list = "\n".join(f"  ✅ `{f}`" for f in created)
-        main_status = (
-            "  ✅ Registered in `main.py`"
-            if patched
-            else "  ⚠️ Already registered in `main.py`"
-        )
-
         return (
             f"🎉 *{class_name} created successfully!*\n\n"
-            f"*Files created:*\n{file_list}\n{main_status}\n\n"
+            f"*Files created:*\n" + "\n".join(f"  ✅ `{f}`" for f in created) + "\n\n"
             f"*To activate:*\n"
             f"```\nsudo systemctl restart modular-agents\n```\n\n"
             f"Your new agent will be available immediately after restart.\n"
+            f"(It's auto-discovered on startup — no manual main.py patching needed.)\n"
             f"You can refine its behaviour by editing the SKILL.md files "
             f"in `agents/{module_name}/skills/` — no restart needed for skill changes."
         )
