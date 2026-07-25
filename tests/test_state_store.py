@@ -115,3 +115,26 @@ class TestChatAgentMap:
         await store.save_chat_agent("123", "devops")
         await store.save_chat_agent("123", "business")
         assert await store.load_chat_agent_map() == {"123": "business"}
+
+
+class TestChatModelMap:
+    @pytest.mark.asyncio
+    async def test_save_and_load(self, store: StateStore):
+        await store.save_chat_model("123", "claude-opus-4.6")
+        assert await store.load_chat_model_map() == {"123": "claude-opus-4.6"}
+
+    @pytest.mark.asyncio
+    async def test_overwrite(self, store: StateStore):
+        await store.save_chat_model("123", "claude-opus-4.6")
+        await store.save_chat_model("123", "claude-haiku-4.6")
+        assert await store.load_chat_model_map() == {"123": "claude-haiku-4.6"}
+
+    @pytest.mark.asyncio
+    async def test_delete(self, store: StateStore):
+        await store.save_chat_model("123", "claude-opus-4.6")
+        await store.delete_chat_model("123")
+        assert await store.load_chat_model_map() == {}
+
+    @pytest.mark.asyncio
+    async def test_empty_by_default(self, store: StateStore):
+        assert await store.load_chat_model_map() == {}
