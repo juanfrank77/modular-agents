@@ -96,7 +96,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 
 ## 6. Interfaces & UX
 
-- **CLI can't target agents.** `_make_event` hardcodes `agent_name=""` (`interfaces/cli.py:57-63`) — port the Telegram `@agent` prefix parser (telegram.py:142); same for HTTP examples in docs.
+- `~~CLI can't target agents~~` — **DONE** (already fixed, found stale 2026-07-25): `core/routing.py`'s `parse_agent_tag()` is already wired into all three interfaces — `interfaces/cli.py:57`, `interfaces/telegram.py:133`, `interfaces/http.py:197` — evidently landed alongside item 1.3's routing work; this entry just never got updated. Added a `POST /message` `@agent` example to `ARCHITECTURE.md`'s HTTP API section, which was the one part still genuinely missing.
 - **Pairing/rate-limit logic is triplicated** across telegram/http/cli with diverging UX (only Telegram shows attempts remaining). Extract a shared guard the interfaces call.
 - **`/model` mutates the global default for everyone** (`telegram.py:293`) — scope it per-chat or per-agent.
 - `~~Duplicate _on_message registration in groups 0 and 1~~` — **DONE (2026-07-19)**: confirmed as a live bug, not just a smell — python-telegram-bot evaluates handler groups independently, so every private-chat text message was processed twice (double rate-limit consumption, double agent dispatch, two replies per message). Removed the redundant group=1 registration; handler registration extracted into `_register_handlers()` for testability (`interfaces/telegram.py`, `tests/test_telegram_handler_registration.py`).
