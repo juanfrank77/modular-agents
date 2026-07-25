@@ -12,7 +12,7 @@ uvicorn[standard]==0.34.3
 python-telegram-bot==22.7
 
 # Anthropic SDK
-anthropic==0.88.0
+anthropic==0.109.2
 
 # Composio (Gmail/Calendar/Slack integrations)
 composio-anthropic==0.18.0
