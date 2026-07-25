@@ -60,7 +60,7 @@ class TestTelegramInterfaceTagParsing:
 
         safety = MagicMock()
         safety.pairing.is_paired.return_value = True
-        safety.rate_limiter.is_allowed.return_value = True
+        safety.rate_limiter.check.return_value = None
 
         creator = MagicMock()
         creator.is_active.return_value = False
@@ -95,7 +95,7 @@ class TestTelegramInterfaceTagParsing:
 
         safety = MagicMock()
         safety.pairing.is_paired.return_value = True
-        safety.rate_limiter.is_allowed.return_value = True
+        safety.rate_limiter.check.return_value = None
 
         creator = MagicMock()
         creator.is_active.return_value = False
@@ -125,6 +125,7 @@ class TestHTTPInterfaceTagParsing:
         # pair_directly is async as of Task 3 (core/safety.py) — a plain
         # MagicMock isn't awaitable, so it must be an AsyncMock here.
         safety.pairing.pair_directly = AsyncMock()
+        safety.rate_limiter.check.return_value = None
 
         settings = MagicMock()
         settings.session_ttl_hours = 24
@@ -148,7 +149,6 @@ class TestHTTPInterfaceTagParsing:
         )
 
         client, headers = self._client(bus)
-        # rate limiting lives on `safety`, which is a MagicMock and auto-allows
         r = client.post(
             "/message", json={"text": "@devops restart it"}, headers=headers
         )

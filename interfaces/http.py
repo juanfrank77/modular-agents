@@ -180,12 +180,9 @@ class HTTPInterface:
             chat_id: str = Depends(_get_chat_id),
         ):
             # Rate limit check
-            if not self._safety.rate_limiter.is_allowed(chat_id):
-                wait_sec = self._safety.rate_limiter.wait_time(chat_id)
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"Rate limit exceeded. Wait {wait_sec:.0f}s.",
-                )
+            rate_limit_msg = self._safety.rate_limiter.check(chat_id)
+            if rate_limit_msg:
+                raise HTTPException(status_code=429, detail=rate_limit_msg)
 
             if self._creator and self._creator.is_active(chat_id):
                 response_text = await self._creator.handle(chat_id, req.text)
