@@ -23,4 +23,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
       - name: Run pytest
+        env:
+          TELEGRAM_BOT_TOKEN: test-token
         run: python -m pytest tests/ -q
