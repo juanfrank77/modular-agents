@@ -28,6 +28,34 @@ def _make_telegram(bus=None, safety=None, creator=None, settings=None):
     )
 
 
+class TestRequirePaired:
+    @pytest.mark.asyncio
+    async def test_returns_true_and_sends_nothing_when_paired(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = True
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
+
+        telegram = _make_telegram(bus=bus, safety=safety)
+
+        assert await telegram._require_paired("123") is True
+        bus.send_notification.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_and_sends_prompt_when_not_paired(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = False
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
+
+        telegram = _make_telegram(bus=bus, safety=safety)
+
+        assert await telegram._require_paired("123") is False
+        bus.send_notification.assert_awaited_once_with(
+            "123", "🔒 Send the pairing token shown in the server console to get started."
+        )
+
+
 class TestOnCallback:
     @pytest.mark.asyncio
     async def test_approve_callback_resolves_gate_and_edits_message(self):
@@ -145,6 +173,8 @@ class TestOnModel:
     async def test_blocks_when_not_paired(self):
         safety = MagicMock()
         safety.pairing.is_paired.return_value = False
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
 
         class FakeSettings:
             def __init__(self):
@@ -152,7 +182,7 @@ class TestOnModel:
 
         settings = FakeSettings()
 
-        telegram = _make_telegram(safety=safety, settings=settings)
+        telegram = _make_telegram(bus=bus, safety=safety, settings=settings)
 
         update = MagicMock()
         update.message.chat_id = 123
@@ -160,7 +190,10 @@ class TestOnModel:
 
         await telegram._on_model(update, MagicMock())
 
-        update.message.reply_text.assert_awaited_once_with("🔒 Not paired.")
+        bus.send_notification.assert_awaited_once_with(
+            "123", "🔒 Send the pairing token shown in the server console to get started."
+        )
+        update.message.reply_text.assert_not_awaited()
         assert settings.default_model == "original-model"
 
 
@@ -280,8 +313,10 @@ class TestOnPlanmode:
     async def test_blocks_when_not_paired(self):
         safety = MagicMock()
         safety.pairing.is_paired.return_value = False
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
 
-        telegram = _make_telegram(safety=safety)
+        telegram = _make_telegram(bus=bus, safety=safety)
 
         update = MagicMock()
         update.message.chat_id = 123
@@ -289,7 +324,10 @@ class TestOnPlanmode:
 
         await telegram._on_planmode(update, MagicMock())
 
-        update.message.reply_text.assert_awaited_once_with("🔒 Not paired.")
+        bus.send_notification.assert_awaited_once_with(
+            "123", "🔒 Send the pairing token shown in the server console to get started."
+        )
+        update.message.reply_text.assert_not_awaited()
 
 
 class TestOnCommand:

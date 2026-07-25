@@ -242,6 +242,17 @@ class RateLimiter:
         oldest = min(self._buckets[chat_id])
         return max(0, 60 - (now - oldest))
 
+    def check(self, chat_id: str) -> str | None:
+        """
+        Combined is_allowed()/wait_time() check used by every interface.
+        Returns a ready-to-display message if chat_id is over the limit,
+        or None if the message is allowed through.
+        """
+        if self.is_allowed(chat_id):
+            return None
+        wait_sec = self.wait_time(chat_id)
+        return f"Rate limit exceeded. Please wait {wait_sec:.0f}s before sending more messages."
+
 
 # ──────────────────────────────────────────────
 # Approval Gate
