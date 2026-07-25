@@ -10,7 +10,8 @@ Pairing flow:
 Endpoints:
   POST /pair          — exchange pairing code for session token
   DELETE /session     — revoke session token (logout)
-  POST /message       — send a message to an agent
+  POST /message       — send a message to an agent (returns JSON response)
+  POST /message/stream — stream agent responses via Server-Sent Events
   GET  /agents        — list registered agents
   GET  /health        — system health (no auth required)
   POST /admin/unlock  — unlock a locked-out chat_id (requires pairing code)
@@ -22,6 +23,7 @@ persist across restarts via StateStore, with expired tokens pruned on access.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -29,6 +31,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.logger import get_logger
@@ -212,6 +215,66 @@ class HTTPInterface:
                     "success": response.success,
                 }
             return {"response": extra or "No response", "agent": "", "success": False}
+
+        @app.post("/message/stream")
+        async def message_stream(
+            req: MessageRequest,
+            chat_id: str = Depends(_get_chat_id),
+        ):
+            """Stream agent responses via Server-Sent Events (SSE)."""
+            # Rate limit check (same pattern as /message)
+            rate_limit_msg = self._safety.rate_limiter.check(chat_id)
+            if rate_limit_msg:
+                raise HTTPException(status_code=429, detail=rate_limit_msg)
+
+            if self._creator and self._creator.is_active(chat_id):
+
+                async def creator_events():
+                    yield f"data: {json.dumps({'type': 'notification', 'text': 'Creating agent...'})}\n\n"
+                    response_text = await self._creator.handle(chat_id, req.text)
+                    yield f"data: {json.dumps({'type': 'response', 'text': response_text, 'agent': 'creator', 'success': True})}\n\n"
+                    yield "data: {\"type\": \"done\"}\n\n"
+
+                return StreamingResponse(creator_events(), media_type="text/event-stream")
+
+            agent_name = req.agent
+            text = req.text
+            if not agent_name:
+                agent_name, text = parse_agent_tag(req.text, self._bus.registered_agents)
+
+            event = AgentEvent(
+                type=EventType.USER_MESSAGE,
+                agent_name=agent_name,
+                chat_id=chat_id,
+                text=text,
+            )
+
+            async def sse_events():
+                # Run publish in background while we stream events
+                done_event = asyncio.Event()
+
+                async def publish_task():
+                    response = await self._bus.publish(event)
+                    await self._notifier.notify_done(chat_id, response.text if response else "")
+
+                task = asyncio.create_task(publish_task())
+
+                queue = self._notifier._get_queue(chat_id)
+                while True:
+                    try:
+                        msg_type, msg_text = await asyncio.wait_for(queue.get(), timeout=0.5)
+                        if msg_type == "done":
+                            # This is the final response from notify_done
+                            yield f"data: {json.dumps({'type': 'response', 'text': msg_text, 'agent': '', 'success': True})}\n\n"
+                            yield "data: {\"type\": \"done\"}\n\n"
+                            break
+                        yield f"data: {json.dumps({'type': msg_type, 'text': msg_text})}\n\n"
+                    except asyncio.TimeoutError:
+                        if task.done():
+                            break
+                await task  # Clean up the task
+
+            return StreamingResponse(sse_events(), media_type="text/event-stream")
 
         @app.get("/agents")
         async def agents(chat_id: str = Depends(_get_chat_id)):
