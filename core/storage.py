@@ -31,6 +31,13 @@ from core.protocols import Message
 log = get_logger("storage")
 
 
+def _fts_phrase(query: str) -> str:
+    """Wrap a raw user query as an FTS5 quoted phrase so operators
+    (AND/OR/NOT/NEAR, unbalanced quotes, etc.) can't break the MATCH syntax."""
+    escaped = query.replace('"', '""')
+    return f'"{escaped}"'
+
+
 class Storage:
     def __init__(self, db_path: Path, encryption_key: str = ""):
         self._path = db_path
@@ -64,6 +71,25 @@ class Storage:
                     ON messages(session_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_agent
                     ON messages(agent);
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                    content,
+                    id UNINDEXED,
+                    agent UNINDEXED,
+                    role UNINDEXED,
+                    ts UNINDEXED
+                );
+
+                CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+                    INSERT INTO messages_fts(content, id, agent, role, ts)
+                    VALUES (new.content, new.id, new.agent, new.role, new.ts);
+                END;
+            """)
+            # Backfill any rows written before the FTS index existed.
+            await db.execute("""
+                INSERT INTO messages_fts(content, id, agent, role, ts)
+                SELECT content, id, agent, role, ts FROM messages
+                WHERE id NOT IN (SELECT id FROM messages_fts)
             """)
             await db.commit()
         log.info("Storage initialised", event="storage_init", path=self._db_path_str)
@@ -137,22 +163,24 @@ class Storage:
     async def search_history(
         self, query: str, agent: str | None = None, limit: int = 10
     ) -> list[Message]:
-        """Simple keyword search across message content."""
-        like = f"%{query}%"
+        """Full-text search across message content, ranked by relevance (FTS5 bm25)."""
+        if not query.strip():
+            return []
+        match = _fts_phrase(query)
         async with aiosqlite.connect(self._db_path_str) as db:
             await apply_encryption_key(db, self._encryption_key)
             if agent:
                 cursor = await db.execute(
-                    "SELECT role, content, agent, ts FROM messages "
-                    "WHERE content LIKE ? AND agent = ? "
-                    "ORDER BY ts DESC LIMIT ?",
-                    (like, agent, limit),
+                    "SELECT role, content, agent, ts FROM messages_fts "
+                    "WHERE messages_fts MATCH ? AND agent = ? "
+                    "ORDER BY rank LIMIT ?",
+                    (match, agent, limit),
                 )
             else:
                 cursor = await db.execute(
-                    "SELECT role, content, agent, ts FROM messages "
-                    "WHERE content LIKE ? ORDER BY ts DESC LIMIT ?",
-                    (like, limit),
+                    "SELECT role, content, agent, ts FROM messages_fts "
+                    "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?",
+                    (match, limit),
                 )
             rows = await cursor.fetchall()
         return [
