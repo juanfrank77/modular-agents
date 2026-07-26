@@ -95,6 +95,43 @@ class TestProjectsHelpers:
         from datetime import datetime, timezone
         assert _days_since(None, datetime.now(timezone.utc)) is None
 
+    def test_parse_progress_log_empty_without_section(self):
+        assert projects_module._parse_progress_log("# Projects\n\nNo log here.") == {}
+
+    def test_parse_progress_log_single_entry(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result == {"NINA": [("2026-07-20", "Shipped onboarding flow")]}
+
+    def test_parse_progress_log_multiple_entries_same_project_ordered(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-18 · NINA: Wrote the spec\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result["NINA"] == [
+            ("2026-07-18", "Wrote the spec"),
+            ("2026-07-20", "Shipped onboarding flow"),
+        ]
+
+    def test_parse_progress_log_interleaved_projects(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-18 · NINA: Wrote the spec\n"
+            "- 2026-07-19 · Newsletter: Sent issue 12\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result["NINA"] == [
+            ("2026-07-18", "Wrote the spec"),
+            ("2026-07-20", "Shipped onboarding flow"),
+        ]
+        assert result["Newsletter"] == [("2026-07-19", "Sent issue 12")]
+
 
 # ── ProjectsAgent ─────────────────────────────────────────────────────────
 

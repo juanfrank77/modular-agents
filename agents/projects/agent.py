@@ -323,6 +323,20 @@ def _project_names(projects_md: str) -> list[str]:
     ]
 
 
+def _parse_progress_log(projects_md: str) -> dict[str, list[tuple[str, str]]]:
+    """Parse the '## Progress log' section into {project: [(date, note), ...]},
+    oldest to newest (entries are always appended). Returns {} if the
+    section doesn't exist."""
+    if _PROGRESS_HEADING not in projects_md:
+        return {}
+    section = projects_md.split(_PROGRESS_HEADING, 1)[1]
+    entries: dict[str, list[tuple[str, str]]] = {}
+    for m in re.finditer(r"^- (\d{4}-\d{2}-\d{2}) · (.+?): (.*)$", section, re.MULTILINE):
+        date_str, project, note = m.groups()
+        entries.setdefault(project, []).append((date_str, note))
+    return entries
+
+
 def _days_since(iso_ts: str | None, now: datetime) -> int | None:
     if not iso_ts:
         return None
