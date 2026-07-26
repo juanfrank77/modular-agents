@@ -58,15 +58,21 @@ _CONSOLIDATION_MIN_HOURS = 24     # minimum hours between consolidation runs
 # Memory filename
 _INDEX_FILE = "MEMORY.md"
 
-# Topic files always considered relevant regardless of task
-_ALWAYS_LOAD = {"preferences"}
+# Per-file topic config, declared inside each context .md file as HTML
+# comments (so adding a new topic file needs no core code changes):
+#   <!-- topic-always-load -->              loaded on every call
+#   <!-- topic-keywords: repo, deploy -->   loaded when the task matches any
+_ALWAYS_LOAD_RE = re.compile(r"<!--\s*topic-always-load\s*-->", re.IGNORECASE)
+_KEYWORDS_RE = re.compile(r"<!--\s*topic-keywords:\s*(.+?)\s*-->", re.IGNORECASE)
 
-# Keywords that trigger loading each topic file
-_TOPIC_KEYWORDS: dict[str, list[str]] = {
-    "personal":    ["who am i", "background", "about me", "personal", "context"],
-    "projects":    ["project", "repo", "deploy", "railway", "github", "startup",
-                    "newsletter", "saas", "priority", "task", "status", "deadline"]
-}
+
+def _parse_topic_meta(content: str) -> tuple[bool, list[str]]:
+    """Extract a context file's always-load flag and trigger keywords from
+    its HTML-comment declarations."""
+    always_load = bool(_ALWAYS_LOAD_RE.search(content))
+    match = _KEYWORDS_RE.search(content)
+    keywords = [kw.strip().lower() for kw in match.group(1).split(",") if kw.strip()] if match else []
+    return always_load, keywords
 
 _CONTEXT_XML_TEMPLATE = """<context>
 {content}
@@ -133,21 +139,24 @@ class Memory:
         if index.strip():
             parts.append(f"## Memory index\n{index.strip()}")
 
-        # Always load: preferences (wrapped)
-        for key in _ALWAYS_LOAD:
-            content = await self.get_context(key)
-            if content.strip():
-                wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
-                parts.append(f"## {key.title()}\n{wrapped}")
-
-        # Conditionally load: other topic files (wrapped)
+        # Other topic files: each declares its own load rule via HTML
+        # comments (topic-always-load / topic-keywords), so adding a new
+        # context file needs no change here.
         task_lower = task.lower()
-        for topic, keywords in _TOPIC_KEYWORDS.items():
-            if any(kw in task_lower for kw in keywords):
-                content = await self.get_context(topic)
-                if content.strip():
-                    wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
-                    parts.append(f"## {topic.title()}\n{wrapped}")
+        if self._context_dir.exists():
+            for md_file in sorted(self._context_dir.glob("*.md")):
+                if md_file.name == _INDEX_FILE:
+                    continue
+                content = md_file.read_text(encoding="utf-8")
+                if not content.strip():
+                    continue
+                always_load, keywords = _parse_topic_meta(content)
+                if not always_load and not any(kw in task_lower for kw in keywords):
+                    continue
+                wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
+                topic = md_file.stem
+                parts.append(f"## {topic.title()}\n{wrapped}")
+                if not always_load:
                     log.info(
                         "Topic file loaded",
                         event="topic_loaded",

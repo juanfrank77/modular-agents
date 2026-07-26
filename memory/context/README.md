@@ -68,3 +68,13 @@ If you add a fifth context file (say `memory/context/team.md`), commit a
 tracked, the real file is gitignored. Don't forget to add the new file's
 name to the `CONTEXT_FILES` array in `setup.sh` so it gets seeded on
 first run.
+
+To control when the file is loaded into an agent's context, declare it
+inside the file itself as an HTML comment — no core code changes needed:
+
+- `<!-- topic-always-load -->` — loaded on every call (like `preferences.md`)
+- `<!-- topic-keywords: repo, deploy, ... -->` — loaded only when the
+  current task mentions one of the listed keywords (like `projects.md`)
+
+A file with neither declaration is never auto-loaded via context matching
+(e.g. `reader_profile.md`, which the `email-digest` skill reads directly).
