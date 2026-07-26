@@ -49,6 +49,7 @@ class Settings:
     db_encryption_key: str = ""
     memory_context_dir: Path = Path("memory/context")
     memory_solutions_dir: Path = Path("memory/solutions")
+    message_retention_days: int = 90  # 0 disables pruning; see Memory.get_session_context
 
     # Scheduler / heartbeat
     heartbeat_interval_minutes: int = 30
@@ -258,6 +259,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         memory_solutions_dir=Path(
             _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")
         ),
+        message_retention_days=int(_optional("MESSAGE_RETENTION_DAYS", "90")),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
         scheduler_db_path=Path(_optional("SCHEDULER_DB_PATH", "memory/scheduler.db")),
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
