@@ -74,3 +74,20 @@ class TestGetSessionContextRetention:
         result = await memory.get_session_context(session_id, "business")
 
         assert [m.content for m in result] == ["fresh"]
+
+    async def test_prune_failure_does_not_abort_session_context(self, tmp_path):
+        """A transient DB error (e.g. 'database is locked') during pruning
+        must be swallowed, not propagated — retention pruning is best-effort
+        and should never abort a live conversation turn."""
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.create_session("business")
+        await storage.save_message(session_id, "user", "hello", "business")
+        storage.delete_messages_older_than = AsyncMock(
+            side_effect=Exception("database is locked")
+        )
+
+        memory = Memory(storage=storage, llm=AsyncMock(), settings=_make_settings(tmp_path, 90))
+        result = await memory.get_session_context(session_id, "business")
+
+        assert [m.content for m in result] == ["hello"]

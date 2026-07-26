@@ -473,7 +473,17 @@ class Memory:
         retention_days = self._settings.message_retention_days
         if retention_days > 0:
             cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-            deleted = await self._storage.delete_messages_older_than(session_id, cutoff)
+            try:
+                deleted = await self._storage.delete_messages_older_than(session_id, cutoff)
+            except Exception as exc:
+                log.warning(
+                    "Message retention prune failed",
+                    event="message_retention_prune_failed",
+                    session_id=session_id,
+                    error=repr(exc),
+                    exc_info=True,
+                )
+                deleted = 0
             if deleted:
                 log.info(
                     "Pruned old messages",

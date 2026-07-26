@@ -105,8 +105,12 @@ class AgentLogger:
         self._logger = logger
 
     def _log(self, level: int, msg: str, **kwargs: Any) -> None:
+        # exc_info is a reserved LogRecord attribute — it must be passed
+        # directly to Logger.log(), not smuggled in via `extra`, or
+        # logging raises "Attempt to overwrite 'exc_info' in LogRecord".
+        exc_info = kwargs.pop("exc_info", None)
         extra = {"agent": self._agent, **kwargs}
-        self._logger.log(level, msg, extra=extra)
+        self._logger.log(level, msg, extra=extra, exc_info=exc_info)
 
     def debug(self, msg: str, **kwargs: Any) -> None:
         self._log(logging.DEBUG, msg, **kwargs)
