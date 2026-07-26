@@ -27,6 +27,10 @@ _PROJECTS_MD = """# Projects
 - Status: In progress
 """
 
+_PROJECTS_MD_WITH_LOG = (
+    _PROJECTS_MD + "\n## Progress log\n- 2026-07-20 · NINA: Earlier work\n"
+)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -223,3 +227,32 @@ class TestProjectsAgent:
         # section, but it must never change, drop, or reorder user-authored
         # lines above the heading.
         assert updated.split("## Progress log")[0].rstrip() == user_authored_part.rstrip()
+
+    async def test_agent_write_never_touches_user_content_when_log_already_exists(
+        self, tmp_path
+    ):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        (tmp_path / "context").mkdir(parents=True)
+        path = tmp_path / "context" / "projects.md"
+        path.write_text(_PROJECTS_MD_WITH_LOG)
+        user_authored_part = _PROJECTS_MD_WITH_LOG.split("## Progress log")[0]
+
+        from datetime import datetime, timezone
+        await agent._append_progress_line(
+            "123", "NINA", "Shipped onboarding flow", datetime.now(timezone.utc)
+        )
+
+        updated = path.read_text()
+        # This branch (heading already present) does not rstrip() any content
+        # before the heading, so the comparison here must be exact, not
+        # normalized — unlike the first-creation-branch test above.
+        assert updated.split("## Progress log")[0] == user_authored_part
+        # Guard against a regression that takes the first-creation branch
+        # instead (which would append a second heading rather than appending
+        # to the existing section).
+        assert updated.count("## Progress log") == 1
+        assert "- 2026-07-20 · NINA: Earlier work" in updated
+        assert "NINA: Shipped onboarding flow" in updated
+        assert updated.index("Earlier work") < updated.index("Shipped onboarding flow")

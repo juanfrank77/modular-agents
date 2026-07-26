@@ -241,11 +241,11 @@ class ProjectsAgent(BaseAgent):
         now = datetime.now(timezone.utc)
         lines: list[str] = []
         for name in _project_names(projects_md) or list(progress.keys()):
-            log = progress.get(name)
-            if not log:
+            entries = progress.get(name)
+            if not entries:
                 lines.append(f"- {name}: no updates logged yet")
                 continue
-            last_date_str, last_note = log[-1]
+            last_date_str, last_note = entries[-1]
             days = _days_since(last_date_str, now) or 0
             stale = " ⚠️ STALE" if days >= _STALE_DAYS else ""
             lines.append(f"- {name}: last update {days}d ago — {last_note}{stale}")

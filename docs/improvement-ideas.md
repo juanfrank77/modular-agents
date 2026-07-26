@@ -90,7 +90,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
   - Note lifecycle: actions are checklists that nothing ever marks done — let `@librarian done <note>` check items off and drop completed notes from the digest.
   - Graph quality: without `GEMINI_API_KEY` graphify's extraction is structural only; document/decide on a semantic-extraction key.
   - Whisper is the only transcription path; consider local `faster-whisper` for privacy/cost.
-- **Projects agent dual-write drift:** progress lives in both `state.json` and the `## Progress log` in projects.md; a hand-edit to one desyncs the other. Pick one source of truth (probably projects.md) and derive the other.
+- **Projects agent dual-write drift** — **DONE (2026-07-26)**: `projects.md`'s `## Progress log` section is now the sole source of truth; `state.json` and its read/write machinery were removed. Staleness and last-note data are derived from the file itself via a new `_parse_progress_log` helper. The user-owns-headings/agent-owns-progress-log split is now a tested invariant; see `docs/superpowers/specs/2026-07-26-projects-dual-write-design.md`.
 
 ---
 
