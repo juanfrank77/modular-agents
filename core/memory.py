@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
@@ -86,6 +86,7 @@ class Memory:
     def __init__(self, storage: "Storage", llm: "LLMProvider", settings: "Settings") -> None:
         self._storage = storage
         self._llm = llm
+        self._settings = settings
         self._context_dir = settings.memory_context_dir
         self._solutions_dir = settings.memory_solutions_dir
         self._consolidation_lock = asyncio.Lock()
@@ -465,8 +466,22 @@ class Memory:
         """
         Get session messages with auto-compaction.
         If estimated tokens exceed threshold, summarize old messages
-        and keep only the last N.
+        and keep only the last N. Also prunes messages older than
+        settings.message_retention_days (0 disables pruning) — independent
+        of the token-based compaction below.
         """
+        retention_days = self._settings.message_retention_days
+        if retention_days > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            deleted = await self._storage.delete_messages_older_than(session_id, cutoff)
+            if deleted:
+                log.info(
+                    "Pruned old messages",
+                    event="message_retention_prune",
+                    session_id=session_id,
+                    deleted_count=deleted,
+                )
+
         messages = await self._storage.get_session_messages(session_id, limit=100)
 
         if not messages:
