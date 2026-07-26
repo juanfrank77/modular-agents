@@ -67,3 +67,23 @@ class TestRateLimiterWindowLogic:
     def test_wait_time_is_zero_with_no_history(self):
         limiter = RateLimiter(rpm=3)
         assert limiter.wait_time("never_seen") == 0
+
+
+class TestRateLimiterCheck:
+    def test_check_returns_none_when_allowed(self):
+        limiter = RateLimiter(rpm=3)
+        assert limiter.check("chat") is None
+
+    def test_check_returns_message_when_blocked(self):
+        with patch("time.monotonic", return_value=1000.0):
+            limiter = RateLimiter(rpm=1)
+            limiter.is_allowed("chat")
+            msg = limiter.check("chat")
+        assert msg is not None
+        assert "60" in msg
+
+    def test_check_consumes_a_slot_like_is_allowed(self):
+        with patch("time.monotonic", return_value=1000.0):
+            limiter = RateLimiter(rpm=1)
+            assert limiter.check("chat") is None
+            assert limiter.check("chat") is not None

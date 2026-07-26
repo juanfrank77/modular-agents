@@ -44,6 +44,9 @@ class MessageBus:
         # Maps chat_id → last active agent name (fallback when classification
         # is unavailable or inconclusive)
         self._chat_agent_map: dict[str, str] = {}
+        # Maps chat_id → per-chat /model override (empty = use each agent's
+        # own default: its <AGENT>_AGENT_MODEL env var, else the global default)
+        self._chat_model_map: dict[str, str] = {}
         self._llm = llm
         self._classifier_model = classifier_model
         self._state_store = state_store
@@ -216,4 +219,32 @@ class MessageBus:
             "Chat agent map loaded",
             event="chat_agent_map_loaded",
             count=len(self._chat_agent_map),
+        )
+
+    # ── Per-chat model override ──────────────────
+
+    def get_chat_model(self, chat_id: str) -> str:
+        """Return this chat's /model override, or "" if none is set."""
+        return self._chat_model_map.get(chat_id, "")
+
+    async def set_chat_model(self, chat_id: str, model: str) -> None:
+        self._chat_model_map[chat_id] = model
+        if self._state_store:
+            await self._state_store.save_chat_model(chat_id, model)
+
+    async def clear_chat_model(self, chat_id: str) -> None:
+        self._chat_model_map.pop(chat_id, None)
+        if self._state_store:
+            await self._state_store.delete_chat_model(chat_id)
+
+    async def load_chat_model_map(self) -> None:
+        """Rehydrate the per-chat model override map from the state store.
+        Called once at startup, after all agents are registered."""
+        if not self._state_store:
+            return
+        self._chat_model_map = await self._state_store.load_chat_model_map()
+        log.info(
+            "Chat model map loaded",
+            event="chat_model_map_loaded",
+            count=len(self._chat_model_map),
         )

@@ -528,6 +528,19 @@ The HTTP interface (`interfaces/http.py`) exposes the agent bus as a REST API us
 
 The HTTP API reuses the same pairing code printed at startup. Callers must first `POST /pair` with the code to receive a session token (UUID). The token is then sent as `Authorization: Bearer <token>` on all subsequent requests. Tokens are in-memory only and cleared on restart.
 
+```bash
+# 1. Pair once to get a session token
+curl -X POST http://127.0.0.1:8000/pair -H "Content-Type: application/json" \
+  -d '{"code": "<pairing code from startup log>"}'
+# → {"token": "..."}
+
+# 2. Send a message — prefix with @agent to target a specific agent,
+#    bypassing sticky routing / the intent classifier (same syntax as Telegram/CLI)
+curl -X POST http://127.0.0.1:8000/message \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"text": "@devops restart the scheduler"}'
+```
+
 ### Security Considerations
 
 - **Default bind to `127.0.0.1`**: prevents remote access unless `HTTP_HOST=0.0.0.0` is set in `.env`. Only expose on a trusted or firewalled network.

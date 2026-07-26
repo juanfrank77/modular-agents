@@ -73,3 +73,44 @@ class TestChatAgentMapRehydration:
         bus = MessageBus()
         await bus.load_chat_agent_map()  # must not raise
         assert bus._chat_agent_map == {}
+
+
+class TestChatModelMap:
+    @pytest.mark.asyncio
+    async def test_set_chat_model_writes_through_and_updates_get(self, store: StateStore):
+        bus = MessageBus(state_store=store)
+
+        await bus.set_chat_model("123", "claude-opus-4.6")
+
+        assert bus.get_chat_model("123") == "claude-opus-4.6"
+        assert await store.load_chat_model_map() == {"123": "claude-opus-4.6"}
+
+    @pytest.mark.asyncio
+    async def test_get_chat_model_returns_empty_string_when_unset(self):
+        bus = MessageBus()
+        assert bus.get_chat_model("never_seen") == ""
+
+    @pytest.mark.asyncio
+    async def test_clear_chat_model_removes_override(self, store: StateStore):
+        bus = MessageBus(state_store=store)
+        await bus.set_chat_model("123", "claude-opus-4.6")
+
+        await bus.clear_chat_model("123")
+
+        assert bus.get_chat_model("123") == ""
+        assert await store.load_chat_model_map() == {}
+
+    @pytest.mark.asyncio
+    async def test_load_chat_model_map_rehydrates_from_store(self, store: StateStore):
+        await store.save_chat_model("123", "claude-haiku-4.6")
+        bus = MessageBus(state_store=store)
+
+        await bus.load_chat_model_map()
+
+        assert bus.get_chat_model("123") == "claude-haiku-4.6"
+
+    @pytest.mark.asyncio
+    async def test_load_chat_model_map_no_state_store_is_noop(self):
+        bus = MessageBus()
+        await bus.load_chat_model_map()  # must not raise
+        assert bus.get_chat_model("123") == ""

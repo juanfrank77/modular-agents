@@ -95,12 +95,9 @@ class TelegramInterface:
 
         # Rate limit check for paired chats
         if self._safety.pairing.is_paired(chat_id):
-            if not self._safety.rate_limiter.is_allowed(chat_id):
-                wait_sec = self._safety.rate_limiter.wait_time(chat_id)
-                await self._bus.send_notification(
-                    chat_id,
-                    f"⏳ Rate limit: please wait {wait_sec:.0f}s before sending more messages.",
-                )
+            rate_limit_msg = self._safety.rate_limiter.check(chat_id)
+            if rate_limit_msg:
+                await self._bus.send_notification(chat_id, f"⏳ {rate_limit_msg}")
                 return
 
         if not self._safety.pairing.is_paired(chat_id):
@@ -171,33 +168,48 @@ class TelegramInterface:
             await query.edit_message_text("Denied.")
             log.info("Action denied", event="denial", approval_id=approval_id)
 
+    async def _require_paired(self, chat_id: str) -> bool:
+        """Send the pairing prompt and return False if chat_id isn't paired yet."""
+        if self._safety.pairing.is_paired(chat_id):
+            return True
+        await self._bus.send_notification(
+            chat_id,
+            "🔒 Send the pairing token shown in the server console to get started.",
+        )
+        return False
+
     async def _on_model(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         if not update.message:
             return
         chat_id = str(update.message.chat_id)
-        if not self._safety.pairing.is_paired(chat_id):
-            await update.message.reply_text("🔒 Not paired.")
+        if not await self._require_paired(chat_id):
             return
 
-        if context.args:
-            new_model = context.args[0].strip()
-            old_model = self._settings.default_model
-            self._settings.default_model = new_model
+        args = context.args or []
+        if args and args[0].strip().lower() == "reset":
+            await self._bus.clear_chat_model(chat_id)
+            log.info("Model override cleared", event="model_reset", chat_id=chat_id)
+            await update.message.reply_text("Model override cleared for this chat.")
+            return
+
+        if args:
+            new_model = args[0].strip()
+            await self._bus.set_chat_model(chat_id, new_model)
             log.info(
-                "Model changed",
-                event="model_change",
-                chat_id=chat_id,
-                old=old_model,
-                new=new_model,
+                "Model changed", event="model_change", chat_id=chat_id, new=new_model
             )
             await update.message.reply_text(
-                f"Model set to `{new_model}`.", parse_mode="Markdown"
+                f"Model set to `{new_model}` for this chat.", parse_mode="Markdown"
             )
         else:
+            override = self._bus.get_chat_model(chat_id)
+            effective = override or self._settings.default_model
+            note = "override for this chat" if override else "default, no override set"
             await update.message.reply_text(
-                f"Current model: `{self._settings.default_model}`.\nUsage: `/model <model-id>`",
+                f"Current model: `{effective}` ({note}).\n"
+                f"Usage: `/model <model-id>` to override, `/model reset` to clear.",
                 parse_mode="Markdown",
             )
 
@@ -207,8 +219,7 @@ class TelegramInterface:
         if not update.message:
             return
         chat_id = str(update.message.chat_id)
-        if not self._safety.pairing.is_paired(chat_id):
-            await update.message.reply_text("🔒 Not paired.")
+        if not await self._require_paired(chat_id):
             return
 
         args = context.args or []
@@ -240,11 +251,7 @@ class TelegramInterface:
         chat_id = str(update.message.chat_id)
         command = update.message.text or ""
 
-        if not self._safety.pairing.is_paired(chat_id):
-            await self._bus.send_notification(
-                chat_id,
-                "🔒 Send the pairing token shown in the server console to get started.",
-            )
+        if not await self._require_paired(chat_id):
             return
 
         if command.startswith("/newagent") or self._creator.is_active(chat_id):
