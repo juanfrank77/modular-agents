@@ -80,10 +80,10 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 
 ## 5. Memory & knowledge
 
-- **`search_history` is `LIKE '%q%'`** — table scan, no ranking, unescaped wildcards (`storage.py:146`). SQLite **FTS5** is a drop-in upgrade and would improve every agent's recall.
+- **`search_history` is `LIKE '%q%'`** — **DONE (2026-07-25)**: table scan, no ranking, unescaped wildcards (`storage.py:146`). SQLite **FTS5** is a drop-in upgrade and would improve every agent's recall.
 - **No retention/pruning** — messages grow unbounded; compaction summarizes but never trims the underlying rows. Add a retention window + archive.
-- **Skill/solution matching is naive bag-of-words** (`skill_loader.py:57`, `memory._get_relevant_solutions`): no stemming ("meeting" ≠ "meetings"), no stopwords, re-reads every file per message. Cache file contents; consider embeddings when the library grows.
-- **Topic keywords are hardcoded** (`memory.py:64-68`) — only `personal` and `projects` exist; adding a topic file means editing core. Make it a frontmatter/config declaration per file.
+- **Skill/solution matching is naive bag-of-words** - **DONE (2026-07-25)**: (`skill_loader.py:57`, `memory._get_relevant_solutions`): no stemming ("meeting" ≠ "meetings"), no stopwords, re-reads every file per message. Cache file contents; consider embeddings when the library grows.
+- **Topic keywords are hardcoded** (`memory.py:64-68`) — **DONE (2026-07-25)** :only `personal` and `projects` exist; adding a topic file means editing core. Make it a frontmatter/config declaration per file.
 - **Empty-task fallback loads *all* context files** (`memory.build_context`, `memory.py:504-519`), which can blow the prompt for agents that call it without a task.
 - **Librarian follow-ups** (self-critique of the new code):
   - Duplicate detection: re-sending the same PDF creates a second note; hash sources and offer "update existing note" instead.
