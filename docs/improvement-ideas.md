@@ -81,7 +81,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 ## 5. Memory & knowledge
 
 - **`search_history` is `LIKE '%q%'`** — **DONE (2026-07-25)**: table scan, no ranking, unescaped wildcards (`storage.py:146`). SQLite **FTS5** is a drop-in upgrade and would improve every agent's recall.
-- **No retention/pruning** — messages grow unbounded; compaction summarizes but never trims the underlying rows. Add a retention window + archive.
+- **No retention/pruning** — **DONE (2026-07-25)**: `Settings.message_retention_days` (default 90, 0 disables) now prunes messages older than the window on session access (`Memory.get_session_context`), via `Storage.delete_messages_older_than` with an `AFTER DELETE` trigger keeping `messages_fts` in sync. Hard delete only — the archive half of the original idea was deliberately descoped as unneeded complexity; see `docs/superpowers/specs/2026-07-25-message-retention-design.md`.
 - **Skill/solution matching is naive bag-of-words** - **DONE (2026-07-25)**: (`skill_loader.py:57`, `memory._get_relevant_solutions`): no stemming ("meeting" ≠ "meetings"), no stopwords, re-reads every file per message. Cache file contents; consider embeddings when the library grows.
 - **Topic keywords are hardcoded** (`memory.py:64-68`) — **DONE (2026-07-25)** :only `personal` and `projects` exist; adding a topic file means editing core. Make it a frontmatter/config declaration per file.
 - **Empty-task fallback loads *all* context files** (`memory.build_context`, `memory.py:504-519`), which can blow the prompt for agents that call it without a task.
