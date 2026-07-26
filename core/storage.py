@@ -84,6 +84,10 @@ class Storage:
                     INSERT INTO messages_fts(content, id, agent, role, ts)
                     VALUES (new.content, new.id, new.agent, new.role, new.ts);
                 END;
+
+                CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+                    DELETE FROM messages_fts WHERE id = old.id;
+                END;
             """)
             # Backfill any rows written before the FTS index existed.
             await db.execute("""
@@ -197,3 +201,18 @@ class Storage:
                 (summary, session_id),
             )
             await db.commit()
+
+    async def delete_messages_older_than(
+        self, session_id: str, cutoff: datetime
+    ) -> int:
+        """Delete messages in this session older than cutoff. Returns the
+        number of rows deleted. The messages_fts_ad trigger keeps the FTS
+        index in sync automatically."""
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            cursor = await db.execute(
+                "DELETE FROM messages WHERE session_id = ? AND ts < ?",
+                (session_id, cutoff.isoformat()),
+            )
+            await db.commit()
+            return cursor.rowcount
