@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.protocols import Message
+from core.text_match import tokenize
 
 if TYPE_CHECKING:
     from core.config import Settings
@@ -209,12 +210,12 @@ class Memory:
         if not self._solutions_dir.exists():
             return ""
 
-        task_words = set(re.findall(r"\w+", task.lower()))
+        task_words = tokenize(task)
         matched: list[str] = []
 
         for solution_file in self._solutions_dir.rglob("*.md"):
             # Match on filename tokens
-            file_words = set(re.findall(r"\w+", solution_file.stem.lower()))
+            file_words = tokenize(solution_file.stem.replace("_", " "))
             if task_words & file_words:  # any overlap
                 content = solution_file.read_text(encoding="utf-8").strip()
                 if content:

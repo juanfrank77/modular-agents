@@ -16,10 +16,10 @@ The LLM is instructed to treat content inside these tags as DATA, not instructio
 from __future__ import annotations
 
 import asyncio
-import re
 from pathlib import Path
 
 from core.logger import get_logger
+from core.text_match import tokenize
 
 log = get_logger("skills")
 
@@ -33,19 +33,37 @@ _SKILL_XML_TEMPLATE = """<skill>
 class SkillLoader:
     def __init__(self, min_score: float = _MIN_SCORE) -> None:
         self._min_score = min_score
+        # path -> (mtime, content, tokens) — avoids re-reading and
+        # re-tokenizing unchanged skill files on every message.
+        self._cache: dict[Path, tuple[float, str, set[str]]] = {}
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:
-        """Simple word tokenization — lowercase, alpha-only, 2+ chars."""
-        return {w for w in re.findall(r"[a-z]{2,}", text.lower())}
+        return tokenize(text)
 
-    def _load_skill_file(self, md_file: Path) -> str | None:
-        """Load a single skill file, returning content or None if empty."""
+    def _load_skill_file(self, md_file: Path) -> tuple[str, set[str]] | None:
+        """Load (and cache) a single skill file's content + tokens, keyed
+        by mtime so edits are picked up without a stale cache hit."""
+        try:
+            mtime = md_file.stat().st_mtime
+        except OSError:
+            return None
+
+        cached = self._cache.get(md_file)
+        if cached is not None and cached[0] == mtime:
+            return cached[1], cached[2]
+
         try:
             content = md_file.read_text(encoding="utf-8").strip()
-            return content if content else None
         except Exception:
             return None
+        if not content:
+            self._cache.pop(md_file, None)
+            return None
+
+        result = (content, tokenize(content))
+        self._cache[md_file] = (mtime, *result)
+        return result
 
     async def find_relevant(
         self, task: str, skills_dir: Path | str, max_skills: int = 3
@@ -63,10 +81,10 @@ class SkillLoader:
         def _scan_and_score():
             scored: list[tuple[float, str]] = []
             for md_file in skills_dir.glob("*.md"):
-                content = self._load_skill_file(md_file)
-                if content is None:
+                loaded = self._load_skill_file(md_file)
+                if loaded is None:
                     continue
-                skill_tokens = self._tokenize(content)
+                content, skill_tokens = loaded
                 if not skill_tokens:
                     continue
                 overlap = len(task_tokens & skill_tokens)
@@ -97,9 +115,9 @@ class SkillLoader:
         def _read_all():
             results = []
             for md_file in sorted(skills_dir.glob("*.md")):
-                content = self._load_skill_file(md_file)
-                if content:
-                    results.append(_SKILL_XML_TEMPLATE.format(content=content))
+                loaded = self._load_skill_file(md_file)
+                if loaded:
+                    results.append(_SKILL_XML_TEMPLATE.format(content=loaded[0]))
             return results
 
         return await asyncio.to_thread(_read_all)
