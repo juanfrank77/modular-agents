@@ -28,11 +28,12 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from core.protocols import Message
+from core.text_match import tokenize
 
 if TYPE_CHECKING:
     from core.config import Settings
@@ -57,15 +58,21 @@ _CONSOLIDATION_MIN_HOURS = 24     # minimum hours between consolidation runs
 # Memory filename
 _INDEX_FILE = "MEMORY.md"
 
-# Topic files always considered relevant regardless of task
-_ALWAYS_LOAD = {"preferences"}
+# Per-file topic config, declared inside each context .md file as HTML
+# comments (so adding a new topic file needs no core code changes):
+#   <!-- topic-always-load -->              loaded on every call
+#   <!-- topic-keywords: repo, deploy -->   loaded when the task matches any
+_ALWAYS_LOAD_RE = re.compile(r"<!--\s*topic-always-load\s*-->", re.IGNORECASE)
+_KEYWORDS_RE = re.compile(r"<!--\s*topic-keywords:\s*(.+?)\s*-->", re.IGNORECASE)
 
-# Keywords that trigger loading each topic file
-_TOPIC_KEYWORDS: dict[str, list[str]] = {
-    "personal":    ["who am i", "background", "about me", "personal", "context"],
-    "projects":    ["project", "repo", "deploy", "railway", "github", "startup",
-                    "newsletter", "saas", "priority", "task", "status", "deadline"]
-}
+
+def _parse_topic_meta(content: str) -> tuple[bool, list[str]]:
+    """Extract a context file's always-load flag and trigger keywords from
+    its HTML-comment declarations."""
+    always_load = bool(_ALWAYS_LOAD_RE.search(content))
+    match = _KEYWORDS_RE.search(content)
+    keywords = [kw.strip().lower() for kw in match.group(1).split(",") if kw.strip()] if match else []
+    return always_load, keywords
 
 _CONTEXT_XML_TEMPLATE = """<context>
 {content}
@@ -79,6 +86,7 @@ class Memory:
     def __init__(self, storage: "Storage", llm: "LLMProvider", settings: "Settings") -> None:
         self._storage = storage
         self._llm = llm
+        self._settings = settings
         self._context_dir = settings.memory_context_dir
         self._solutions_dir = settings.memory_solutions_dir
         self._consolidation_lock = asyncio.Lock()
@@ -132,21 +140,24 @@ class Memory:
         if index.strip():
             parts.append(f"## Memory index\n{index.strip()}")
 
-        # Always load: preferences (wrapped)
-        for key in _ALWAYS_LOAD:
-            content = await self.get_context(key)
-            if content.strip():
-                wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
-                parts.append(f"## {key.title()}\n{wrapped}")
-
-        # Conditionally load: other topic files (wrapped)
+        # Other topic files: each declares its own load rule via HTML
+        # comments (topic-always-load / topic-keywords), so adding a new
+        # context file needs no change here.
         task_lower = task.lower()
-        for topic, keywords in _TOPIC_KEYWORDS.items():
-            if any(kw in task_lower for kw in keywords):
-                content = await self.get_context(topic)
-                if content.strip():
-                    wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
-                    parts.append(f"## {topic.title()}\n{wrapped}")
+        if self._context_dir.exists():
+            for md_file in sorted(self._context_dir.glob("*.md")):
+                if md_file.name == _INDEX_FILE:
+                    continue
+                content = md_file.read_text(encoding="utf-8")
+                if not content.strip():
+                    continue
+                always_load, keywords = _parse_topic_meta(content)
+                if not always_load and not any(kw in task_lower for kw in keywords):
+                    continue
+                wrapped = _CONTEXT_XML_TEMPLATE.format(content=content.strip())
+                topic = md_file.stem
+                parts.append(f"## {topic.title()}\n{wrapped}")
+                if not always_load:
                     log.info(
                         "Topic file loaded",
                         event="topic_loaded",
@@ -209,12 +220,12 @@ class Memory:
         if not self._solutions_dir.exists():
             return ""
 
-        task_words = set(re.findall(r"\w+", task.lower()))
+        task_words = tokenize(task)
         matched: list[str] = []
 
         for solution_file in self._solutions_dir.rglob("*.md"):
             # Match on filename tokens
-            file_words = set(re.findall(r"\w+", solution_file.stem.lower()))
+            file_words = tokenize(solution_file.stem.replace("_", " "))
             if task_words & file_words:  # any overlap
                 content = solution_file.read_text(encoding="utf-8").strip()
                 if content:
@@ -455,8 +466,32 @@ class Memory:
         """
         Get session messages with auto-compaction.
         If estimated tokens exceed threshold, summarize old messages
-        and keep only the last N.
+        and keep only the last N. Also prunes messages older than
+        settings.message_retention_days (0 disables pruning) — independent
+        of the token-based compaction below.
         """
+        retention_days = self._settings.message_retention_days
+        if retention_days > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            try:
+                deleted = await self._storage.delete_messages_older_than(session_id, cutoff)
+            except Exception as exc:
+                log.warning(
+                    "Message retention prune failed",
+                    event="message_retention_prune_failed",
+                    session_id=session_id,
+                    error=repr(exc),
+                    exc_info=True,
+                )
+                deleted = 0
+            if deleted:
+                log.info(
+                    "Pruned old messages",
+                    event="message_retention_prune",
+                    session_id=session_id,
+                    deleted_count=deleted,
+                )
+
         messages = await self._storage.get_session_messages(session_id, limit=100)
 
         if not messages:
@@ -496,27 +531,12 @@ class Memory:
         """
         Main context builder. Returns (markdown_context, compacted_history).
         markdown_context is the concatenation of all relevant context files.
-        Pass task= for smarter topic file selection. Falls back to loading
-        all context files if task is empty (backwards compatible).
+        Always loads the memory index plus any topic-declared context files
+        relevant to task (always-load files unconditionally, keyword files
+        when task matches). An empty task loads only the index and
+        always-load files — never every context file.
         """
-        if task:
-            markdown_context = await self.get_relevant_context(task)
-        else: 
-            # Backwards compatible: load all context files
-            parts: list[str] = []
-            index = await self.get_index()
-            if index.strip():
-                parts.append(f"## Memory index\n{index.strip()}")
-            if self._context_dir.exists():
-                for md_file in sorted(self._context_dir.glob("*.md")):
-                    if md_file.name == _INDEX_FILE:
-                        continue
-                    content = md_file.read_text(encoding="utf-8").strip()
-                    if content:
-                        wrapped = _CONTEXT_XML_TEMPLATE.format(content=content)
-                        parts.append(f"## {md_file.stem}\n{wrapped}")
-
-            markdown_context = "\n\n".join(parts)
+        markdown_context = await self.get_relevant_context(task)
 
         # Get compacted history
         history = await self.get_session_context(session_id, agent)

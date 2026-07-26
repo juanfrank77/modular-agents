@@ -7,21 +7,23 @@ detect projects going stale, and open each week with clear priorities.
 
 Capabilities:
   - Progress logging: "update: NINA — shipped the onboarding flow" is
-    parsed by the LLM, appended to the Progress log in
-    memory/context/projects.md, and tracked in state.json per project.
+    parsed by the LLM and appended to the Progress log in
+    memory/context/projects.md.
   - Status queries: "status" / "what's stale?" answer from per-project
-    last-update tracking plus projects.md.
+    last-update tracking, derived by parsing projects.md's Progress log.
   - Weekly kickoff (Monday morning): flags stale projects (no update in
     7+ days) and proposes the week's top 3 priorities.
 
-State is persisted to agents/projects/state.json.
+projects.md is the sole source of truth for progress — there is no
+separate state file. The user owns everything above the '## Progress
+log' heading (project definitions, status, milestones); the agent only
+ever appends to that section and never modifies anything above it.
 Autonomy is supervised by default — writes to projects.md go through
 the safety gate as WRITE_LOW (auto-approved under supervised mode).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,7 +40,6 @@ if TYPE_CHECKING:
 log = get_logger("projects")
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
-_STATE_FILE = Path(__file__).parent / "state.json"
 
 _STALE_DAYS = 7
 _PROGRESS_HEADING = "## Progress log"
@@ -144,20 +145,13 @@ class ProjectsAgent(BaseAgent):
             )
 
         today = datetime.now(timezone.utc)
-        state = self._load_state()
-        entry = state.setdefault("projects", {}).setdefault(project, {})
-        days_since = _days_since(entry.get("last_update"), today)
-        entry["last_update"] = today.isoformat()
-        entry.setdefault("log", []).append(
-            {"date": today.strftime("%Y-%m-%d"), "note": note}
-        )
-        entry["log"] = entry["log"][-50:]  # keep the log bounded
-        self._save_state(state)
+        prior_log = _parse_progress_log(projects_md).get(project)
+        days_since = _days_since(prior_log[-1][0], today) if prior_log else None
 
         written = await self._append_progress_line(event.chat_id, project, note, today)
 
         gap = f" First update in {days_since} days." if days_since and days_since > _STALE_DAYS else ""
-        suffix = "" if written else "\n⚠️ (couldn't write to projects.md — logged in state only)"
+        suffix = "" if written else "\n⚠️ (couldn't save this update — projects.md write failed/denied)"
         return await self.reply(
             event, f"✅ Logged for *{project}*: {note}.{gap}{suffix}"
         )
@@ -245,31 +239,19 @@ class ProjectsAgent(BaseAgent):
 
     def _momentum_summary(self, projects_md: str) -> str:
         """One line per project: days since last logged update + last note."""
-        state = self._load_state()
-        tracked: dict[str, dict] = state.get("projects", {})
+        progress = _parse_progress_log(projects_md)
         now = datetime.now(timezone.utc)
         lines: list[str] = []
-        for name in _project_names(projects_md) or list(tracked.keys()):
-            entry = tracked.get(name)
-            if not entry or not entry.get("last_update"):
+        for name in _project_names(projects_md) or list(progress.keys()):
+            entries = progress.get(name)
+            if not entries:
                 lines.append(f"- {name}: no updates logged yet")
                 continue
-            days = _days_since(entry["last_update"], now) or 0
-            last_note = entry.get("log", [{}])[-1].get("note", "")
+            last_date_str, last_note = entries[-1]
+            days = _days_since(last_date_str, now) or 0
             stale = " ⚠️ STALE" if days >= _STALE_DAYS else ""
             lines.append(f"- {name}: last update {days}d ago — {last_note}{stale}")
         return "\n".join(lines) if lines else "(no projects tracked)"
-
-    # ── State helpers ─────────────────────────
-
-    def _load_state(self) -> dict:
-        try:
-            return json.loads(_STATE_FILE.read_text())
-        except Exception:
-            return {}
-
-    def _save_state(self, state: dict) -> None:
-        _STATE_FILE.write_text(json.dumps(state, indent=2))
 
     # ── System prompt ─────────────────────────
 
@@ -323,6 +305,20 @@ def _project_names(projects_md: str) -> list[str]:
         m.group(1).strip()
         for m in re.finditer(r"^### +(.+)$", projects_md, re.MULTILINE)
     ]
+
+
+def _parse_progress_log(projects_md: str) -> dict[str, list[tuple[str, str]]]:
+    """Parse the '## Progress log' section into {project: [(date, note), ...]},
+    oldest to newest (entries are always appended). Returns {} if the
+    section doesn't exist."""
+    if _PROGRESS_HEADING not in projects_md:
+        return {}
+    section = projects_md.split(_PROGRESS_HEADING, 1)[1]
+    entries: dict[str, list[tuple[str, str]]] = {}
+    for m in re.finditer(r"^- (\d{4}-\d{2}-\d{2}) · (.+?): (.*)$", section, re.MULTILINE):
+        date_str, project, note = m.groups()
+        entries.setdefault(project, []).append((date_str, note))
+    return entries
 
 
 def _days_since(iso_ts: str | None, now: datetime) -> int | None:

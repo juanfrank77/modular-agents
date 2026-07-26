@@ -2,7 +2,6 @@
 """Tests for the ProjectsAgent (momentum tracking + weekly kickoff)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -27,6 +26,10 @@ _PROJECTS_MD = """# Projects
 ### Newsletter
 - Status: In progress
 """
+
+_PROJECTS_MD_WITH_LOG = (
+    _PROJECTS_MD + "\n## Progress log\n- 2026-07-20 · NINA: Earlier work\n"
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -95,13 +98,48 @@ class TestProjectsHelpers:
         from datetime import datetime, timezone
         assert _days_since(None, datetime.now(timezone.utc)) is None
 
+    def test_parse_progress_log_empty_without_section(self):
+        assert projects_module._parse_progress_log("# Projects\n\nNo log here.") == {}
+
+    def test_parse_progress_log_single_entry(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result == {"NINA": [("2026-07-20", "Shipped onboarding flow")]}
+
+    def test_parse_progress_log_multiple_entries_same_project_ordered(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-18 · NINA: Wrote the spec\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result["NINA"] == [
+            ("2026-07-18", "Wrote the spec"),
+            ("2026-07-20", "Shipped onboarding flow"),
+        ]
+
+    def test_parse_progress_log_interleaved_projects(self):
+        md = (
+            "# Projects\n\n## Progress log\n"
+            "- 2026-07-18 · NINA: Wrote the spec\n"
+            "- 2026-07-19 · Newsletter: Sent issue 12\n"
+            "- 2026-07-20 · NINA: Shipped onboarding flow\n"
+        )
+        result = projects_module._parse_progress_log(md)
+        assert result["NINA"] == [
+            ("2026-07-18", "Wrote the spec"),
+            ("2026-07-20", "Shipped onboarding flow"),
+        ]
+        assert result["Newsletter"] == [("2026-07-19", "Sent issue 12")]
+
 
 # ── ProjectsAgent ─────────────────────────────────────────────────────────
 
 class TestProjectsAgent:
     async def test_log_progress(self, tmp_path, monkeypatch):
-        state_file = tmp_path / "state.json"
-        monkeypatch.setattr(projects_module, "_STATE_FILE", state_file)
         agent = _make_agent(
             ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
         )
@@ -111,39 +149,39 @@ class TestProjectsAgent:
         resp = await agent.handle(_event(text="update: NINA — shipped the onboarding flow"))
 
         assert "Logged" in resp.text
-        state = json.loads(state_file.read_text())
-        assert "NINA" in state["projects"]
-        assert state["projects"]["NINA"]["log"][-1]["note"] == "Shipped onboarding flow"
         projects_md = (tmp_path / "context" / "projects.md").read_text()
         assert "## Progress log" in projects_md
         assert "NINA: Shipped onboarding flow" in projects_md
 
     async def test_log_progress_unparseable(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="I have no idea")
 
         resp = await agent.handle(_event(text="update: something vague"))
         assert "couldn't tell which project" in resp.text
 
-    async def test_momentum_summary_flags_stale(self, tmp_path, monkeypatch):
-        state_file = tmp_path / "state.json"
-        monkeypatch.setattr(projects_module, "_STATE_FILE", state_file)
-        agent = _make_agent(ProjectsAgent, tmp_path)
-        state_file.write_text(json.dumps({
-            "projects": {
-                "NINA": {
-                    "last_update": "2026-06-01T00:00:00+00:00",
-                    "log": [{"date": "2026-06-01", "note": "old work"}],
-                }
-            }
-        }))
+    async def test_log_progress_write_failure_is_reported_honestly(self, tmp_path, monkeypatch):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        agent.safety.check_action = AsyncMock(return_value=False)
+        (tmp_path / "context").mkdir(parents=True)
+        (tmp_path / "context" / "projects.md").write_text(_PROJECTS_MD)
 
-        summary = agent._momentum_summary(_PROJECTS_MD)
+        resp = await agent.handle(_event(text="update: NINA — shipped the onboarding flow"))
+
+        assert "couldn't save this update" in resp.text
+
+    async def test_momentum_summary_flags_stale(self, tmp_path, monkeypatch):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        projects_md_with_log = (
+            _PROJECTS_MD + "\n## Progress log\n- 2026-06-01 · NINA: old work\n"
+        )
+
+        summary = agent._momentum_summary(projects_md_with_log)
         assert "STALE" in summary
         assert "Newsletter: no updates logged yet" in summary
 
     async def test_project_chat_uses_llm(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="Focus on NINA today.")
 
         resp = await agent.handle(_event(text="what should I work on?"))
@@ -151,7 +189,6 @@ class TestProjectsAgent:
         agent.llm.complete.assert_awaited()
 
     async def test_weekly_kickoff_sends_to_all_chats(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="1. NINA first.")
 
         event = AgentEvent(
@@ -164,10 +201,58 @@ class TestProjectsAgent:
         assert "Weekly Kickoff" in agent.notifier.send.await_args.args[1]
 
     async def test_unauthorized_chat_rejected(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path)
 
         event = _event(text="status")
         event.chat_id = "999"
         resp = await agent.handle(event)
         assert not resp.success
+
+    async def test_agent_write_never_touches_user_content(self, tmp_path):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        (tmp_path / "context").mkdir(parents=True)
+        path = tmp_path / "context" / "projects.md"
+        path.write_text(_PROJECTS_MD)
+        user_authored_part = _PROJECTS_MD.split("## Progress log")[0]
+
+        from datetime import datetime, timezone
+        await agent._append_progress_line(
+            "123", "NINA", "Shipped onboarding flow", datetime.now(timezone.utc)
+        )
+
+        updated = path.read_text()
+        # The agent may normalize trailing whitespace when it creates the
+        # section, but it must never change, drop, or reorder user-authored
+        # lines above the heading.
+        assert updated.split("## Progress log")[0].rstrip() == user_authored_part.rstrip()
+
+    async def test_agent_write_never_touches_user_content_when_log_already_exists(
+        self, tmp_path
+    ):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        (tmp_path / "context").mkdir(parents=True)
+        path = tmp_path / "context" / "projects.md"
+        path.write_text(_PROJECTS_MD_WITH_LOG)
+        user_authored_part = _PROJECTS_MD_WITH_LOG.split("## Progress log")[0]
+
+        from datetime import datetime, timezone
+        await agent._append_progress_line(
+            "123", "NINA", "Shipped onboarding flow", datetime.now(timezone.utc)
+        )
+
+        updated = path.read_text()
+        # This branch (heading already present) does not rstrip() any content
+        # before the heading, so the comparison here must be exact, not
+        # normalized — unlike the first-creation-branch test above.
+        assert updated.split("## Progress log")[0] == user_authored_part
+        # Guard against a regression that takes the first-creation branch
+        # instead (which would append a second heading rather than appending
+        # to the existing section).
+        assert updated.count("## Progress log") == 1
+        assert "- 2026-07-20 · NINA: Earlier work" in updated
+        assert "NINA: Shipped onboarding flow" in updated
+        assert updated.index("Earlier work") < updated.index("Shipped onboarding flow")

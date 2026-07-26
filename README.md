@@ -524,6 +524,8 @@ Treat Composio as you would any third-party integration — it's a trust boundar
 
 > **Security note:** `sessions.db` is a plaintext SQLite file. Anyone with filesystem access can read it with `sqlite3`. For sensitive deployments, treat this file as containing confidential data and back it up securely. Set `DB_ENCRYPTION_KEY` in `.env` to enable SQLCipher encryption so that conversation data is encrypted at rest.
 
+> **Message retention:** message history is pruned after `MESSAGE_RETENTION_DAYS` (default 90) — set it to `0` to disable pruning — and this deletion is irreversible, with no archive kept.
+
 ---
 
 ## Project structure

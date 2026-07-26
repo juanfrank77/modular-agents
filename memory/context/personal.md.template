@@ -1,5 +1,6 @@
 # Personal Background
 
+<!-- topic-keywords: who am i, background, about me, personal, context -->
 <!--
 Background context that gets injected into every system prompt.
 Keep it to a few short paragraphs — it's read on every call so length has a cost.

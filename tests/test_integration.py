@@ -206,10 +206,11 @@ async def test_memory(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.message_retention_days = 0
 
         mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         (mock_settings.memory_context_dir / "preferences.md").write_text(
-            "# Preferences\ntimezone: UTC\ntone: concise"
+            "# Preferences\n<!-- topic-always-load -->\ntimezone: UTC\ntone: concise"
         )
 
         storage = Storage(tmp_path / "mem_test.db")
@@ -365,6 +366,7 @@ async def test_agent_health_checks(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.message_retention_days = 0
         mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         mock_settings.telegram_allowed_chat_ids = []
 
@@ -495,6 +497,7 @@ async def test_scheduler(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.message_retention_days = 0
         mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         mock_settings.telegram_allowed_chat_ids = ["test_chat"]
 
@@ -537,6 +540,7 @@ async def test_devops_tools(tmp_path: Path) -> None:
         mock_settings = MagicMock()
         mock_settings.memory_context_dir = tmp_path / "context"
         mock_settings.memory_solutions_dir = tmp_path / "solutions"
+        mock_settings.message_retention_days = 0
         mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
 
         memory = Memory(storage=storage, llm=llm, settings=mock_settings)

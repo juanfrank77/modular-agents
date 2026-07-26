@@ -80,12 +80,17 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 
 ## 5. Memory & knowledge
 
-- **`search_history` is `LIKE '%q%'`** — table scan, no ranking, unescaped wildcards (`storage.py:146`). SQLite **FTS5** is a drop-in upgrade and would improve every agent's recall.
-- **No retention/pruning** — messages grow unbounded; compaction summarizes but never trims the underlying rows. Add a retention window + archive.
-- **Skill/solution matching is naive bag-of-words** (`skill_loader.py:57`, `memory._get_relevant_solutions`): no stemming ("meeting" ≠ "meetings"), no stopwords, re-reads every file per message. Cache file contents; consider embeddings when the library grows.
-- **Topic keywords are hardcoded** (`memory.py:64-68`) — only `personal` and `projects` exist; adding a topic file means editing core. Make it a frontmatter/config declaration per file.
-- **Empty-task fallback loads *all* context files** (`memory.build_context`, `memory.py:504-519`), which can blow the prompt for agents that call it without a task.
-- **Projects agent dual-write drift:** progress lives in both `state.json` and the `## Progress log` in projects.md; a hand-edit to one desyncs the other. Pick one source of truth (probably projects.md) and derive the other.
+- **`search_history` is `LIKE '%q%'`** — **DONE (2026-07-25)**: table scan, no ranking, unescaped wildcards (`storage.py:146`). SQLite **FTS5** is a drop-in upgrade and would improve every agent's recall.
+- **No retention/pruning** — **DONE (2026-07-25)**: `Settings.message_retention_days` (default 90, 0 disables) now prunes messages older than the window on session access (`Memory.get_session_context`), via `Storage.delete_messages_older_than` with an `AFTER DELETE` trigger keeping `messages_fts` in sync. Hard delete only — the archive half of the original idea was deliberately descoped as unneeded complexity; see `docs/superpowers/specs/2026-07-25-message-retention-design.md`.
+- **Skill/solution matching is naive bag-of-words** - **DONE (2026-07-25)**: (`skill_loader.py:57`, `memory._get_relevant_solutions`): no stemming ("meeting" ≠ "meetings"), no stopwords, re-reads every file per message. Cache file contents; consider embeddings when the library grows.
+- **Topic keywords are hardcoded** (`memory.py:64-68`) — **DONE (2026-07-25)** :only `personal` and `projects` exist; adding a topic file means editing core. Make it a frontmatter/config declaration per file.
+- **Empty-task fallback loads *all* context files** — **DONE (2026-07-25)**: `build_context` (`memory.py`) now always calls `get_relevant_context(task)`, which loads only the index and `topic-always-load` files when task is empty, instead of every context file unconditionally. All current agent call sites already pass a non-empty task; see `docs/superpowers/specs/2026-07-25-build-context-empty-task-design.md`.
+- **Librarian follow-ups** (self-critique of the new code):
+  - Duplicate detection: re-sending the same PDF creates a second note; hash sources and offer "update existing note" instead.
+  - Note lifecycle: actions are checklists that nothing ever marks done — let `@librarian done <note>` check items off and drop completed notes from the digest.
+  - Graph quality: without `GEMINI_API_KEY` graphify's extraction is structural only; document/decide on a semantic-extraction key.
+  - Whisper is the only transcription path; consider local `faster-whisper` for privacy/cost.
+- **Projects agent dual-write drift** — **DONE (2026-07-26)**: `projects.md`'s `## Progress log` section is now the sole source of truth; `state.json` and its read/write machinery were removed. Staleness and last-note data are derived from the file itself via a new `_parse_progress_log` helper. The user-owns-headings/agent-owns-progress-log split is now a tested invariant; see `docs/superpowers/specs/2026-07-26-projects-dual-write-design.md`.
 
 ---
 

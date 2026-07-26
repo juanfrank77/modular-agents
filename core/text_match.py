@@ -1,0 +1,50 @@
+"""
+core/text_match.py
+-------------------
+Shared lightweight text-matching utilities: stopword filtering and a
+suffix-stripping stemmer, so simple word-overlap scoring (skills, solutions)
+treats "meeting"/"meetings"/"meet" as the same token without pulling in a
+heavy NLP dependency.
+"""
+
+from __future__ import annotations
+
+import re
+
+# Small, deliberately conservative stopword list — just the high-frequency
+# function words that would otherwise dilute overlap scoring.
+STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "at", "by", "for",
+    "with", "about", "against", "between", "into", "through", "during",
+    "to", "from", "in", "on", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will", "would",
+    "should", "could", "can", "this", "that", "these", "those", "it",
+    "its", "i", "you", "he", "she", "we", "they", "them", "my", "your",
+    "his", "her", "our", "their", "me", "us", "as", "not", "no", "so",
+    "than", "then", "there", "here", "what", "which", "who", "whom",
+    "how", "when", "where", "why",
+})
+
+_SUFFIXES = ("ing", "edly", "ed", "ies", "es", "ly", "s")
+
+
+def _stem(word: str) -> str:
+    """Strip a small set of common suffixes. Not linguistically exact —
+    just enough to fold plurals/gerunds together for overlap scoring.
+    Runs twice so plural-of-gerund forms ("meetings") fold down as far as
+    the singular gerund ("meeting" -> "meet")."""
+    for _ in range(2):
+        for suffix in _SUFFIXES:
+            if len(word) > len(suffix) + 2 and word.endswith(suffix):
+                word = word[: -len(suffix)] + "y" if suffix == "ies" else word[: -len(suffix)]
+                break
+        else:
+            break
+    return word
+
+
+def tokenize(text: str) -> set[str]:
+    """Lowercase, alpha-only (2+ chars) tokens with stopwords removed and
+    a light stem applied, for word-overlap relevance scoring."""
+    words = re.findall(r"[a-z]{2,}", text.lower())
+    return {_stem(w) for w in words if w not in STOPWORDS}
