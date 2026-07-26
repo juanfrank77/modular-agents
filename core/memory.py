@@ -531,27 +531,12 @@ class Memory:
         """
         Main context builder. Returns (markdown_context, compacted_history).
         markdown_context is the concatenation of all relevant context files.
-        Pass task= for smarter topic file selection. Falls back to loading
-        all context files if task is empty (backwards compatible).
+        Always loads the memory index plus any topic-declared context files
+        relevant to task (always-load files unconditionally, keyword files
+        when task matches). An empty task loads only the index and
+        always-load files — never every context file.
         """
-        if task:
-            markdown_context = await self.get_relevant_context(task)
-        else: 
-            # Backwards compatible: load all context files
-            parts: list[str] = []
-            index = await self.get_index()
-            if index.strip():
-                parts.append(f"## Memory index\n{index.strip()}")
-            if self._context_dir.exists():
-                for md_file in sorted(self._context_dir.glob("*.md")):
-                    if md_file.name == _INDEX_FILE:
-                        continue
-                    content = md_file.read_text(encoding="utf-8").strip()
-                    if content:
-                        wrapped = _CONTEXT_XML_TEMPLATE.format(content=content)
-                        parts.append(f"## {md_file.stem}\n{wrapped}")
-
-            markdown_context = "\n\n".join(parts)
+        markdown_context = await self.get_relevant_context(task)
 
         # Get compacted history
         history = await self.get_session_context(session_id, agent)

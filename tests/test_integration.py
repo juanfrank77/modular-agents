@@ -210,7 +210,7 @@ async def test_memory(tmp_path: Path) -> None:
 
         mock_settings.memory_context_dir.mkdir(parents=True, exist_ok=True)
         (mock_settings.memory_context_dir / "preferences.md").write_text(
-            "# Preferences\ntimezone: UTC\ntone: concise"
+            "# Preferences\n<!-- topic-always-load -->\ntimezone: UTC\ntone: concise"
         )
 
         storage = Storage(tmp_path / "mem_test.db")
