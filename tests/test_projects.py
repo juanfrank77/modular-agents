@@ -2,7 +2,6 @@
 """Tests for the ProjectsAgent (momentum tracking + weekly kickoff)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -137,8 +136,6 @@ class TestProjectsHelpers:
 
 class TestProjectsAgent:
     async def test_log_progress(self, tmp_path, monkeypatch):
-        state_file = tmp_path / "state.json"
-        monkeypatch.setattr(projects_module, "_STATE_FILE", state_file)
         agent = _make_agent(
             ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
         )
@@ -148,39 +145,39 @@ class TestProjectsAgent:
         resp = await agent.handle(_event(text="update: NINA — shipped the onboarding flow"))
 
         assert "Logged" in resp.text
-        state = json.loads(state_file.read_text())
-        assert "NINA" in state["projects"]
-        assert state["projects"]["NINA"]["log"][-1]["note"] == "Shipped onboarding flow"
         projects_md = (tmp_path / "context" / "projects.md").read_text()
         assert "## Progress log" in projects_md
         assert "NINA: Shipped onboarding flow" in projects_md
 
     async def test_log_progress_unparseable(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="I have no idea")
 
         resp = await agent.handle(_event(text="update: something vague"))
         assert "couldn't tell which project" in resp.text
 
-    async def test_momentum_summary_flags_stale(self, tmp_path, monkeypatch):
-        state_file = tmp_path / "state.json"
-        monkeypatch.setattr(projects_module, "_STATE_FILE", state_file)
-        agent = _make_agent(ProjectsAgent, tmp_path)
-        state_file.write_text(json.dumps({
-            "projects": {
-                "NINA": {
-                    "last_update": "2026-06-01T00:00:00+00:00",
-                    "log": [{"date": "2026-06-01", "note": "old work"}],
-                }
-            }
-        }))
+    async def test_log_progress_write_failure_is_reported_honestly(self, tmp_path, monkeypatch):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        agent.safety.check_action = AsyncMock(return_value=False)
+        (tmp_path / "context").mkdir(parents=True)
+        (tmp_path / "context" / "projects.md").write_text(_PROJECTS_MD)
 
-        summary = agent._momentum_summary(_PROJECTS_MD)
+        resp = await agent.handle(_event(text="update: NINA — shipped the onboarding flow"))
+
+        assert "couldn't save this update" in resp.text
+
+    async def test_momentum_summary_flags_stale(self, tmp_path, monkeypatch):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        projects_md_with_log = (
+            _PROJECTS_MD + "\n## Progress log\n- 2026-06-01 · NINA: old work\n"
+        )
+
+        summary = agent._momentum_summary(projects_md_with_log)
         assert "STALE" in summary
         assert "Newsletter: no updates logged yet" in summary
 
     async def test_project_chat_uses_llm(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="Focus on NINA today.")
 
         resp = await agent.handle(_event(text="what should I work on?"))
@@ -188,7 +185,6 @@ class TestProjectsAgent:
         agent.llm.complete.assert_awaited()
 
     async def test_weekly_kickoff_sends_to_all_chats(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path, llm_response="1. NINA first.")
 
         event = AgentEvent(
@@ -201,10 +197,29 @@ class TestProjectsAgent:
         assert "Weekly Kickoff" in agent.notifier.send.await_args.args[1]
 
     async def test_unauthorized_chat_rejected(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(projects_module, "_STATE_FILE", tmp_path / "state.json")
         agent = _make_agent(ProjectsAgent, tmp_path)
 
         event = _event(text="status")
         event.chat_id = "999"
         resp = await agent.handle(event)
         assert not resp.success
+
+    async def test_agent_write_never_touches_user_content(self, tmp_path):
+        agent = _make_agent(
+            ProjectsAgent, tmp_path, llm_response="PROJECT: NINA\nNOTE: Shipped onboarding flow"
+        )
+        (tmp_path / "context").mkdir(parents=True)
+        path = tmp_path / "context" / "projects.md"
+        path.write_text(_PROJECTS_MD)
+        user_authored_part = _PROJECTS_MD.split("## Progress log")[0]
+
+        from datetime import datetime, timezone
+        await agent._append_progress_line(
+            "123", "NINA", "Shipped onboarding flow", datetime.now(timezone.utc)
+        )
+
+        updated = path.read_text()
+        # The agent may normalize trailing whitespace when it creates the
+        # section, but it must never change, drop, or reorder user-authored
+        # lines above the heading.
+        assert updated.split("## Progress log")[0].rstrip() == user_authored_part.rstrip()
