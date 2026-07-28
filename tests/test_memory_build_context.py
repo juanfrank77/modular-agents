@@ -33,28 +33,32 @@ async def storage(tmp_path: Path) -> Storage:
 
 @pytest.mark.asyncio
 class TestBuildContextEmptyTask:
-    async def test_empty_task_loads_always_load_file(self, tmp_path, storage):
+    async def test_empty_task_loads_always_load_file(self, tmp_path):
         context_dir = tmp_path / "context"
         context_dir.mkdir()
         (context_dir / "preferences.md").write_text(
             "<!-- topic-always-load -->\nTimezone: UTC"
         )
 
-        session_id = await storage.create_session("business")
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
 
         memory = Memory(storage=storage, llm=MagicMock(), settings=_make_settings(tmp_path))
         markdown_context, _ = await memory.build_context(session_id, "business", task="")
 
         assert "Timezone: UTC" in markdown_context
 
-    async def test_empty_task_does_not_load_keyword_only_file(self, tmp_path, storage):
+    async def test_empty_task_does_not_load_keyword_only_file(self, tmp_path):
         context_dir = tmp_path / "context"
         context_dir.mkdir()
         (context_dir / "projects.md").write_text(
             "<!-- topic-keywords: deploy, railway -->\nProject data here."
         )
 
-        session_id = await storage.create_session("business")
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
 
         memory = Memory(storage=storage, llm=MagicMock(), settings=_make_settings(tmp_path))
         markdown_context, _ = await memory.build_context(session_id, "business", task="")

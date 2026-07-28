@@ -122,17 +122,6 @@ class Storage:
 
     # ── Sessions ───────────────────────────────
 
-    async def create_session(self, agent: str) -> str:
-        session_id = str(uuid.uuid4())
-        if self._db is None:
-            raise RuntimeError("Storage not initialised; call init() first")
-        await self._db.execute(
-            "INSERT INTO sessions (id, agent, started_at) VALUES (?, ?, ?)",
-            (session_id, agent, datetime.now(timezone.utc).isoformat()),
-        )
-        await self._db.commit()
-        return session_id
-
     async def get_or_create_session(self, chat_id: str, agent: str) -> str:
         """
         Returns the most recent open session for this chat+agent,
