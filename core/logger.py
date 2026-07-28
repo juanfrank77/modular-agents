@@ -31,6 +31,7 @@ from typing import Any
 _max_content_len = 200
 _redact_content = True
 
+_REDACTED_FIELD_NAMES = {"content", "text"}
 
 # ──────────────────────────────────────────────
 # JSON formatter
@@ -56,8 +57,8 @@ class JSONFormatter(logging.Formatter):
                 "threadName", "processName", "process", "name", "message",
                 "agent", "event", "duration_ms",
             ):
-                # Redact content fields
-                if key == "content" and isinstance(val, str):
+                # Redact known-sensitive fields (content, text, ...)  
+                if key in _REDACTED_FIELD_NAMES  and isinstance(val, str):
                     if _redact_content:
                         entry[key] = hashlib.sha256(val.encode()).hexdigest()[:16]
                     elif len(val) > _max_content_len:
@@ -152,15 +153,17 @@ def _configure(
     fmt: str = "json",
     redact_content: bool = True,
     content_max_len: int = 200,
+    force: bool = False,
 ) -> None:
     global _configured, _redact_content, _max_content_len
-    if _configured:
+    if _configured and not force:
         return
     _configured = True
     _redact_content = redact_content
     _max_content_len = content_max_len
 
     root = logging.getLogger()
+    root.handlers.clear()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
     handler = logging.StreamHandler(sys.stdout)
@@ -184,5 +187,7 @@ def configure_logging(
     redact_content: bool = True,
     content_max_len: int = 200,
 ) -> None:
-    """Call this early in main.py with values from settings."""
-    _configure(level=level, fmt=fmt, redact_content=redact_content, content_max_len=content_max_len)
+    """
+    Call this early in main.py with values from settings. Always applies as the authoriative configuration, even if a module-level get_logger() call already triggered a lazy default _configure() earlier in the process - otherwise whichever module happens to import (and log) first silently wins over real settings.
+    """
+    _configure(level=level, fmt=fmt, redact_content=redact_content, content_max_len=content_max_len, force=True)
