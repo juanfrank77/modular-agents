@@ -43,7 +43,7 @@ async def _message_id(db_path: Path, content: str) -> str:
 class TestDeleteMessagesOlderThan:
     async def test_deletes_rows_older_than_cutoff(self, db, tmp_path):
         db_path = tmp_path / "test.db"
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "ancient message", "business")
         await db.save_message(session_id, "user", "recent message", "business")
 
@@ -59,7 +59,7 @@ class TestDeleteMessagesOlderThan:
 
     async def test_does_not_delete_rows_at_or_after_cutoff(self, db, tmp_path):
         db_path = tmp_path / "test.db"
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "borderline message", "business")
 
         old_id = await _message_id(db_path, "borderline message")
@@ -73,7 +73,7 @@ class TestDeleteMessagesOlderThan:
         assert len(remaining) == 1
 
     async def test_no_matching_rows_is_a_noop(self, db):
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         cutoff = datetime.now(timezone.utc) - timedelta(days=90)
 
         deleted = await db.delete_messages_older_than(session_id, cutoff)
@@ -82,7 +82,7 @@ class TestDeleteMessagesOlderThan:
 
     async def test_deleted_rows_removed_from_fts(self, db, tmp_path):
         db_path = tmp_path / "test.db"
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "old searchable text", "business")
 
         old_id = await _message_id(db_path, "old searchable text")
@@ -96,8 +96,8 @@ class TestDeleteMessagesOlderThan:
 
     async def test_only_deletes_for_matching_session(self, db, tmp_path):
         db_path = tmp_path / "test.db"
-        s1 = await db.create_session("business")
-        s2 = await db.create_session("devops")
+        s1 = await db.get_or_create_session("chat_1", "business")
+        s2 = await db.get_or_create_session("chat_2", "devops")
         await db.save_message(s1, "user", "old business message", "business")
         await db.save_message(s2, "user", "old devops message", "devops")
 

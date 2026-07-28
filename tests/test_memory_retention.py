@@ -40,8 +40,10 @@ async def storage(tmp_path: Path) -> Storage:
 
 @pytest.mark.asyncio
 class TestGetSessionContextRetention:
-    async def test_prunes_messages_older_than_retention_window(self, tmp_path, storage):
-        session_id = await storage.create_session("business")
+    async def test_prunes_messages_older_than_retention_window(self, tmp_path):
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
         await storage.save_message(session_id, "user", "ancient", "business")
         await storage.save_message(session_id, "user", "recent", "business")
         await _set_ts(
@@ -57,8 +59,10 @@ class TestGetSessionContextRetention:
         remaining = await storage.get_session_messages(session_id)
         assert [m.content for m in remaining] == ["recent"]
 
-    async def test_zero_retention_days_disables_pruning(self, tmp_path, storage):
-        session_id = await storage.create_session("business")
+    async def test_zero_retention_days_disables_pruning(self, tmp_path):
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
         await storage.save_message(session_id, "user", "ancient", "business")
         await _set_ts(
             tmp_path / "test.db", "ancient",
@@ -70,8 +74,10 @@ class TestGetSessionContextRetention:
 
         assert [m.content for m in result] == ["ancient"]
 
-    async def test_no_old_messages_is_unaffected(self, tmp_path, storage):
-        session_id = await storage.create_session("business")
+    async def test_no_old_messages_is_unaffected(self, tmp_path):
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
         await storage.save_message(session_id, "user", "fresh", "business")
 
         memory = Memory(storage=storage, llm=AsyncMock(), settings=_make_settings(tmp_path, 90))
@@ -79,11 +85,13 @@ class TestGetSessionContextRetention:
 
         assert [m.content for m in result] == ["fresh"]
 
-    async def test_prune_failure_does_not_abort_session_context(self, tmp_path, storage):
+    async def test_prune_failure_does_not_abort_session_context(self, tmp_path):
         """A transient DB error (e.g. 'database is locked') during pruning
         must be swallowed, not propagated — retention pruning is best-effort
         and should never abort a live conversation turn."""
-        session_id = await storage.create_session("business")
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
         await storage.save_message(session_id, "user", "hello", "business")
         storage.delete_messages_older_than = AsyncMock(
             side_effect=Exception("database is locked")

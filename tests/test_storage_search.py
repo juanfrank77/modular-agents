@@ -22,7 +22,7 @@ async def db(tmp_path: Path) -> Storage:
 @pytest.mark.asyncio
 class TestSearchHistory:
     async def test_finds_matching_message(self, db):
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "let's schedule the morning briefing", "business")
         await db.save_message(session_id, "user", "unrelated content about lunch", "business")
 
@@ -31,8 +31,8 @@ class TestSearchHistory:
         assert "briefing" in results[0].content
 
     async def test_filters_by_agent(self, db):
-        s1 = await db.create_session("business")
-        s2 = await db.create_session("devops")
+        s1 = await db.get_or_create_session("chat_1", "business")
+        s2 = await db.get_or_create_session("chat_2", "devops")
         await db.save_message(s1, "user", "deploy the newsletter", "business")
         await db.save_message(s2, "user", "deploy the API service", "devops")
 
@@ -41,20 +41,20 @@ class TestSearchHistory:
         assert results[0].agent == "devops"
 
     async def test_no_match_returns_empty(self, db):
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "hello world", "business")
 
         results = await db.search_history("nonexistent")
         assert results == []
 
     async def test_empty_query_returns_empty(self, db):
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "hello world", "business")
 
         assert await db.search_history("   ") == []
 
     async def test_query_with_special_characters_does_not_raise(self, db):
-        session_id = await db.create_session("business")
+        session_id = await db.get_or_create_session("chat_1", "business")
         await db.save_message(session_id, "user", "cost is $5 (roughly)", "business")
 
         # FTS5 operators / quotes in the raw query must not break MATCH syntax.
@@ -65,11 +65,8 @@ class TestSearchHistory:
         db_path = tmp_path / "backfill.db"
         storage = Storage(db_path)
         await storage.init()
-        try:
-            session_id = await storage.create_session("business")
-            await storage.save_message(session_id, "user", "pre-existing note about taxes", "business")
-        finally:
-            await storage.close()
+        session_id = await storage.get_or_create_session("chat_1", "business")
+        await storage.save_message(session_id, "user", "pre-existing note about taxes", "business")
 
         # Re-init simulates the FTS table being added to an existing DB.
         storage2 = Storage(db_path)
