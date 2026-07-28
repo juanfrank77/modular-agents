@@ -171,7 +171,7 @@ async def bootstrap():
 
     log.info("Bootstrap complete", event="startup_complete", agents=bus.registered_agents)
 
-    return bus, safety, creator, cli_notifier, http_notifier, state_store, llm
+    return bus, safety, creator, cli_notifier, http_notifier, state_store, llm, storage
 
 
 # ──────────────────────────────────────────────
@@ -215,7 +215,7 @@ async def _run_http_safe(interface: HTTPInterface) -> None:
 
 
 async def main() -> None:
-    bus, safety, creator, cli_notifier, http_notifier, state_store, llm = await bootstrap()
+    bus, safety, creator, cli_notifier, http_notifier, state_store, llm, storage = await bootstrap()
 
     print(f"\n{'=' * 52}")
     print(f"  PAIRING TOKEN:  {safety.pairing.code}")
@@ -250,6 +250,8 @@ async def main() -> None:
         close = getattr(llm, "close", None)
         if close is not None:
             await close()
+        if storage is not None:
+            await storage.close()
         log.info("Shutdown complete", event="shutdown_complete")
 
 

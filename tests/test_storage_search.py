@@ -13,7 +13,10 @@ from core.storage import Storage
 async def db(tmp_path: Path) -> Storage:
     storage = Storage(tmp_path / "test.db")
     await storage.init()
-    return storage
+    try:
+        yield storage
+    finally:
+        await storage.close()
 
 
 @pytest.mark.asyncio
@@ -62,12 +65,17 @@ class TestSearchHistory:
         db_path = tmp_path / "backfill.db"
         storage = Storage(db_path)
         await storage.init()
-        session_id = await storage.create_session("business")
-        await storage.save_message(session_id, "user", "pre-existing note about taxes", "business")
+        try:
+            session_id = await storage.create_session("business")
+            await storage.save_message(session_id, "user", "pre-existing note about taxes", "business")
+        finally:
+            await storage.close()
 
         # Re-init simulates the FTS table being added to an existing DB.
         storage2 = Storage(db_path)
         await storage2.init()
-
-        results = await storage2.search_history("taxes")
-        assert len(results) == 1
+        try:
+            results = await storage2.search_history("taxes")
+            assert len(results) == 1
+        finally:
+            await storage2.close()
