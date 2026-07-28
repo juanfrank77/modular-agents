@@ -163,17 +163,21 @@ class BaseAgent(ABC):
         This base implementation iterates over SCHEDULES and registers each job.
         """
         self.bus = bus
+        if not self.settings.telegram_allowed_chat_ids:
+            log.warning(
+                "No telegram_allowed_chat_ids configured — skipping schedule registration",
+                event="schedule_no_chat_ids",
+                agent=self.name,
+            )
+            return
+
         if not self.SCHEDULES:
             return
 
         try:
             from core.scheduler import scheduler
 
-            chat_id = (
-                self.settings.telegram_allowed_chat_ids[0]
-                if self.settings.telegram_allowed_chat_ids
-                else ""
-            )
+            chat_id = self.settings.telegram_allowed_chat_ids[0]
 
             for task_name, cron_expr in self.SCHEDULES:
                 scheduler.add_cron_job(
