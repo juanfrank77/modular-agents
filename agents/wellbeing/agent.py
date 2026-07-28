@@ -40,14 +40,6 @@ if TYPE_CHECKING:
 log = get_logger("wellbeing")
 
 _STATE_FILE = Path(__file__).parent / "state.json"
-_SKILLS_DIR = Path(__file__).parent / "skills"
-
-# ── Skill names for each scheduled task ────────────────────────────────────
-
-_SKILL_EVENING = "evening-wind-down"
-_SKILL_BEDTIME = "bedtime-reminder"
-_SKILL_WEEKLY = "weekly-check-in"
-_SKILL_INTERACTIVE = "wellbeing-interactive"
 
 
 # ── Hardcoded message pools (fallback / used by skills) ─────────────────────
@@ -91,16 +83,6 @@ class WellbeingAgent(BaseAgent):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.autonomy_level = self.settings.wellbeing_agent_autonomy
-
-    # ── Skill loader access ─────────────────────────────────────────────────
-
-    def _load_skill(self, skill_name: str) -> str:
-        """Read a SKILL.md file, return empty string if missing."""
-        path = _SKILLS_DIR / f"{skill_name}.md"
-        try:
-            return path.read_text()
-        except Exception:
-            return ""
 
     # ── State ───────────────────────────────────────────────────────────────
 
@@ -252,8 +234,6 @@ class WellbeingAgent(BaseAgent):
         if self._already_sent_today(state, "evening_nudge_sent_at"):
             return AgentResponse(text="", agent_name=self.name)
 
-        # Use skill if available, otherwise use fallback pool
-        skill = self._load_skill(_SKILL_EVENING)
         msg = self._pick_cyclic(_EVENING_MESSAGES)
 
         await self._send_to_all_chats(msg)
@@ -271,7 +251,6 @@ class WellbeingAgent(BaseAgent):
         if self._already_sent_today(state, "bedtime_nudge_sent_at"):
             return AgentResponse(text="", agent_name=self.name)
 
-        skill = self._load_skill(_SKILL_BEDTIME)
         msg = self._pick_cyclic(_BEDTIME_MESSAGES)
 
         await self._send_to_all_chats(msg)
