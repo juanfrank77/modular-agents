@@ -14,7 +14,10 @@ from core.storage import Storage
 async def db(tmp_path: Path) -> Storage:
     storage = Storage(tmp_path / "test.db")
     await storage.init()
-    return storage
+    try:
+        yield storage
+    finally:
+        await storage.close()
 
 
 async def _set_ts(db_path: Path, msg_id: str, ts: datetime) -> None:
