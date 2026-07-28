@@ -14,6 +14,10 @@ Run:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from agents.devops.tools.railway import _parse_deployments_output, _parse_status_output
 
 
@@ -138,3 +142,54 @@ class TestParseStatusOutputHealthCheckContract:
     def test_crashed_status_is_not_in_healthy_set(self):
         status = _parse_status_output("Status: CRASHED\n")["status"]
         assert status not in ("ACTIVE", "SUCCESS", "DEPLOYED")
+
+
+class TestGetHealthSummaryParseFailure:
+    """get_health_summary() must distinguish 'the CLI output changed shape
+    and we can't tell what's going on' from 'we parsed it fine and it's
+    actually down' — the former should be diagnosable, not silent."""
+
+    @pytest.mark.asyncio
+    async def test_unparseable_output_is_flagged_distinctly(self, monkeypatch):
+        from agents.devops.tools.railway import RailwayTool
+
+        tool = RailwayTool(memory=MagicMock())
+        monkeypatch.setattr(
+            tool, "get_status",
+            AsyncMock(return_value={"service": "", "environment": "", "raw": "some new format\nnothing recognizable\n"}),
+        )
+
+        result = await tool.get_health_summary()
+
+        assert result["healthy"] is False
+        assert result["parse_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_recognized_healthy_status_has_no_parse_error(self, monkeypatch):
+        from agents.devops.tools.railway import RailwayTool
+
+        tool = RailwayTool(memory=MagicMock())
+        monkeypatch.setattr(
+            tool, "get_status",
+            AsyncMock(return_value={"service": "", "environment": "", "status": "ACTIVE", "raw": "Status: ACTIVE\n"}),
+        )
+
+        result = await tool.get_health_summary()
+
+        assert result["healthy"] is True
+        assert "parse_error" not in result
+
+    @pytest.mark.asyncio
+    async def test_recognized_unhealthy_status_has_no_parse_error(self, monkeypatch):
+        from agents.devops.tools.railway import RailwayTool
+
+        tool = RailwayTool(memory=MagicMock())
+        monkeypatch.setattr(
+            tool, "get_status",
+            AsyncMock(return_value={"service": "", "environment": "", "status": "CRASHED", "raw": "Status: CRASHED\n"}),
+        )
+
+        result = await tool.get_health_summary()
+
+        assert result["healthy"] is False
+        assert "parse_error" not in result

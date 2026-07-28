@@ -285,11 +285,25 @@ class RailwayTool:
     async def get_health_summary(self) -> dict[str, Any]:
         """
         Quick deployment health snapshot for heartbeat/digest use.
+
+        Distinguishes "the CLI output couldn't be parsed at all" from
+        "it parsed fine and the deployment is actually unhealthy" — a
+        format shift in Railway's plain-text output should be a
+        diagnosable, one-time signal, not silent hourly alert spam with
+        no way to tell it apart from a real incident.
         """
         try:
             status = await self.get_status()
+            parsed_status = status.get("status")
+            if parsed_status is None:
+                log.warning(
+                    "Could not parse Railway status output — CLI output format may have changed",
+                    event="railway_status_unparseable",
+                    raw=status.get("raw"),
+                )
+                return {"healthy": False, "status": status, "parse_error": True}
             return {
-                "healthy": status.get("status") in ("ACTIVE", "SUCCESS", "DEPLOYED"),
+                "healthy": parsed_status in ("ACTIVE", "SUCCESS", "DEPLOYED"),
                 "status": status,
             }
         except ToolError as e:
