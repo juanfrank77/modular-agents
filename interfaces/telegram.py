@@ -156,17 +156,37 @@ class TelegramInterface:
 
         await query.answer()
 
+        if not update.effective_chat:
+            return
+
+        chat_id = str(update.effective_chat.id)
         data = query.data
+        invalid_text = "This approval request is not valid or has expired."
+
         if data.startswith("approve:"):
             approval_id = data.split(":", 1)[1]
-            self._safety.gate.resolve(approval_id, approved=True)
-            await query.edit_message_text("Approved.")
-            log.info("Action approved", event="approval", approval_id=approval_id)
+            if self._safety.gate.resolve(approval_id, chat_id, approved=True):
+                await query.edit_message_text("Approved.")
+                log.info(
+                    "Action approved",
+                    event="approval",
+                    approval_id=approval_id,
+                    chat_id=chat_id,
+                )
+            else:
+                await query.edit_message_text(invalid_text)
         elif data.startswith("deny:"):
             approval_id = data.split(":", 1)[1]
-            self._safety.gate.resolve(approval_id, approved=False)
-            await query.edit_message_text("Denied.")
-            log.info("Action denied", event="denial", approval_id=approval_id)
+            if self._safety.gate.resolve(approval_id, chat_id, approved=False):
+                await query.edit_message_text("Denied.")
+                log.info(
+                    "Action denied",
+                    event="denial",
+                    approval_id=approval_id,
+                    chat_id=chat_id,
+                )
+            else:
+                await query.edit_message_text(invalid_text)
 
     async def _require_paired(self, chat_id: str) -> bool:
         """Send the pairing prompt and return False if chat_id isn't paired yet."""

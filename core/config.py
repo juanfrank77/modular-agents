@@ -78,7 +78,7 @@ class Settings:
 
     # Approval timeouts per ActionType name (seconds)
     # Keys match ActionType enum names: WRITE_HIGH, EXECUTE, DESTRUCTIVE
-    approval_timeouts: dict[str, int] = field(
+    approval_timeouts: dict[str, float] = field(
         default_factory=lambda: {
             "WRITE_HIGH": 120,
             "EXECUTE": 300,
@@ -138,7 +138,7 @@ class Settings:
 
     # Pairing / approvals
     pairing_max_failed_attempts: int = 5
-    approval_default_timeout: int = 300  # fallback when action type not in approval_timeouts
+    approval_default_timeout: float = 300  # fallback when action type not in approval_timeouts
 
     # Skill matching
     skill_min_score: float = 0.05  # relevance threshold for find_relevant()
@@ -192,7 +192,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     allowed_ids = [i.strip() for i in raw_ids.split(",") if i.strip()]
 
     # Parse approval timeouts: "WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600"
-    approval_timeouts: dict[str, int] = {
+    approval_timeouts: dict[str, float] = {
         "WRITE_HIGH": 120,
         "EXECUTE": 300,
         "DESTRUCTIVE": 600,
@@ -204,7 +204,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
             if "=" in pair:
                 k, _, v = pair.partition("=")
                 try:
-                    approval_timeouts[k.strip().upper()] = int(v.strip())
+                    approval_timeouts[k.strip().upper()] = float(v.strip())
                 except ValueError:
                     pass  # ignore malformed entries
 
@@ -313,7 +313,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         rate_limit_rpm=int(_optional("RATE_LIMIT_RPM", "20")),
         debug_echo_agent=_optional("DEBUG_ECHO_AGENT", "false").lower() == "true",
         pairing_max_failed_attempts=int(_optional("PAIRING_MAX_FAILED_ATTEMPTS", "5")),
-        approval_default_timeout=int(_optional("APPROVAL_DEFAULT_TIMEOUT", "300")),
+        approval_default_timeout=float(_optional("APPROVAL_DEFAULT_TIMEOUT", "300")),
         skill_min_score=float(_optional("SKILL_MIN_SCORE", "0.05")),
         user_timezone=_optional("USER_TIMEZONE", "UTC"),
     )

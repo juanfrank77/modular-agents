@@ -60,6 +60,7 @@ class TestOnCallback:
     @pytest.mark.asyncio
     async def test_approve_callback_resolves_gate_and_edits_message(self):
         safety = MagicMock()
+        safety.gate.resolve.return_value = True
         bus = MagicMock()
         bus.registered_agents = []
         bus.send_thinking = AsyncMock(return_value=None)
@@ -71,17 +72,19 @@ class TestOnCallback:
         query = AsyncMock()
         query.data = "approve:abc-123"
         update = MagicMock()
+        update.effective_chat.id = 123
         update.callback_query = query
 
         await telegram._on_callback(update, MagicMock())
 
         query.answer.assert_awaited_once()
         query.edit_message_text.assert_awaited_once_with("Approved.")
-        safety.gate.resolve.assert_called_once_with("abc-123", approved=True)
+        safety.gate.resolve.assert_called_once_with("abc-123", "123", approved=True)
 
     @pytest.mark.asyncio
     async def test_deny_callback_resolves_gate_and_edits_message(self):
         safety = MagicMock()
+        safety.gate.resolve.return_value = True
         bus = MagicMock()
         bus.registered_agents = []
         bus.send_thinking = AsyncMock(return_value=None)
@@ -93,13 +96,40 @@ class TestOnCallback:
         query = AsyncMock()
         query.data = "deny:xyz-789"
         update = MagicMock()
+        update.effective_chat.id = 123
         update.callback_query = query
 
         await telegram._on_callback(update, MagicMock())
 
         query.answer.assert_awaited_once()
         query.edit_message_text.assert_awaited_once_with("Denied.")
-        safety.gate.resolve.assert_called_once_with("xyz-789", approved=False)
+        safety.gate.resolve.assert_called_once_with("xyz-789", "123", approved=False)
+
+    @pytest.mark.asyncio
+    async def test_invalid_callback_shows_invalid_message(self):
+        safety = MagicMock()
+        safety.gate.resolve.return_value = False
+        bus = MagicMock()
+        bus.registered_agents = []
+        bus.send_thinking = AsyncMock(return_value=None)
+        bus.clear_thinking = AsyncMock(return_value=None)
+        bus.publish = AsyncMock(return_value=AgentResponse(text="ok", agent_name=""))
+
+        telegram = _make_telegram(bus=bus, safety=safety)
+
+        query = AsyncMock()
+        query.data = "approve:expired-id"
+        update = MagicMock()
+        update.effective_chat.id = 123
+        update.callback_query = query
+
+        await telegram._on_callback(update, MagicMock())
+
+        query.answer.assert_awaited_once()
+        query.edit_message_text.assert_awaited_once_with(
+            "This approval request is not valid or has expired."
+        )
+        safety.gate.resolve.assert_called_once_with("expired-id", "123", approved=True)
 
     @pytest.mark.asyncio
     async def test_missing_query_returns_early(self):
