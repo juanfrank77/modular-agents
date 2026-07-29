@@ -38,7 +38,7 @@ from core.action_parsing import parse_action_line
 from core.tool_schema import build_tool_defs
 
 if TYPE_CHECKING:
-    from core.bus import MessageBus
+    pass
 
 log = get_logger("devops")
 

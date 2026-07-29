@@ -35,7 +35,7 @@ from core.protocols import AgentEvent, AgentResponse, EventType, Message
 from core.safety import ActionType
 
 if TYPE_CHECKING:
-    from core.bus import MessageBus
+    pass
 
 log = get_logger("projects")
 

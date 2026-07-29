@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-import pytest
 
 from core.quiet_hours import is_quiet_hours, should_notify
 

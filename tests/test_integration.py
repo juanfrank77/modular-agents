@@ -650,8 +650,7 @@ async def test_plan_mode(tmp_path: Path) -> None:
     section("13. Plan Mode — dispatch() / _run_with_plan()")
     try:
         from core.storage import Storage
-        from core.safety import Safety
-        from core.protocols import AgentEvent, EventType, AgentResponse
+        from core.protocols import AgentEvent, EventType
         from agents.echo.agent import EchoAgent
 
         storage = Storage(tmp_path / "plan_test.db")
@@ -715,7 +714,7 @@ async def test_plan_mode(tmp_path: Path) -> None:
         echo4.safety = mock_safety2
 
         response4 = await echo4.dispatch(event)
-        assert response4.success == False
+        assert not response4.success 
         assert "not approved" in response4.text.lower() or "cancelled" in response4.text.lower()
         ok("_run_with_plan() denied: returns cancellation message with success=False")
 
@@ -774,7 +773,6 @@ async def test_notifier_protocol() -> None:
     try:
         from core.protocols import Notifier
         from core.notifier import TelegramNotifier
-        import inspect
 
         for method in ("send", "send_media", "send_with_buttons", "send_and_get_id", "delete_message"):
             assert hasattr(TelegramNotifier, method), f"TelegramNotifier missing {method}"
@@ -794,7 +792,8 @@ async def test_new_notifiers() -> None:
     section("15. CLINotifier + HTTPNotifier")
     try:
         from core.notifier import CLINotifier, HTTPNotifier
-        import io, sys
+        import io
+        import sys
 
         # ── CLINotifier ──────────────────────────────────────
         notifier = CLINotifier()
@@ -890,8 +889,8 @@ async def test_safety_non_telegram() -> None:
     section("17. Safety — non-Telegram chat_id auto-approve")
     try:
         from core.safety import Safety, ActionType
-        from core.notifier import CLINotifier, RouterNotifier, TelegramNotifier
-        from unittest.mock import AsyncMock, patch
+        from core.notifier import CLINotifier, RouterNotifier
+        from unittest.mock import AsyncMock
 
         cli_n = CLINotifier()
         mock_telegram = AsyncMock()
@@ -958,12 +957,13 @@ async def test_cli_interface() -> None:
         from interfaces.cli import CLIInterface
         from core.bus import MessageBus
         from core.notifier import CLINotifier
-        from core.protocols import AgentEvent, EventType
+        from core.protocols import EventType
         from core.storage import Storage
         from core.safety import Safety
         from agents.echo.agent import EchoAgent
-        from unittest.mock import AsyncMock, MagicMock, patch
-        import tempfile, pathlib
+        from unittest.mock import MagicMock
+        import tempfile
+        import pathlib
 
         tmp = pathlib.Path(tempfile.mkdtemp())
         storage = Storage(tmp / "cli_test.db")
@@ -1047,9 +1047,10 @@ async def test_http_interface() -> None:
         from core.storage import Storage
         from core.safety import Safety
         from agents.echo.agent import EchoAgent
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import MagicMock
         from fastapi.testclient import TestClient
-        import tempfile, pathlib
+        import tempfile
+        import pathlib
 
         tmp = pathlib.Path(tempfile.mkdtemp())
         storage = Storage(tmp / "http_test.db")
@@ -1149,7 +1150,6 @@ async def test_rate_limiter() -> None:
     section("21. Rate Limiter")
     try:
         from core.safety import RateLimiter
-        import time
 
         limiter = RateLimiter(rpm=3)  # 3 messages per minute for testing
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 import agents.projects.agent as projects_module
 from agents.projects.agent import (

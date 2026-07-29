@@ -19,7 +19,7 @@ import pytest
 from agents.devops.agent import DevOpsAgent
 from agents.devops.tools import DevOpsTools
 from agents.devops.tools.cli_runner import ToolError
-
+from core.protocols import LLMResult, Message, ToolCall
 
 def _make_agent(check_action_return=True) -> DevOpsAgent:
     settings = MagicMock()
@@ -131,7 +131,6 @@ class TestUnmappedActionShowsNotWiredNote:
 
         assert "⚠️ Action blocked" in result
 
-from core.protocols import LLMResult, Message, ToolCall
 
 
 def _tool_result(agent, chat_id, name, args, tool_id="call_1"):

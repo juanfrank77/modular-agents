@@ -31,12 +31,11 @@ from typing import TYPE_CHECKING, Any
 
 from agents.base import BaseAgent
 from core.logger import get_logger
-from core.protocols import AgentEvent, AgentResponse, EventType, Message
+from core.protocols import AgentEvent, AgentResponse, EventType
 from core.timezone import as_user_timezone, now_in_user_timezone
 
 if TYPE_CHECKING:
-    from core.bus import MessageBus
-    from core.skill_loader import SkillLoader
+    pass
 
 log = get_logger("wellbeing")
 

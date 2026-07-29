@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
 
 from agents.base import BaseAgent
 from core.config import settings as real_settings

@@ -37,7 +37,6 @@ from core.action_parsing import parse_action_line
 
 if TYPE_CHECKING:
     from core.protocols import LLMResult
-    from core.bus import MessageBus
 
 log = get_logger("business")
 
