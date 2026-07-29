@@ -17,6 +17,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock
 
+from core.protocols import NotificationError
 from core.safety import ActionType, ApprovalGate, PairingManager
 
 
@@ -210,3 +211,65 @@ class TestApprovalGateConfigurableDefaultTimeout:
             chat_id="123", description="do a thing", action_type=None
         )
         assert approved is False
+
+
+class TestApprovalGateDeliveryFailure:
+    @pytest.mark.asyncio
+    async def test_send_with_buttons_failure_returns_false_fast(self):
+        notifier = AsyncMock()
+        notifier.send_with_buttons = AsyncMock(
+            side_effect=NotificationError("blocked", chat_id="123")
+        )
+        gate = ApprovalGate(notifier=notifier, timeouts={"WRITE_HIGH": 5})
+
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+
+        assert approved is False
+        notifier.send_with_buttons.assert_awaited_once()
+        # A plain-text fallback should be attempted.
+        notifier.send.assert_awaited_once()
+        # Pending state should be cleaned up immediately, not after a timeout.
+        assert gate._pending == {}
+        assert gate._results == {}
+
+    @pytest.mark.asyncio
+    async def test_plain_text_fallback_failure_is_swallowed(self):
+        notifier = AsyncMock()
+        notifier.send_with_buttons = AsyncMock(
+            side_effect=NotificationError("blocked", chat_id="123")
+        )
+        notifier.send = AsyncMock(
+            side_effect=NotificationError("also blocked", chat_id="123")
+        )
+        gate = ApprovalGate(notifier=notifier, timeouts={"WRITE_HIGH": 5})
+
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+
+        assert approved is False
+        notifier.send_with_buttons.assert_awaited_once()
+        notifier.send.assert_awaited_once()
+        assert gate._pending == {}
+        assert gate._results == {}
+
+    @pytest.mark.asyncio
+    async def test_successful_send_with_buttons_resolves_normally(self):
+        notifier = AsyncMock()
+        gate = ApprovalGate(notifier=notifier, timeouts={"WRITE_HIGH": 5})
+
+        async def approve_shortly():
+            await asyncio.sleep(0.01)
+            approval_id = next(iter(gate._pending))
+            gate.resolve(approval_id, approved=True)
+
+        task = asyncio.create_task(approve_shortly())
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+        await task
+
+        assert approved is True
+        notifier.send_with_buttons.assert_awaited_once()

@@ -85,6 +85,27 @@ class LLMResult:
     raw_assistant: Any = None  # opaque, provider-specific assistant turn — pass back unchanged
 
 
+class NotificationError(Exception):
+    """Raised when a notifier cannot deliver a message.
+
+    Carries the original cause and, for rate-limit/flood cases, the seconds the
+    underlying channel asked us to wait before retrying.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        chat_id: str,
+        *,
+        cause: Exception | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.chat_id = chat_id
+        self.cause = cause
+        self.retry_after = retry_after
+
+
 # ──────────────────────────────────────────────
 # Protocols (swappable interfaces)
 # ──────────────────────────────────────────────
@@ -110,20 +131,36 @@ class LLMProvider(Protocol):
 
 @runtime_checkable
 class Notifier(Protocol):
-    async def send(self, chat_id: str, text: str) -> None: ...
+    """Outbound notification channel.
 
-    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None: ...
+    All delivery methods raise :class:`NotificationError` when the message
+    cannot be delivered so callers can react instead of silently timing out.
+    """
+
+    async def send(self, chat_id: str, text: str) -> None:
+        """Deliver a text message. Raises NotificationError on failure."""
+        ...
+
+    async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
+        """Deliver a media file. Raises NotificationError on failure."""
+        ...
 
     async def send_with_buttons(
         self,
         chat_id: str,
         text: str,
         buttons: list[tuple[str, str]],
-    ) -> None: ...
+    ) -> None:
+        """Deliver a message with inline buttons. Raises NotificationError on failure."""
+        ...
 
-    async def send_and_get_id(self, chat_id: str, text: str) -> int | None: ...
+    async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
+        """Deliver a message and return its platform id. Raises NotificationError on failure."""
+        ...
 
-    async def delete_message(self, chat_id: str, message_id: int) -> None: ...
+    async def delete_message(self, chat_id: str, message_id: int) -> None:
+        """Delete a previously delivered message. Raises NotificationError on failure."""
+        ...
 
 
 @runtime_checkable
