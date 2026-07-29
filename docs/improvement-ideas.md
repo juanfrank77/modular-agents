@@ -138,7 +138,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 | Phase | Theme | Items | Status |
 |---|---|---|---|
 | A — make it real | Tools actually execute | 1.1, 1.2, 2.1 | 1.1, 1.2, 2.1 ✅ all done — Phase A complete |
-| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ done |
+| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4, notifier, chat_ids[0], storage connection reuse ✅ all done — Phase B complete |
 | C — make it usable | Routing + interface parity | 1.3, 6 (CLI @agent, agent indicator), echo removal | 1.3 ✅ done incl. CLI @agent |
 | D — make it safe | Trust model + creator gate + systemd hardening | 3 (lockout recovery done) | open |
 | E — make it last | Tests, CI, backups, FTS5, retention | 8, 5 | done |
