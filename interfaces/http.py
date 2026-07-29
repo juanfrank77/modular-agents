@@ -251,8 +251,6 @@ class HTTPInterface:
 
             async def sse_events():
                 # Run publish in background while we stream events
-                done_event = asyncio.Event()
-
                 async def publish_task():
                     response = await self._bus.publish(event)
                     await self._notifier.notify_done(chat_id, response.text if response else "")

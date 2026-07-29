@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from core.composio_tool import ComposioTool
 from core.config import Settings
 from core.logger import get_logger
+
+if TYPE_CHECKING:
+    from agents.business.tools.calendar import CalendarTool
+    from agents.business.tools.gmail import GmailTool
 
 log = get_logger("business_tools")
 

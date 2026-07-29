@@ -36,7 +36,7 @@ class TestAnthropicToolCalling:
 
     @pytest.mark.asyncio
     async def test_complete_without_tools_returns_text_only(self):
-        with patch("core.llm.AsyncAnthropic") as mock_client_cls:
+        with patch("core.llm.AsyncAnthropic"):
             llm = AnthropicLLM(api_key="key")
             mock_response = SimpleNamespace(
                 content=[_text_block("Hello there")],

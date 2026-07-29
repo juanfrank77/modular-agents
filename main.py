@@ -143,7 +143,7 @@ async def bootstrap():
     for agent in discovered_agents:
         bus.register(agent)
 
-    for agent in bus.registered_agents:
+    for agent in discovered_agents:
         try:
             await agent.register_schedules(bus)
         except Exception as e:

@@ -39,7 +39,7 @@ class TestReplyPrefix:
         agent = _make_agent()
         event = AgentEvent(type=EventType.USER_MESSAGE, agent_name="echo", chat_id="123", text="hi")
 
-        response = await agent.reply(event, "hello there")
+        await agent.reply(event, "hello there")
 
         agent.notifier.send.assert_awaited_once_with("123", "[echo] hello there")
 

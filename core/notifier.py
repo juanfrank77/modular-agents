@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from core.logger import get_logger
 from core.protocols import NotificationError
@@ -369,7 +369,7 @@ class RouterNotifier:
     def register_prefix(self, prefix: str, notifier: object) -> None:
         self._prefixes.append((prefix, notifier))
 
-    def _resolve(self, chat_id: str) -> object:
+    def _resolve(self, chat_id: str) -> Any:
         for prefix, notifier in self._prefixes:
             if chat_id.startswith(prefix):
                 return notifier

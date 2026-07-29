@@ -118,6 +118,18 @@ def _parse_openai_response(response: Any) -> "LLMResult":
 class _SummarizeMixin:
     """Shared summarize() for session-compaction — delegates to self.complete()."""
 
+    async def complete(
+        self,
+        messages: list[Message],
+        system: str,
+        model: str = "",
+        max_tokens: int = 0,
+        tools: list[ToolDef] | None = None,
+        tool_result: ToolResultInput | None = None,
+        raw_assistant: Any = None,
+    ) -> LLMResult:
+        raise NotImplementedError
+
     async def summarize(self, messages: list[Message]) -> str:
         system = (
             "You are a conversation summarizer. Condense the following conversation "
@@ -177,7 +189,7 @@ class _OpenAICompatibleLLM(_SummarizeMixin):
             response = await self._client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
-                messages=api_messages,  # type: ignore
+                messages=api_messages,
                 **_openai_tools_kwarg(tools),
                 **extra_kwargs,
             )
@@ -275,7 +287,7 @@ class AnthropicLLM(_SummarizeMixin):
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
-                messages=api_messages,  # type: ignore
+                messages=api_messages,
                 **extra_kwargs,
             )
 
