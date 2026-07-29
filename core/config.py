@@ -55,6 +55,10 @@ class Settings:
     heartbeat_interval_minutes: int = 30
     scheduler_db_path: Path = Path("memory/scheduler.db")
 
+    # User timezone — used by scheduler and quiet-hours gating so cron firing
+    # and notification gating agree on the same wall-clock time.
+    user_timezone: str = "UTC"
+
     # Agent autonomy overrides (can be set per-agent in .env)
     business_agent_autonomy: str = "supervised"
     devops_agent_autonomy: str = "autonomous"
@@ -307,6 +311,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         pairing_max_failed_attempts=int(_optional("PAIRING_MAX_FAILED_ATTEMPTS", "5")),
         approval_default_timeout=int(_optional("APPROVAL_DEFAULT_TIMEOUT", "300")),
         skill_min_score=float(_optional("SKILL_MIN_SCORE", "0.05")),
+        user_timezone=_optional("USER_TIMEZONE", "UTC"),
     )
 
 

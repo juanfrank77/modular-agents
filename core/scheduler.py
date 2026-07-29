@@ -31,6 +31,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
+from core.timezone import load_timezone
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -74,6 +75,8 @@ class Scheduler:
         self._scheduler = AsyncIOScheduler()
         self._heartbeat_minutes = heartbeat_minutes
         self._bus: "MessageBus | None" = None
+        # Default to UTC; main.py calls set_timezone() once settings are loaded.
+        self._timezone = load_timezone(None)
 
     def set_bus(self, bus: "MessageBus") -> None:
         """Set after construction to break the circular dependency with the bus."""
@@ -84,6 +87,19 @@ class Scheduler:
         """Set after construction — the module-level singleton is built
         before Settings is available, matching set_bus()'s pattern."""
         self._heartbeat_minutes = minutes
+
+    def set_timezone(self, timezone_name: str) -> None:
+        """Set the timezone used for cron triggers.
+
+        Called from main.py after settings are loaded. Invalid names fall
+        back to UTC via load_timezone().
+        """
+        self._timezone = load_timezone(timezone_name)
+        log.info(
+            "Scheduler timezone set",
+            event="scheduler_timezone_set",
+            timezone=str(self._timezone),
+        )
 
     def configure_jobstore(self, db_path: Path) -> None:
         """Swap the default in-memory jobstore for a persistent one backed by
@@ -108,7 +124,7 @@ class Scheduler:
         callback: Callable[[], Coroutine[Any, Any, None]],
     ) -> None:
         """Add a cron job that calls an arbitrary async function."""
-        trigger = CronTrigger.from_crontab(cron_expr)
+        trigger = CronTrigger.from_crontab(cron_expr, timezone=self._timezone)
         # Include agent name in ID to prevent collisions when multiple agents
         # use the same cron expression
         job_id = f"{agent_name}_schedule_{cron_expr}"
@@ -118,6 +134,7 @@ class Scheduler:
             event="schedule_add",
             agent=agent_name,
             cron=cron_expr,
+            timezone=str(self._timezone),
         )
 
     # ── High-level: publish an AgentEvent on schedule ──
@@ -143,7 +160,7 @@ class Scheduler:
         # Use agent+task+cron as composite key to prevent collisions
         # when different agents have tasks with the same name
         job_id = f"{event.agent_name}_{task}_{cron}"
-        trigger = CronTrigger.from_crontab(cron)
+        trigger = CronTrigger.from_crontab(cron, timezone=self._timezone)
         self._scheduler.add_job(
             _fire_cron_job,
             trigger,
@@ -158,6 +175,7 @@ class Scheduler:
             agent=event.agent_name,
             cron=cron,
             task=task,
+            timezone=str(self._timezone),
         )
 
     # ── Heartbeat ─────────────────────────────
