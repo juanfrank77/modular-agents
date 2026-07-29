@@ -129,6 +129,8 @@ class TestHTTPInterfaceTagParsing:
 
         settings = MagicMock()
         settings.session_ttl_hours = 24
+        settings.max_http_sessions = 10
+        settings.http_pair_rate_limit_rpm = 10
 
         creator = MagicMock()
         creator.is_active.return_value = False
