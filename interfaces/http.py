@@ -8,16 +8,22 @@ Pairing flow:
   2. Use the token in Authorization: Bearer <token> for all other requests
 
 Endpoints:
-  POST /pair          — exchange pairing code for session token
-  DELETE /session     — revoke session token (logout)
-  POST /message       — send a message to an agent (returns JSON response)
-  POST /message/stream — stream agent responses via Server-Sent Events
-  GET  /agents        — list registered agents
-  GET  /health        — system health (no auth required)
-  POST /admin/unlock  — unlock a locked-out chat_id (requires pairing code)
+  POST /pair             — exchange pairing code for session token
+  DELETE /session        — revoke session token (logout)
+  POST /message          — send a message to an agent (returns JSON response)
+  POST /message/stream   — stream agent responses via Server-Sent Events
+  GET  /agents           — list registered agents
+  GET  /health           — system health (no auth required)
+  POST /admin/unlock     — unlock a locked-out chat_id (requires pairing code)
+  GET  /admin/sessions   — list active HTTP sessions (requires pairing code)
+  DELETE /admin/sessions/{token} — revoke a specific session (requires pairing code)
+  DELETE /admin/sessions — revoke all HTTP sessions (requires pairing code)
 
-Session tokens expire after SESSION_TTL_HOURS (default: 24). Sessions
-persist across restarts via StateStore, with expired tokens pruned on access.
+Session tokens expire after SESSION_TTL_HOURS (default: 24). The total
+number of concurrent sessions is capped by MAX_HTTP_SESSIONS (default: 10).
+Pairing is rate-limited per client IP by HTTP_PAIR_RATE_LIMIT_RPM.
+Sessions persist across restarts via StateStore, with expired tokens pruned
+on access.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -37,6 +43,7 @@ from pydantic import BaseModel
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
 from core.routing import parse_agent_tag
+from core.safety import RateLimiter
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -82,6 +89,7 @@ class HTTPInterface:
         self._settings = settings
         self._state_store = state_store
         self._sessions: dict[str, tuple[str, float]] = {}  # token → (chat_id, created_at_ts)
+        self._pair_rate_limiter = RateLimiter(rpm=self._settings.http_pair_rate_limit_rpm)
         self.app = self._build_app()
 
     async def load_sessions(self) -> None:
@@ -130,13 +138,41 @@ class HTTPInterface:
             return False
         return True
 
+    def _require_admin_code(self, code: str) -> None:
+        """Raise 403 if the supplied code does not match the current pairing code."""
+        if code.strip() != self._safety.pairing.code:
+            raise HTTPException(status_code=403, detail="invalid admin code")
+
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="modular-agents HTTP API", docs_url=None, redoc_url=None)
 
         @app.post("/pair")
-        async def pair(req: PairRequest):
+        async def pair(req: PairRequest, request: Request):
             if req.code.strip() != self._safety.pairing.code:
                 raise HTTPException(status_code=403, detail="invalid code")
+
+            # Rate-limit pairing by client IP to slow down brute-force / token minting.
+            client_host = request.client.host if request.client else "unknown"
+            pair_limit_msg = self._pair_rate_limiter.check(f"pair:{client_host}")
+            if pair_limit_msg:
+                raise HTTPException(status_code=429, detail=pair_limit_msg)
+
+            # Enforce a hard cap on total active HTTP sessions so one leaked code
+            # cannot mint tokens forever.
+            self._prune_expired_sessions()
+            if len(self._sessions) >= self._settings.max_http_sessions:
+                log.warning(
+                    "HTTP session cap reached",
+                    event="http_session_cap_reached",
+                    active_sessions=len(self._sessions),
+                    max_sessions=self._settings.max_http_sessions,
+                    client_host=client_host,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Maximum number of active HTTP sessions reached. "
+                    "Revoke an existing session before creating a new one.",
+                )
 
             token = str(uuid.uuid4())
             chat_id = f"http_{token[:8]}"
@@ -145,7 +181,12 @@ class HTTPInterface:
             if self._state_store:
                 await self._state_store.save_http_session(token, chat_id, created_at)
             await self._safety.pairing.pair_directly(chat_id)
-            log.info("HTTP session paired", event="http_paired", chat_id=chat_id)
+            log.info(
+                "HTTP session paired",
+                event="http_paired",
+                chat_id=chat_id,
+                client_host=client_host,
+            )
             return {"token": token}
 
         @app.delete("/session")
@@ -162,13 +203,58 @@ class HTTPInterface:
         @app.post("/admin/unlock")
         async def admin_unlock(req: UnlockRequest):
             """Admin endpoint: unlock a chat_id locked out from pairing (requires pairing code)."""
-            if req.code.strip() != self._safety.pairing.code:
-                raise HTTPException(status_code=403, detail="invalid admin code")
+            self._require_admin_code(req.code)
             if not self._safety.pairing.is_locked(req.chat_id):
                 raise HTTPException(status_code=400, detail="chat not locked")
             self._safety.pairing.unlock(req.chat_id)
             log.info("Admin unlocked chat", event="admin_unlock", chat_id=req.chat_id)
             return {"status": "unlocked", "chat_id": req.chat_id}
+
+        @app.get("/admin/sessions")
+        async def admin_list_sessions(code: str):
+            """Admin endpoint: list active HTTP sessions (requires pairing code).
+
+            Tokens are masked to keep the endpoint read-only safe.
+            """
+            self._require_admin_code(code)
+            self._prune_expired_sessions()
+            now = datetime.now(timezone.utc).timestamp()
+            ttl = self._settings.session_ttl_hours * 3600
+            sessions = []
+            for token, (chat_id, created_at) in self._sessions.items():
+                sessions.append(
+                    {
+                        "token_prefix": token[:8],
+                        "chat_id": chat_id,
+                        "created_at": created_at,
+                        "expires_at": created_at + ttl,
+                        "remaining_seconds": max(0, int(created_at + ttl - now)),
+                    }
+                )
+            return {"sessions": sessions, "count": len(sessions)}
+
+        @app.delete("/admin/sessions/{token}")
+        async def admin_revoke_session(token: str, code: str):
+            """Admin endpoint: revoke a specific HTTP session (requires pairing code)."""
+            self._require_admin_code(code)
+            if token not in self._sessions:
+                raise HTTPException(status_code=404, detail="session not found")
+            del self._sessions[token]
+            if self._state_store:
+                await self._state_store.delete_http_session(token)
+            log.info("Admin revoked session", event="admin_revoke_session", token_prefix=token[:8])
+            return {"status": "revoked", "token_prefix": token[:8]}
+
+        @app.delete("/admin/sessions")
+        async def admin_revoke_all_sessions(code: str):
+            """Admin endpoint: revoke every HTTP session (requires pairing code)."""
+            self._require_admin_code(code)
+            count = len(self._sessions)
+            self._sessions.clear()
+            if self._state_store:
+                await self._state_store.clear_http_sessions()
+            log.info("Admin revoked all sessions", event="admin_revoke_all_sessions", count=count)
+            return {"status": "revoked_all", "count": count}
 
         def _get_chat_id(
             creds: HTTPAuthorizationCredentials | None = Depends(_bearer),

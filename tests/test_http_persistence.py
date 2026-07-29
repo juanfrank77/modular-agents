@@ -27,7 +27,14 @@ async def store(tmp_path: Path) -> StateStore:
     return s
 
 
-def _interface(store, pairing_code="000000"):
+def _interface(
+    store,
+    pairing_code="000000",
+    *,
+    session_ttl_hours=24,
+    max_http_sessions=10,
+    http_pair_rate_limit_rpm=10,
+):
     from interfaces.http import HTTPInterface
 
     bus = MagicMock()
@@ -41,7 +48,9 @@ def _interface(store, pairing_code="000000"):
     # MagicMock isn't awaitable, so it must be an AsyncMock here.
     safety.pairing.pair_directly = AsyncMock()
     settings = MagicMock()
-    settings.session_ttl_hours = 24
+    settings.session_ttl_hours = session_ttl_hours
+    settings.max_http_sessions = max_http_sessions
+    settings.http_pair_rate_limit_rpm = http_pair_rate_limit_rpm
     creator = MagicMock()
     creator.is_active.return_value = False
 
@@ -155,3 +164,114 @@ class TestAdminUnlock:
 
         r = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
         assert r.status_code == 400
+
+
+class TestHTTPSessionCap:
+    @pytest.mark.asyncio
+    async def test_pair_rejects_when_session_cap_reached(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123", max_http_sessions=2)
+        client = TestClient(interface.app)
+
+        # Fill to the cap
+        r1 = client.post("/pair", json={"code": "secret123"})
+        r2 = client.post("/pair", json={"code": "secret123"})
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+
+        # Third request should be rejected
+        r3 = client.post("/pair", json={"code": "secret123"})
+        assert r3.status_code == 503
+        assert "Maximum number of active HTTP sessions reached" in r3.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_pruning_allows_pair_after_expired_sessions_removed(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123", max_http_sessions=1)
+        client = TestClient(interface.app)
+
+        r1 = client.post("/pair", json={"code": "secret123"})
+        assert r1.status_code == 200
+        token = r1.json()["token"]
+
+        # Expire the session in memory
+        interface._sessions[token] = (interface._sessions[token][0], time.time() - (25 * 3600))
+
+        # New pair should succeed because the expired session is pruned
+        r2 = client.post("/pair", json={"code": "secret123"})
+        assert r2.status_code == 200
+
+
+class TestHTTPPairRateLimit:
+    @pytest.mark.asyncio
+    async def test_pair_rate_limited_per_ip(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123", http_pair_rate_limit_rpm=2)
+        client = TestClient(interface.app)
+
+        r1 = client.post("/pair", json={"code": "secret123"})
+        r2 = client.post("/pair", json={"code": "secret123"})
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+
+        r3 = client.post("/pair", json={"code": "secret123"})
+        assert r3.status_code == 429
+        assert "Rate limit exceeded" in r3.json()["detail"]
+
+
+class TestHTTPAdminSessionManagement:
+    @pytest.mark.asyncio
+    async def test_admin_list_sessions_requires_code(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        r = client.get("/admin/sessions", params={"code": "wrong"})
+        assert r.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_admin_list_sessions_returns_active_sessions(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        r_pair = client.post("/pair", json={"code": "secret123"})
+        token = r_pair.json()["token"]
+
+        r = client.get("/admin/sessions", params={"code": "secret123"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 1
+        assert data["sessions"][0]["token_prefix"] == token[:8]
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_session_requires_valid_token(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        r = client.delete("/admin/sessions/not-a-token", params={"code": "secret123"})
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_session_removes_session(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+
+        r = client.delete(f"/admin/sessions/{token}", params={"code": "secret123"})
+        assert r.status_code == 200
+        assert r.json()["token_prefix"] == token[:8]
+
+        sessions = await store.load_http_sessions()
+        assert token not in sessions
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_all_sessions_clears_everything(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        client.post("/pair", json={"code": "secret123"})
+        client.post("/pair", json={"code": "secret123"})
+
+        r = client.delete("/admin/sessions", params={"code": "secret123"})
+        assert r.status_code == 200
+        assert r.json()["count"] == 2
+
+        sessions = await store.load_http_sessions()
+        assert sessions == {}

@@ -197,6 +197,14 @@ class StateStore:
             await db.execute("DELETE FROM http_sessions WHERE token = ?", (token,))
             await db.commit()
 
+    async def clear_http_sessions(self) -> int:
+        """Delete all HTTP sessions. Returns the number of rows removed."""
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            cursor = await db.execute("DELETE FROM http_sessions")
+            await db.commit()
+        return cursor.rowcount
+
     async def load_http_sessions(self) -> dict[str, tuple[str, float]]:
         async with aiosqlite.connect(self._db_path_str) as db:
             await apply_encryption_key(db, self._encryption_key)
