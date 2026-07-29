@@ -29,7 +29,7 @@ from agents.devops.tools.cli_runner import ToolError, run_cli
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from core.memory import Memory
+    from core.protocols import MemoryStore
 
 log = get_logger("devops.github")
 
@@ -40,7 +40,7 @@ _RUN_FIELDS = "databaseId,name,status,conclusion,createdAt,url,headBranch"
 
 
 class GitHubTool:
-    def __init__(self, memory: "Memory") -> None:
+    def __init__(self, memory: "MemoryStore") -> None:
         self._memory = memory
 
     # ── Repo resolution ───────────────────────

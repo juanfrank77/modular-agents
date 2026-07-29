@@ -1,7 +1,7 @@
 """
 core/protocols.py
 -----------------
-All Protocol definitions for the framework.
+All Protocol definitions for the agents system.
 Every swappable component implements one of these interfaces.
 Nothing outside core/ should import concrete implementations directly —
 only these protocols.

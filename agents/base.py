@@ -20,13 +20,18 @@ from typing import TYPE_CHECKING
 
 from core.logger import get_logger
 from datetime import datetime
-from core.protocols import AgentEvent, AgentResponse, EventType, Message
+from core.protocols import (
+    AgentEvent,
+    AgentResponse,
+    EventType,
+    MemoryStore,
+    Message,
+)
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
     from core.config import Settings
     from core.protocols import LLMProvider
-    from core.memory import Memory
     from core.protocols import Notifier
     from core.safety import Safety
     from core.skill_loader import SkillLoader
@@ -55,7 +60,7 @@ class BaseAgent(ABC):
         storage: "Storage",
         notifier: "Notifier",
         llm: "LLMProvider | None" = None,
-        memory: "Memory | None" = None,
+        memory: "MemoryStore | None" = None,
         safety: "Safety | None" = None,
         skill_loader: "SkillLoader | None" = None,
         bus: "MessageBus | None" = None,

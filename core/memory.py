@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
-from core.protocols import Message
+from core.protocols import MemoryStore, Message
 from core.text_match import tokenize
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ _SOLUTION_XML_TEMPLATE = """<solution>
 {content}
 </solution>"""
 
-class Memory:
+class Memory(MemoryStore):
     def __init__(self, storage: "Storage", llm: "LLMProvider", settings: "Settings") -> None:
         self._storage = storage
         self._llm = llm

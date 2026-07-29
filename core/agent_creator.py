@@ -171,7 +171,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.memory import Memory
+    from core.protocols import MemoryStore
 
 
 @dataclass
@@ -179,7 +179,7 @@ class {class_name}Tools:
     pass   # Add tool instances here as you implement them
 
 
-def build_tools(memory: "Memory") -> {class_name}Tools:
+def build_tools(memory: "MemoryStore") -> {class_name}Tools:
     return {class_name}Tools()
 '''
 

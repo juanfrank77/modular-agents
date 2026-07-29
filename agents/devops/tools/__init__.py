@@ -7,7 +7,7 @@ from agents.devops.tools.github import GitHubTool
 from agents.devops.tools.railway import RailwayTool
 
 if TYPE_CHECKING:
-    from core.memory import Memory
+    from core.protocols import MemoryStore
 
 
 @dataclass
@@ -16,7 +16,7 @@ class DevOpsTools:
     railway: RailwayTool
 
 
-def build_tools(memory: "Memory") -> DevOpsTools:
+def build_tools(memory: "MemoryStore") -> DevOpsTools:
     return DevOpsTools(
         github=GitHubTool(memory=memory),
         railway=RailwayTool(memory=memory),
