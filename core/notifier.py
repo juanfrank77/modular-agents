@@ -18,14 +18,67 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from core.logger import get_logger
+from core.protocols import NotificationError
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
+from telegram.error import RetryAfter, TelegramError
 
 log = get_logger("notifier")
 
 # Telegram message length limit
 _MAX_MSG_LENGTH = 4096
+
+# Flood-control waits longer than this are surfaced to the caller instead of blocking.
+_MAX_RETRY_AFTER = 60
+
+
+async def _send_with_retry(
+    chat_id: str,
+    coro_factory,
+    max_retries: int = 2,
+    log_event: str = "send_error",
+) -> None:
+    """Run a Telegram send coroutine, retrying on RetryAfter with backoff.
+
+    Raises NotificationError on unrecoverable failure or if the requested flood
+    wait exceeds _MAX_RETRY_AFTER seconds.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            await coro_factory()
+            return
+        except RetryAfter as e:
+            wait = getattr(e, "retry_after", 0)
+            if attempt == max_retries or wait > _MAX_RETRY_AFTER:
+                log.warning(
+                    "Telegram flood wait too long; giving up",
+                    event="telegram_retry_after_exceeded",
+                    chat_id=chat_id,
+                    retry_after=wait,
+                    attempt=attempt,
+                )
+                raise NotificationError(
+                    f"Telegram flood control: wait {wait}s before retrying",
+                    chat_id=chat_id,
+                    cause=e,
+                    retry_after=wait,
+                )
+            log.warning(
+                "Telegram flood control, backing off",
+                event="telegram_retry_after",
+                chat_id=chat_id,
+                retry_after=wait,
+                attempt=attempt,
+            )
+            await asyncio.sleep(wait)
+        except TelegramError as e:
+            log.error(
+                "Failed to deliver Telegram notification",
+                event=log_event,
+                chat_id=chat_id,
+                error=str(e),
+            )
+            raise NotificationError(str(e), chat_id=chat_id, cause=e)
 
 
 class TelegramNotifier:
@@ -38,68 +91,98 @@ class TelegramNotifier:
         self._bot = Bot(token=token)
 
     async def send(self, chat_id: str, text: str) -> None:
-        """Send a text message. Splits automatically if over Telegram's 4096 char limit."""
+        """Send a text message. Splits automatically if over Telegram's 4096 char limit.
+
+        Raises NotificationError if any chunk cannot be delivered.
+        """
         chunks = _split_message(text)
         for chunk in chunks:
-            try:
+
+            async def _markdown():
                 await self._bot.send_message(
                     chat_id=int(chat_id),
                     text=chunk,
                     parse_mode=ParseMode.MARKDOWN,
                 )
-            except TelegramError:
-                # Markdown parse failed — retry as plain text
-                try:
-                    await self._bot.send_message(chat_id=int(chat_id), text=chunk)
-                except TelegramError as e:
-                    log.error(
-                        "Failed to send message", event="send_error", error=str(e)
-                    )
+
+            async def _plain():
+                await self._bot.send_message(
+                    chat_id=int(chat_id),
+                    text=chunk,
+                )
+
+            try:
+                await _send_with_retry(
+                    chat_id, _markdown, log_event="send_error"
+                )
+            except NotificationError:
+                # Markdown parse may be the culprit; retry as plain text once.
+                await _send_with_retry(
+                    chat_id, _plain, log_event="send_plain_error"
+                )
 
     async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
-        """Send a message and return its Telegram message_id (for later editing/deletion)."""
-        try:
+        """Send a message and return its Telegram message_id (for later editing/deletion).
+
+        Raises NotificationError on delivery failure.
+        """
+        message = None
+
+        async def _send():
+            nonlocal message
             message = await self._bot.send_message(
                 chat_id=int(chat_id),
                 text=text,
             )
-            return message.message_id
-        except TelegramError as e:
-            log.error("Failed to send message", event="send_error", error=str(e))
-            return None
+
+        await _send_with_retry(chat_id, _send, log_event="send_error")
+        return message.message_id if message else None
 
     async def delete_message(self, chat_id: str, message_id: int) -> None:
-        """Delete a previously sent message by its ID."""
-        try:
-            await self._bot.delete_message(chat_id=int(chat_id), message_id=message_id)
-        except TelegramError as e:
-            log.error(
-                "Failed to delete message",
-                event="delete_error",
-                chat_id=chat_id,
-                message_id=message_id,
-                error=str(e),
+        """Delete a previously sent message by its ID.
+
+        Raises NotificationError on delivery failure.
+        """
+
+        async def _delete():
+            await self._bot.delete_message(
+                chat_id=int(chat_id), message_id=message_id
             )
 
+        await _send_with_retry(
+            chat_id, _delete, log_event="delete_error"
+        )
+
     async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
-        """Send a file (photo, document, etc.) by local path."""
+        """Send a file (photo, document, etc.) by local path.
+
+        Raises NotificationError if the file is missing or cannot be delivered.
+        """
         file_path = Path(path)
         if not file_path.exists():
-            log.error("Media file not found", event="send_media_error", path=path)
-            return
-        try:
-            suffix = file_path.suffix.lower()
+            raise NotificationError(
+                f"Media file not found: {path}", chat_id=chat_id
+            )
+
+        suffix = file_path.suffix.lower()
+
+        async def _photo():
             with open(file_path, "rb") as f:
-                if suffix in (".jpg", ".jpeg", ".png", ".webp"):
-                    await self._bot.send_photo(
-                        chat_id=int(chat_id), photo=f, caption=caption
-                    )
-                else:
-                    await self._bot.send_document(
-                        chat_id=int(chat_id), document=f, caption=caption
-                    )
-        except TelegramError as e:
-            log.error("Failed to send media", event="send_media_error", error=str(e))
+                await self._bot.send_photo(
+                    chat_id=int(chat_id), photo=f, caption=caption
+                )
+
+        async def _document():
+            with open(file_path, "rb") as f:
+                await self._bot.send_document(
+                    chat_id=int(chat_id), document=f, caption=caption
+                )
+
+        await _send_with_retry(
+            chat_id,
+            _photo if suffix in (".jpg", ".jpeg", ".png", ".webp") else _document,
+            log_event="send_media_error",
+        )
 
     async def send_with_buttons(
         self,
@@ -107,24 +190,26 @@ class TelegramNotifier:
         text: str,
         buttons: list[tuple[str, str]],
     ) -> None:
-        """Send a message with inline keyboard buttons (used for approval gates)."""
+        """Send a message with inline keyboard buttons (used for approval gates).
+
+        Raises NotificationError on delivery failure.
+        """
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton(label, callback_data=data)]
                 for label, data in buttons
             ]
         )
-        try:
+
+        async def _send():
             await self._bot.send_message(
                 chat_id=int(chat_id),
                 text=text,
                 reply_markup=keyboard,
                 parse_mode=ParseMode.MARKDOWN,
             )
-        except TelegramError as e:
-            log.error(
-                "Failed to send buttons", event="send_buttons_error", error=str(e)
-            )
+
+        await _send_with_retry(chat_id, _send, log_event="send_buttons_error")
 
     async def notify_done(self, chat_id: str, text: str) -> None:
         pass

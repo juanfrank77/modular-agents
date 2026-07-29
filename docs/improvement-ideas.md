@@ -69,7 +69,7 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 
 ## 4. Reliability & error handling
 
-- **Notifier failures are invisible to callers.** `send`/`send_media`/`send_with_buttons` log and return `None` (`core/notifier.py:52-55, 99-100, 122-125`). If the approval-button message fails to send, `ApprovalGate` waits on an event that can never fire → guaranteed timeout-deny with no diagnosis. Return success/raise, and handle Telegram `RetryAfter` (flood control) with backoff instead of dropping.
+- **Notifier failures are invisible to callers.** — **DONE (2026-07-28)**: `core/protocols.py` now defines `NotificationError` and the `Notifier` protocol documents that delivery methods raise on failure. `core/notifier.py` `_send_with_retry()` retries on Telegram `RetryAfter` with backoff and raises `NotificationError` for unrecoverable errors or excessive flood waits. `TelegramNotifier.send`/`send_media`/`send_with_buttons`/`send_and_get_id`/`delete_message` now raise instead of swallowing. `ApprovalGate.request_approval()` (`core/safety.py`) catches delivery failures, returns `False` immediately, cleans up the orphan event, and attempts a plain-text fallback so the user sees the failure instead of a silent timeout-deny.
 - **Railway health parsing → hourly alert spam.** — **DONE (2026-07-28)**:  `healthy` requires status ∈ `("ACTIVE","SUCCESS","DEPLOYED")` parsed by substring-matching free-text CLI output (`railway.py:292, 301-317`). If the CLI output format shifts, the hourly `incident_watchdog` fires forever. Use `railway --json` where available; test the parsers.
 - **`telegram_allowed_chat_ids[0]` as the universal scheduled-message target**  — **DONE (2026-07-28)**: — empty list → `chat_id=""` and scheduled sends silently vanish. Every agent copy-pastes this landmine (business `agent.py:310`, devops `:455`, wellbeing, librarian, projects). Fix once in `BaseAgent` (see 7.1).
 - **Storage opens a fresh connection (and re-derives the SQLCipher key) on every query** — **DONE (2026-07-28)**: `Storage` now keeps a single long-lived `aiosqlite.Connection` opened during `init()` and reused for every query (`core/storage.py`). The SQLCipher key is applied once at connection setup, and `PRAGMA busy_timeout = 5000` avoids transient lock contention with `StateStore`'s per-query connections. `get_or_create_session` uses `INSERT OR IGNORE` to close the old check-then-insert race. `Storage.close()` is called from `main.py`'s shutdown `finally` block.
@@ -139,9 +139,9 @@ Per-agent model overrides (`BUSINESS_AGENT_MODEL` etc., `core/config.py`, consum
 | Phase | Theme | Items | Status |
 |---|---|---|---|
 | A — make it real | Tools actually execute | 1.1, 1.2, 2.1 | 1.1, 1.2, 2.1 ✅ all done — Phase A complete |
-| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ done; rest of 4 open |
-| C — make it usable | Routing + interface parity | 1.3, 6 (CLI @agent, agent indicator), echo removal | 1.3 ✅ done incl. CLI @agent; rest of 6 open |
+| B — make it survive | Restart persistence + notifier honesty | 1.4, 4 (notifier, chat_ids[0]), storage connection reuse | 1.4 ✅ done |
+| C — make it usable | Routing + interface parity | 1.3, 6 (CLI @agent, agent indicator), echo removal | 1.3 ✅ done incl. CLI @agent |
 | D — make it safe | Trust model + creator gate + systemd hardening | 3 (lockout recovery done) | open |
-| E — make it last | Tests, CI, backups, FTS5, retention | 8, 5 | open |
+| E — make it last | Tests, CI, backups, FTS5, retention | 8, 5 | done |
 
 Quick wins doable in an afternoon: ~~declarative `SCHEDULES` on BaseAgent~~, ~~composio-anthropic in requirements~~ (done), ~~CLI @agent parsing~~ (done), ~~time.monotonic() in rate limiter~~ (done), ~~unencrypted-DB warning~~ (done), ~~StartLimitBurst → [Unit]~~ (done), ~~attempts_remaining() accessor~~ (done), ~~RUNBOOK grep fix~~ (done), ~~duplicate Telegram handler removal~~ (done), ~~echo debug-gate~~ (done), ~~admin unlock endpoint~~ (done), ~~agent auto-discovery~~ (done), ~~scheduler job-ID collisions~~ (done), §2 (LLM layer) fully closed, §8's core unit-test suite gap closed.

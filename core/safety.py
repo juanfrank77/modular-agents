@@ -25,6 +25,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
+from core.protocols import NotificationError
 
 if TYPE_CHECKING:
     from core.protocols import Notifier
@@ -317,14 +318,37 @@ class ApprovalGate:
                 action_type.name if action_type else "",
             )
 
-        await self._notifier.send_with_buttons(
-            chat_id=chat_id,
-            text=f"*Approval Required*\n\n{description}",
-            buttons=[
-                ("Approve", f"approve:{approval_id}"),
-                ("Deny", f"deny:{approval_id}"),
-            ],
-        )
+        try:
+            await self._notifier.send_with_buttons(
+                chat_id=chat_id,
+                text=f"*Approval Required*\n\n{description}",
+                buttons=[
+                    ("Approve", f"approve:{approval_id}"),
+                    ("Deny", f"deny:{approval_id}"),
+                ],
+            )
+        except NotificationError as e:
+            log.error(
+                "Approval request could not be delivered",
+                event="approval_delivery_failed",
+                approval_id=approval_id,
+                chat_id=chat_id,
+                error=str(e),
+            )
+            # Clean up the pending state so the gate does not wait on an event
+            # that will never fire, then try to inform the user via plain text.
+            self._pending.pop(approval_id, None)
+            self._results.pop(approval_id, None)
+            if self._state_store:
+                await self._state_store.delete_pending_approval(approval_id)
+            try:
+                await self._notifier.send(
+                    chat_id,
+                    f"Could not send approval request: {e}",
+                )
+            except NotificationError:
+                pass
+            return False
 
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
