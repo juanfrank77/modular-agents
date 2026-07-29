@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime, time
 from typing import TYPE_CHECKING
 
+from core.timezone import as_user_timezone, now_in_user_timezone
+
 if TYPE_CHECKING:
     from core.config import Settings
 
@@ -33,10 +35,15 @@ def _in_window(now_time: time, start_str: str, end_str: str) -> bool:
 
 
 def is_quiet_hours(settings: "Settings", now: datetime | None = None) -> str | None:
-    """Return the active quiet-hours window name, or None if outside all windows."""
+    """Return the active quiet-hours window name, or None if outside all windows.
+
+    *now* is evaluated in the user's configured timezone (settings.user_timezone).
+    Naive datetimes are assumed to be in that timezone.
+    """
     if not settings.quiet_hours_enabled:
         return None
-    now_time = (now or datetime.now()).time()
+    user_now = as_user_timezone(now or now_in_user_timezone(settings), settings)
+    now_time = user_now.time()
     for window in settings.quiet_hours_windows:
         if _in_window(now_time, window["start"], window["end"]):
             return window["name"]

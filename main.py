@@ -118,6 +118,7 @@ async def bootstrap():
 
     skill_loader = SkillLoader(min_score=settings.skill_min_score)
     _scheduler.set_heartbeat_minutes(settings.heartbeat_interval_minutes)
+    _scheduler.set_timezone(settings.user_timezone)
     _scheduler.configure_jobstore(settings.scheduler_db_path)
 
     bus = MessageBus(llm=llm, classifier_model=settings.classifier_model, state_store=state_store)

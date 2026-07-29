@@ -18,6 +18,7 @@ import pytest
 
 from core.protocols import AgentEvent, EventType
 from core.scheduler import Scheduler, _fire_cron_job
+from zoneinfo import ZoneInfo
 
 
 class TestAddCronJobIsPicklable:
@@ -138,3 +139,34 @@ class TestSetHeartbeatMinutes:
         s = Scheduler()
         s.set_heartbeat_minutes(15)
         assert s._heartbeat_minutes == 15
+
+
+class TestSetTimezone:
+    """Scheduler timezone controls when cron expressions fire."""
+
+    def test_constructor_defaults_to_utc(self):
+        s = Scheduler()
+        assert s._timezone == ZoneInfo("UTC")
+
+    def test_set_timezone_updates_zone(self):
+        s = Scheduler()
+        s.set_timezone("America/Denver")
+        assert s._timezone == ZoneInfo("America/Denver")
+
+    def test_set_timezone_falls_back_to_utc_for_invalid_name(self):
+        s = Scheduler()
+        s.set_timezone("NotAReal/Timezone")
+        assert s._timezone == ZoneInfo("UTC")
+
+    def test_add_cron_job_uses_user_timezone(self):
+        s = Scheduler()
+        s.set_timezone("America/Denver")
+        event = AgentEvent(
+            type=EventType.SCHEDULED_TASK,
+            agent_name="wellbeing",
+            chat_id="123",
+            data={"task": "morning_nudge"},
+        )
+        s.add_cron_job(cron="0 7 * * *", event=event)
+        job = s._scheduler.get_job("wellbeing_morning_nudge_0 7 * * *")
+        assert job.trigger.timezone == ZoneInfo("America/Denver")

@@ -25,13 +25,14 @@ from __future__ import annotations
 import json
 import random
 import subprocess
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agents.base import BaseAgent
 from core.logger import get_logger
 from core.protocols import AgentEvent, AgentResponse, EventType, Message
+from core.timezone import as_user_timezone, now_in_user_timezone
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -118,12 +119,13 @@ class WellbeingAgent(BaseAgent):
         if not sent_at:
             return False
         try:
-            return datetime.fromisoformat(sent_at).date() == date.today()
+            parsed = as_user_timezone(datetime.fromisoformat(sent_at), self.settings)
+            return parsed.date() == now_in_user_timezone(self.settings).date()
         except Exception:
             return False
 
     def _pick_cyclic(self, messages: list[str]) -> str:
-        day_num = datetime.now().timetuple().tm_yday
+        day_num = now_in_user_timezone(self.settings).timetuple().tm_yday
         return messages[day_num % len(messages)]
 
     def _pick_message(self, messages: list[str]) -> str:
@@ -215,10 +217,10 @@ class WellbeingAgent(BaseAgent):
         msg = self._build_morning_message(is_weekend)
 
         await self._send_to_all_chats(msg)
-        state["morning_nudge_sent_at"] = datetime.now().isoformat()
+        state["morning_nudge_sent_at"] = now_in_user_timezone(self.settings).isoformat()
         weekly = state.setdefault("weekly_stats", {})
         routine_days = weekly.setdefault("routine_days", [])
-        today_str = date.today().isoformat()
+        today_str = now_in_user_timezone(self.settings).date().isoformat()
         if today_str not in routine_days:
             routine_days.append(today_str)
         self._save_state(state)
@@ -228,7 +230,7 @@ class WellbeingAgent(BaseAgent):
     # ── Morning follow-up ───────────────────────────────────────────────────
 
     async def _do_followup(self, event: AgentEvent) -> AgentResponse:
-        if datetime.now().weekday() >= 5:
+        if now_in_user_timezone(self.settings).weekday() >= 5:
             return AgentResponse(text="", agent_name=self.name)
         if not self.should_notify("wellbeing-nudge"):
             return AgentResponse(text="", agent_name=self.name)
@@ -238,7 +240,7 @@ class WellbeingAgent(BaseAgent):
 
         msg = "Time to move."
         await self._send_to_all_chats(msg)
-        state["morning_followup_sent_at"] = datetime.now().isoformat()
+        state["morning_followup_sent_at"] = now_in_user_timezone(self.settings).isoformat()
         self._save_state(state)
         log.info("Followup nudge sent", event="wellbeing_followup")
         return AgentResponse(text=msg, agent_name=self.name)
@@ -257,7 +259,7 @@ class WellbeingAgent(BaseAgent):
         msg = self._pick_cyclic(_EVENING_MESSAGES)
 
         await self._send_to_all_chats(msg)
-        state["evening_nudge_sent_at"] = datetime.now().isoformat()
+        state["evening_nudge_sent_at"] = now_in_user_timezone(self.settings).isoformat()
         self._save_state(state)
         log.info("Evening nudge sent", event="wellbeing_evening")
         return AgentResponse(text=msg, agent_name=self.name)
@@ -275,7 +277,7 @@ class WellbeingAgent(BaseAgent):
         msg = self._pick_cyclic(_BEDTIME_MESSAGES)
 
         await self._send_to_all_chats(msg)
-        state["bedtime_nudge_sent_at"] = datetime.now().isoformat()
+        state["bedtime_nudge_sent_at"] = now_in_user_timezone(self.settings).isoformat()
         self._save_state(state)
         log.info("Bedtime nudge sent", event="wellbeing_bedtime")
         return AgentResponse(text=msg, agent_name=self.name)
@@ -287,7 +289,7 @@ class WellbeingAgent(BaseAgent):
             return AgentResponse(text="", agent_name=self.name)
         state = self._load_state()
         weekly = state.get("weekly_stats", {})
-        today = date.today()
+        today = now_in_user_timezone(self.settings).date()
         monday = today - timedelta(days=today.weekday())
         week_dates = [monday + timedelta(days=i) for i in range(7)]
         total_days = min(7, (today - monday).days + 1)
@@ -397,7 +399,7 @@ class WellbeingAgent(BaseAgent):
         routine_days = weekly.get("routine_days", [])
         streak = weekly.get("streak", 0)
 
-        today = date.today()
+        today = now_in_user_timezone(self.settings).date()
         monday = today - timedelta(days=today.weekday())
         week_dates = [monday + timedelta(days=i) for i in range(7)]
         week_strs = [d.isoformat() for d in week_dates]
@@ -422,7 +424,7 @@ class WellbeingAgent(BaseAgent):
             ts = state.get(key)
             if ts:
                 try:
-                    dt = datetime.fromisoformat(ts)
+                    dt = as_user_timezone(datetime.fromisoformat(ts), self.settings)
                     return f"Last {key.replace('_sent_at', '').replace('_', ' ')}: {dt.strftime('%b %d at %H:%M')}."
                 except Exception:
                     pass

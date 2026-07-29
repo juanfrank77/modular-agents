@@ -37,6 +37,7 @@ def _make_settings(**overrides):
     s.wellbeing_wake_time = overrides.get("wake_time", "07:00")
     s.wellbeing_bedtime = overrides.get("bedtime", "23:00")
     s.telegram_allowed_chat_ids = overrides.get("chat_ids", ["123"])
+    s.user_timezone = overrides.get("user_timezone", "UTC")
     return s
 
 
@@ -175,7 +176,8 @@ class TestWellbeingAgentHelpers:
 
     def test_already_sent_today_true_for_todays_timestamp(self):
         agent = self._make_agent()
-        state = {"morning_nudge_sent_at": datetime.now().isoformat()}
+        from core.timezone import now_in_user_timezone
+        state = {"morning_nudge_sent_at": now_in_user_timezone(agent.settings).isoformat()}
         assert agent._already_sent_today(state, "morning_nudge_sent_at") is True
 
     def test_already_sent_today_false_for_yesterday(self):
@@ -266,7 +268,8 @@ class TestWellbeingAgentHandle:
     async def test_morning_nudge_skips_if_already_sent(self):
         agent = self._make_agent()
         event = self._make_event("wellbeing_morning_weekday")
-        state = {"morning_nudge_sent_at": datetime.now().isoformat()}
+        from core.timezone import now_in_user_timezone
+        state = {"morning_nudge_sent_at": now_in_user_timezone(agent.settings).isoformat()}
         with (
             patch.object(agent, "_load_state", return_value=state),
             patch.object(agent, "should_notify", return_value=True),

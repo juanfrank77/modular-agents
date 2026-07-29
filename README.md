@@ -331,6 +331,7 @@ Options: `read_only` | `supervised` | `autonomous`
 The Wellbeing Agent respects quiet hours to avoid sending nudges at inconvenient times. Configure in `.env`:
 
 ```
+USER_TIMEZONE=UTC                           # IANA timezone for schedules and quiet hours
 QUIET_HOURS_ENABLED=true                    # toggle quiet hours on/off
 QUIET_HOURS_WINDOWS=morning_routine,evening # active window names (comma-separated)
 QUIET_HOURS_MORNING_ROUTINE_START=07:00     # morning routine window start
@@ -342,7 +343,7 @@ QUIET_HOURS_EVENING_ALLOWED=wellbeing-nudge,emergency  # allowed during evening
 EMERGENCY_KEYWORDS=server_down,security,data_loss,payment_failure  # bypass all quiet hours
 ```
 
-The Wellbeing Agent is autonomous but will skip nudges if they fall within quiet hours. Emergency keywords (e.g., `server_down`) always bypass quiet hours.
+The Wellbeing Agent is autonomous but will skip nudges if they fall within quiet hours. Emergency keywords (e.g., `server_down`) always bypass quiet hours. Set `USER_TIMEZONE` to an IANA name such as `America/Denver` so scheduled cron jobs and quiet-hours gating use the same wall-clock time; otherwise UTC is used.
 
 Windows are arbitrary and named — add your own by listing it in `QUIET_HOURS_WINDOWS` and setting `QUIET_HOURS_<NAME>_{START,END,ALLOWED}`, e.g. `QUIET_HOURS_WINDOWS=morning_routine,evening,focus_block` with `QUIET_HOURS_FOCUS_BLOCK_START=13:00`.
 
