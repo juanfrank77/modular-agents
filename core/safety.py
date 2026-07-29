@@ -259,7 +259,7 @@ class RateLimiter:
 # Approval Gate
 # ──────────────────────────────────────────────
 
-_DEFAULT_TIMEOUT = 300  # fallback when action type not in timeouts dict
+_DEFAULT_TIMEOUT = 300.0  # fallback when action type not in timeouts dict
 
 
 class ApprovalGate:
@@ -271,13 +271,13 @@ class ApprovalGate:
     def __init__(
         self,
         notifier: "Notifier",
-        timeouts: dict[str, int] | None = None,
+        timeouts: dict[str, float] | None = None,
         state_store: "StateStore | None" = None,
-        default_timeout: int = _DEFAULT_TIMEOUT,
+        default_timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         self._notifier = notifier
-        self._timeouts: dict[str, int] = timeouts or {}
-        self._pending: dict[str, asyncio.Event] = {}
+        self._timeouts: dict[str, float] = timeouts or {}
+        self._pending: dict[str, tuple[str, asyncio.Event]] = {}
         self._results: dict[str, bool] = {}
         self._state_store = state_store
         self._default_timeout = default_timeout
@@ -308,7 +308,7 @@ class ApprovalGate:
 
         approval_id = str(uuid.uuid4())[:8]
         event = asyncio.Event()
-        self._pending[approval_id] = event
+        self._pending[approval_id] = (chat_id, event)
 
         if self._state_store:
             await self._state_store.save_pending_approval(
@@ -351,6 +351,7 @@ class ApprovalGate:
             return False
 
         try:
+            _, event = self._pending[approval_id]
             await asyncio.wait_for(event.wait(), timeout=timeout)
             approved = self._results.pop(approval_id, False)
         except asyncio.TimeoutError:
@@ -392,18 +393,44 @@ class ApprovalGate:
             )
         await self._state_store.clear_pending_approvals()
 
-    def resolve(self, approval_id: str, approved: bool) -> None:
-        """Called from Telegram callback handler when user clicks a button."""
-        self._results[approval_id] = approved
-        event = self._pending.get(approval_id)
-        if event:
-            event.set()
-            log.info(
-                "Approval resolved",
-                event="approval_resolved",
+    def resolve(self, approval_id: str, chat_id: str, approved: bool) -> bool:
+        """Called from Telegram callback handler when user clicks a button.
+
+        The ``chat_id`` of the caller must match the chat the approval was
+        sent to. This prevents a forwarded approval message (or a guessed
+        approval id) from being resolved by a different chat.
+        """
+        entry = self._pending.get(approval_id)
+        if entry is None:
+            log.warning(
+                "Approval resolve for unknown or expired id",
+                event="approval_resolve_unknown",
                 approval_id=approval_id,
-                approved=approved,
+                chat_id=chat_id,
             )
+            return False
+
+        expected_chat_id, event = entry
+        if chat_id != expected_chat_id:
+            log.warning(
+                "Approval resolve from wrong chat",
+                event="approval_resolve_unauthorized",
+                approval_id=approval_id,
+                expected_chat_id=expected_chat_id,
+                chat_id=chat_id,
+            )
+            return False
+
+        self._results[approval_id] = approved
+        event.set()
+        log.info(
+            "Approval resolved",
+            event="approval_resolved",
+            approval_id=approval_id,
+            chat_id=chat_id,
+            approved=approved,
+        )
+        return True
 
 
 # ──────────────────────────────────────────────
@@ -418,12 +445,12 @@ class Safety:
         self,
         notifier: "Notifier",
         allowed_ids: list[str],
-        approval_timeouts: dict[str, int] | None = None,
+        approval_timeouts: dict[str, float] | None = None,
         extra_blocked_patterns: list[str] | None = None,
         rate_limit_rpm: int = 20,
         state_store: "StateStore | None" = None,
         pairing_max_failed_attempts: int | None = None,
-        approval_default_timeout: int = _DEFAULT_TIMEOUT,
+        approval_default_timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         self.pairing = PairingManager(
             allowed_ids,

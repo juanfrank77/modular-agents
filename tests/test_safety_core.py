@@ -141,7 +141,7 @@ class TestApprovalGateTimeout:
         async def approve_shortly():
             await asyncio.sleep(0.01)
             approval_id = next(iter(gate._pending))
-            gate.resolve(approval_id, approved=True)
+            gate.resolve(approval_id, "123", approved=True)
 
         task = asyncio.create_task(approve_shortly())
         approved = await gate.request_approval(
@@ -157,7 +157,7 @@ class TestApprovalGateTimeout:
         async def deny_shortly():
             await asyncio.sleep(0.01)
             approval_id = next(iter(gate._pending))
-            gate.resolve(approval_id, approved=False)
+            gate.resolve(approval_id, "123", approved=False)
 
         task = asyncio.create_task(deny_shortly())
         approved = await gate.request_approval(
@@ -174,7 +174,7 @@ class TestApprovalGateTimeout:
         async def approve_shortly():
             await asyncio.sleep(0.01)
             approval_id = next(iter(gate._pending))
-            gate.resolve(approval_id, approved=True)
+            gate.resolve(approval_id, "123", approved=True)
 
         task = asyncio.create_task(approve_shortly())
         approved = await gate.request_approval(
@@ -263,7 +263,7 @@ class TestApprovalGateDeliveryFailure:
         async def approve_shortly():
             await asyncio.sleep(0.01)
             approval_id = next(iter(gate._pending))
-            gate.resolve(approval_id, approved=True)
+            gate.resolve(approval_id, "123", approved=True)
 
         task = asyncio.create_task(approve_shortly())
         approved = await gate.request_approval(
@@ -273,3 +273,61 @@ class TestApprovalGateDeliveryFailure:
 
         assert approved is True
         notifier.send_with_buttons.assert_awaited_once()
+
+
+class TestApprovalGateAuthentication:
+    @pytest.mark.asyncio
+    async def test_resolve_with_wrong_chat_id_returns_false(self):
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 5})
+
+        async def wrong_chat_shortly():
+            await asyncio.sleep(0.01)
+            approval_id = next(iter(gate._pending))
+            return gate.resolve(approval_id, "999", approved=True)
+
+        task = asyncio.create_task(wrong_chat_shortly())
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+        resolved = await task
+
+        assert resolved is False
+        assert approved is False
+
+    @pytest.mark.asyncio
+    async def test_resolve_unknown_approval_id_returns_false(self):
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 5})
+
+        async def resolve_unknown():
+            await asyncio.sleep(0.01)
+            return gate.resolve("nosuchid", "123", approved=True)
+
+        task = asyncio.create_task(resolve_unknown())
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+        resolved = await task
+
+        assert resolved is False
+        assert approved is False
+
+    @pytest.mark.asyncio
+    async def test_wrong_chat_id_does_not_block_correct_chat_resolution(self):
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 5})
+
+        async def attempt_and_resolve():
+            await asyncio.sleep(0.01)
+            approval_id = next(iter(gate._pending))
+            # First attempt from the wrong chat must be rejected.
+            assert gate.resolve(approval_id, "999", approved=True) is False
+            # Correct chat can still resolve it afterwards.
+            return gate.resolve(approval_id, "123", approved=True)
+
+        task = asyncio.create_task(attempt_and_resolve())
+        approved = await gate.request_approval(
+            chat_id="123", description="do a thing", action_type=ActionType.WRITE_HIGH
+        )
+        resolved = await task
+
+        assert resolved is True
+        assert approved is True
