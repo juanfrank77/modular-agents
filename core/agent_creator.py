@@ -20,12 +20,14 @@ Usage (from main.py):
 
 from __future__ import annotations
 
+import ast
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from core.logger import get_logger
 
@@ -41,6 +43,16 @@ log = get_logger("agent_creator")
 
 _SESSION_TIMEOUT = 600  # 10 minutes
 
+# Preview shown in the confirm step is capped so the message stays readable on
+# Telegram. The full generated source is written to disk only after approval.
+_PREVIEW_MAX_LINES = 60
+_PREVIEW_MAX_CHARS = 2000
+
+# Skill filenames: lowercase alphanumerics, dashes or underscores ending in .md.
+# Prevents path traversal (../, absolute paths, backslashes) since the LLM
+# controls these names.
+_SKILL_FILENAME_RE = re.compile(r"^[a-z0-9_-]+\.md$")
+
 
 # ── Wizard state ──────────────────────────────
 
@@ -54,6 +66,8 @@ class WizardSession:
     has_tools: bool = False
     skills: list[str] = field(default_factory=list)
     last_active: float = field(default_factory=time.time)
+    # Validated LLM output held between the preview and the user's approval.
+    generated: dict[str, Any] | None = None
 
     def touch(self) -> None:
         self.last_active = time.time()
@@ -186,6 +200,92 @@ def build_tools(memory: "MemoryStore") -> {class_name}Tools:
 
 # ── File writer ───────────────────────────────
 
+def _validate_generated(parsed: dict, has_tools: bool, module_name: str) -> list[str]:
+    """
+    Validate generated output *before* anything is written to disk.
+
+    Returns a list of human-readable error strings; an empty list means ok.
+    This checks shape/syntax only — it does NOT execute the code — so callers
+    can surface concrete failures to the user without risking a broken import
+    on the next restart.
+
+    `ast.parse` is the conventional "validate without executing" tool: it
+    catches SyntaxError without importing or running the module. Sandbox-level
+    safety against a malicious LLM is out of scope here; the threat this
+    addresses is accidental LLM breakage plus the missing user gate.
+    """
+    errors: list[str] = []
+
+    agent = parsed.get("agent")
+    if not isinstance(agent, dict):
+        errors.append("missing or non-object 'agent' field")
+        return errors
+
+    # Shape checks for required string fields.
+    for key in ("class_name", "module_name", "system_prompt", "agent_py"):
+        if not isinstance(agent.get(key), str) or not agent[key]:
+            errors.append(f"'agent.{key}' must be a non-empty string")
+
+    # module_name must match the wizard-assigned name so the written path
+    # can't drift from where auto-discovery will look.
+    if agent.get("module_name") != module_name:
+        errors.append(
+            f"agent.module_name {agent.get('module_name')!r} must be {module_name!r}"
+        )
+
+    # Syntax-check the generated Python without executing it.
+    agent_py = agent.get("agent_py")
+    if isinstance(agent_py, str) and agent_py:
+        try:
+            ast.parse(agent_py)
+        except SyntaxError as e:
+            errors.append(f"agent.py: SyntaxError at line {e.lineno}: {e.msg}")
+
+    # tools_stub: validate only when the user said the agent has tools.
+    tools_stub = parsed.get("tools_stub", "")
+    if has_tools:
+        if not isinstance(tools_stub, str):
+            errors.append("'tools_stub' must be a string when has_tools is true")
+        elif tools_stub:
+            # Empty stub falls back to the built-in template; only validate
+            # non-empty LLM output.
+            try:
+                ast.parse(tools_stub)
+            except SyntaxError as e:
+                errors.append(f"tools/__init__.py: SyntaxError at line {e.lineno}: {e.msg}")
+
+    # Skills: filename must be a safe, .md-only basename; no path traversal.
+    skills = parsed.get("skills")
+    if not isinstance(skills, list):
+        errors.append("'skills' must be a list")
+    else:
+        for skill in skills:
+            if not isinstance(skill, dict):
+                errors.append(f"skill entry must be an object, got {type(skill).__name__}")
+                continue
+            filename = skill.get("filename")
+            content = skill.get("content")
+            if not isinstance(filename, str) or not filename:
+                errors.append("skill: 'filename' must be a non-empty string")
+            elif filename != os.path.basename(filename) or "/" in filename or "\\" in filename:
+                # Reject any path component — the writer's own basename guard
+                # would neutralize it, but we surface it now so the user knows
+                # the LLM tried a traversal.
+                errors.append(
+                    f"skill filename {filename!r} must be a bare filename "
+                    "(no path separators or directories)"
+                )
+            elif not _SKILL_FILENAME_RE.match(filename):
+                errors.append(
+                    f"skill filename {filename!r} must be lowercase *.md "
+                    "(a-z, 0-9, _, - only)"
+                )
+            if not isinstance(content, str):
+                errors.append(f"skill {filename!r}: 'content' must be a string")
+
+    return errors
+
+
 def _write_agent_files(
     project_root: Path,
     module_name: str,
@@ -217,7 +317,15 @@ def _write_agent_files(
     skills_dir = agent_dir / "skills"
     skills_dir.mkdir(exist_ok=True)
     for skill in skills:
-        skill_file = skills_dir / skill["filename"]
+        # Defense against path traversal: reject anything that isn't a clean
+        # basename matching the allowed pattern. Validation also runs before
+        # this point, but the write path stays safe on its own.
+        filename = skill["filename"]
+        if not isinstance(filename, str) or filename != os.path.basename(filename):
+            raise ValueError(f"unsafe skill filename: {skill['filename']!r}")
+        if not _SKILL_FILENAME_RE.match(filename):
+            raise ValueError(f"unsafe skill filename: {skill['filename']!r}")
+        skill_file = skills_dir / filename
         skill_file.write_text(skill["content"], encoding="utf-8")
         created.append(str(skill_file.relative_to(project_root)))
 
@@ -324,6 +432,8 @@ class AgentCreator:
             return self._handle_tools(session, text)
         if session.step == "ask_skills":
             return await self._handle_skills(session, text)
+        if session.step == "confirm":
+            return await self._handle_confirm(session, text)
         return "Something went wrong. Send /newagent to start over."
 
     # ── Step handlers ─────────────────────────
@@ -440,6 +550,66 @@ class AgentCreator:
                 "Send */done* to generate the agent."
             )
 
+    async def _handle_confirm(self, session: WizardSession, text: str) -> str:
+        """Approval gate before writing LLM-generated files to disk."""
+        lower = text.lower().strip()
+        if lower in ("yes", "y", "ok", "confirm", "/confirm"):
+            return await self._confirm_write(session)
+        if lower in ("no", "n", "cancel", "/cancel"):
+            del self._sessions[session.chat_id]
+            return "Agent creation cancelled — nothing was written to disk."
+        return (
+            "Reply *yes* to write these files and create the agent, "
+            "or *no* to cancel without writing anything."
+        )
+
+    def _build_preview(
+        self,
+        session: WizardSession,
+        class_name: str,
+        parsed: dict,
+    ) -> str:
+        """Build the confirm-step message: file list + truncated agent.py."""
+        module_name = session.name
+        agent = parsed["agent"]
+        skills = parsed.get("skills", [])
+
+        agent_py = agent.get("agent_py", "")
+        preview_lines = agent_py.splitlines()
+        truncated = len(preview_lines) > _PREVIEW_MAX_LINES or len(
+            agent_py
+        ) > _PREVIEW_MAX_CHARS
+        preview = agent_py[:_PREVIEW_MAX_CHARS]
+        if len(preview_lines) > _PREVIEW_MAX_LINES:
+            preview = "\n".join(preview_lines[:_PREVIEW_MAX_LINES])
+        if truncated:
+            preview += "\n… (truncated — full source written only after approval)"
+
+        lines = [
+            f"📝 *Preview for {class_name}*",
+            "",
+            f"*Name:* {module_name}",
+            f"*Description:* {agent.get('description', '(none)')}",
+            f"*Autonomy:* {session.autonomy}",
+            f"*Tools:* {'yes' if session.has_tools else 'no'}",
+            f"*Skills:* {len(skills)} file(s)",
+        ]
+        for skill in skills:
+            fname = os.path.basename(str(skill.get("filename", "?")))
+            size = len(str(skill.get("content", "")))
+            lines.append(f"  • `{fname}` ({size} chars)")
+        lines.append("")
+        lines.append("*`agent.py` preview:*")
+        lines.append("```python")
+        lines.append(preview)
+        lines.append("```")
+        lines.append("")
+        lines.append(
+            "⚠️ This code will run with full process privileges on restart.\n"
+            "Reply *yes* to write it, or *no* to cancel."
+        )
+        return "\n".join(lines)
+
     # ── Generation ────────────────────────────
 
     async def _generate(self, session: WizardSession) -> str:
@@ -460,7 +630,37 @@ class AgentCreator:
                 "Please try /newagent again."
             )
 
-        # Write files
+        # Validate shape + syntax before anything touches disk.
+        errors = _validate_generated(parsed, session.has_tools, module_name)
+        if errors:
+            log.error(
+                "Generated agent failed validation",
+                event="gen_validate_error",
+                errors=errors,
+            )
+            del self._sessions[session.chat_id]
+            report = "\n".join(f"  • {e}" for e in errors)
+            return (
+                "❌ Generated agent failed validation — nothing was written.\n\n"
+                f"{report}\n\n"
+                "The model output was not safe to run. Please try /newagent again."
+            )
+
+        # Hold the validated output for the confirm step. Nothing is written yet.
+        session.generated = parsed
+        session.step = "confirm"
+        return self._build_preview(session, class_name, parsed)
+
+    async def _confirm_write(self, session: WizardSession) -> str:
+        """
+        Write the previously-validated, user-approved files to disk.
+        Called only from `_handle_confirm` after the user replies `yes`.
+        """
+        assert session.generated is not None
+        module_name = session.name
+        class_name = _to_pascal(module_name) + "Agent"
+        parsed = session.generated
+
         try:
             created = _write_agent_files(
                 project_root=self._root,
