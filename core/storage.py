@@ -203,6 +203,17 @@ class Storage:
             for r in rows
         ]
 
+    async def count_sessions(self, agent: str) -> int:
+        """Count distinct sessions that have at least one message for this agent."""
+        if self._db is None:
+            raise RuntimeError("Storage not initialised; call init() first")
+        cursor = await self._db.execute(
+            "SELECT COUNT(DISTINCT session_id) FROM messages WHERE agent = ?",
+            (agent,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
     async def save_session_summary(self, session_id: str, summary: str) -> None:
         if self._db is None:
             raise RuntimeError("Storage not initialised; call init() first")
