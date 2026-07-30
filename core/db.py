@@ -5,8 +5,9 @@ Tiny helpers shared by core/storage.py and core/state_store.py, which each
 manage their own tables in the same SQLite database file.
 """
 
-import re
 from __future__ import annotations
+
+import re
 
 
 async def apply_encryption_key(db, encryption_key: str) -> None:
