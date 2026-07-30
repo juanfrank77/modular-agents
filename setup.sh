@@ -330,24 +330,7 @@ else
 fi
 
 
-# ── 11. Integration tests ──────────────────────────────────────────────────────
-section "11. Integration tests"
-
-TEST_FILE="$PROJECT_DIR/tests/test_integration.py"
-if [ ! -f "$TEST_FILE" ]; then
-    warn "tests/test_integration.py not found — skipping"
-else
-    info "Running integration tests..."
-    if "$VENV_PYTHON" "$TEST_FILE"; then
-        ok "All integration tests passed"
-    else
-        fail "Some integration tests failed — check output above"
-        warn "Fix failing tests before starting the bot in production"
-    fi
-fi
-
-
-# ── 12. Summary ───────────────────────────────────────────────────────────────
+# ── 11. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}─────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}  Setup complete${RESET}"

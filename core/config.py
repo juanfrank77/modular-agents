@@ -254,9 +254,9 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         openai_api_key=_optional("OPENAI_API_KEY", ""),
         ollama_base_url=_optional("OLLAMA_BASE_URL", "http://localhost:11434"),
         # Optional with defaults
-        default_model=_optional("DEFAULT_MODEL", "claude-sonnet-4.6"),
+        default_model=_optional("DEFAULT_MODEL", "claude-sonnet-5"),
         default_max_tokens=int(_optional("DEFAULT_MAX_TOKENS", "2048")),
-        classifier_model=_optional("CLASSIFIER_MODEL", "claude-haiku-4.6"),
+        classifier_model=_optional("CLASSIFIER_MODEL", "claude-haiku-4.5"),
         llm_provider=_optional("LLM_PROVIDER", "").strip().lower(),
         summarize_model=_optional("SUMMARIZE_MODEL", ""),
         db_path=Path(_optional("DB_PATH", "memory/sessions.db")),

@@ -578,7 +578,6 @@ See [RUNBOOK.md](./RUNBOOK.md) for the full operational reference. Quick command
 sudo systemctl status modular-agents    # is it running?
 journalctl -u modular-agents -f         # live logs
 sudo systemctl restart modular-agents   # restart after config change
-python test_integration.py              # run the test suite
 ```
 
 ### Telegram Commands

@@ -269,7 +269,6 @@ class CLINotifier:
     async def stream_queue(
         self, chat_id: str, done_event: asyncio.Event
     ) -> AsyncIterator[tuple[str, str]]:
-        return
         yield  # type: ignore[misc]  # pragma: no cover
 
 
