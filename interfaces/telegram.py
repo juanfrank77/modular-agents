@@ -58,6 +58,7 @@ class TelegramInterface:
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(CommandHandler("model", self._on_model))
         app.add_handler(CommandHandler("planmode", self._on_planmode))
+        app.add_handler(CommandHandler("unlock", self._on_unlock))
         app.add_handler(
             CommandHandler(["newagent", "help"], self._on_command)
         )
@@ -262,6 +263,37 @@ class TelegramInterface:
                 f"Available: {', '.join(self._bus.registered_agents)}"
             )
 
+    async def _on_unlock(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        if not await self._require_paired(chat_id):
+            return
+
+        # Only pre-allowed (admin) chat IDs may clear lockouts.
+        allowed_ids = getattr(self._settings, "telegram_allowed_chat_ids", [])
+        if chat_id not in set(allowed_ids):
+            await update.message.reply_text(
+                "🔒 Only an administrator can unlock pairing lockouts."
+            )
+            return
+
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(
+                "Usage: `/unlock <chat_id>` — clears pairing lockouts for that chat."
+            )
+            return
+
+        target_chat_id = args[0].strip()
+        self._safety.pairing.unlock(target_chat_id)
+        await update.message.reply_text(
+            f"✅ Pairing lockout cleared for chat `{target_chat_id}`.",
+            parse_mode="Markdown",
+        )
+
     async def _on_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -287,6 +319,8 @@ class TelegramInterface:
                     "*Available commands*\n\n"
                     "/newagent — create a new agent interactively\n"
                     "/planmode [agent] — toggle plan mode for one or all agents\n"
+                    "/model [model-id|reset] — show or set the model override for this chat\n"
+                    "/unlock <chat_id> — clear pairing lockouts for a chat (admin only)\n"
                     "/help — show this message\n\n"
                     "Or just send a message to talk to your agents."
                 ),

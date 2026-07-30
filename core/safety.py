@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import secrets
 import time
 import uuid
 from enum import Enum, auto
@@ -74,6 +75,15 @@ class PairingManager:
     def code(self) -> str:
         return self._token
 
+    def verify_code(self, text: str) -> bool:
+        """Constant-time comparison of the supplied text against the pairing token.
+
+        Strips whitespace and lowercases both sides before comparing. The token
+        is generated as lowercase hex, but normalization keeps the check robust
+        against accidental casing differences without leaking timing.
+        """
+        return secrets.compare_digest(text.strip().lower(), self._token.lower())
+
     def is_paired(self, chat_id: str) -> bool:
         if not self._allowed_ids:
             return True  # no restrictions in dev mode
@@ -107,7 +117,7 @@ class PairingManager:
             )
             return False
 
-        if text.strip() == self._token:
+        if self.verify_code(text):
             self._paired.add(chat_id)
             self._failed_attempts.pop(chat_id, None)  # reset on success
             log.info("Chat paired", event="pairing_success", chat_id=chat_id)
