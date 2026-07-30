@@ -123,9 +123,6 @@ git pull
  source .venv/bin/activate
  uv pip install -r requirements.txt
 
-# Run tests before restarting
-python test_integration.py
-
 # Restart the service
 sudo systemctl restart modular-agents
 

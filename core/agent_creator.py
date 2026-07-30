@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from core.llm import LLMProvider
+    from core.protocols import LLMProvider
 
 
 class _Notifier(Protocol):

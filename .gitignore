@@ -82,3 +82,4 @@ memory/context/*.md
 
 ## Agent runtime state — written by the running service, never committed
 agents/*/state.json
+.kilo/
