@@ -287,6 +287,7 @@ class HTTPNotifier:
         self._buffers: dict[str, list[str]] = {}
         self._queues: dict[str, asyncio.Queue[tuple[str, str]]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._streaming: set[str] = set()
 
     def _get_queue(self, chat_id: str) -> asyncio.Queue[tuple[str, str]]:
         if chat_id not in self._queues:
@@ -298,9 +299,37 @@ class HTTPNotifier:
             self._locks[chat_id] = asyncio.Lock()
         return self._locks[chat_id]
 
+    def start_stream(self, chat_id: str) -> None:
+        """Mark chat_id as SSE-mode: send()/notify_done() route to _queues.
+
+        Call before creating the queue-consumer task; pair with end_stream()
+        in a finally block on the *caller's* generator frame. Cleanup can't
+        live inside stream_queue()'s own finally: when a client disconnects,
+        ASGI closes the endpoint generator via GeneratorExit, and `async for`
+        does not propagate that close into the inner generator it's
+        iterating — stream_queue() would be left suspended, its finally
+        never run, leaking both _streaming and _queues (#30).
+        """
+        self._streaming.add(chat_id)
+        self._get_queue(chat_id)
+
+    def end_stream(self, chat_id: str) -> None:
+        """Undo start_stream(): stop SSE-mode and drop the queue entry."""
+        self._streaming.discard(chat_id)
+        self._queues.pop(chat_id, None)
+
     async def send(self, chat_id: str, text: str) -> None:
-        self._buffers.setdefault(chat_id, []).append(text)
-        await self._get_queue(chat_id).put(("notification", text))
+        """Write to whichever structure the chat's active consumer reads.
+
+        Polling clients (/message) read _buffers via get_and_clear(); SSE
+        clients (/message/stream) read _queues via stream_queue(). Writing to
+        both unconditionally left the unread structure growing forever
+        (#33), so route to the active one only.
+        """
+        if chat_id in self._streaming:
+            await self._get_queue(chat_id).put(("notification", text))
+        else:
+            self._buffers.setdefault(chat_id, []).append(text)
 
     async def send_media(self, chat_id: str, path: str, caption: str = "") -> None:
         msg = f"[media: {path}]" + (f" {caption}" if caption else "")
@@ -323,7 +352,8 @@ class HTTPNotifier:
 
     async def notify_done(self, chat_id: str, text: str) -> None:
         """Signal end-of-stream for SSE consumers."""
-        await self._get_queue(chat_id).put(("done", text))
+        if chat_id in self._streaming:
+            await self._get_queue(chat_id).put(("done", text))
 
     async def stream_queue(
         self,
@@ -331,12 +361,16 @@ class HTTPNotifier:
         done_event: asyncio.Event,
     ) -> AsyncIterator[tuple[str, str]]:
         """Yield (event_type, text) tuples from the queue until done_event is set
-        and the queue is drained. Used by the SSE endpoint."""
-        while not done_event.is_set() or not self._get_queue(chat_id).empty():
+        and the queue is drained. Used by the SSE endpoint.
+
+        Callers must have already called start_stream(chat_id), and must
+        call end_stream(chat_id) in a finally block of their own — see
+        start_stream()'s docstring for why cleanup can't live here.
+        """
+        queue = self._get_queue(chat_id)
+        while not done_event.is_set() or not queue.empty():
             try:
-                msg_type, text = await asyncio.wait_for(
-                    self._get_queue(chat_id).get(), timeout=0.5
-                )
+                msg_type, text = await asyncio.wait_for(queue.get(), timeout=0.5)
                 yield msg_type, text
             except asyncio.TimeoutError:
                 continue

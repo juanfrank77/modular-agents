@@ -35,7 +35,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -385,27 +385,54 @@ class HTTPInterface:
             )
 
             async def sse_events():
-                # Run publish in background while we stream events
-                async def publish_task():
-                    response = await self._bus.publish(event)
-                    await self._notifier.notify_done(chat_id, response.text if response else "")
+                done_event = asyncio.Event()
+                result: dict[str, Any] = {}
 
-                task = asyncio.create_task(publish_task())
+                # Mark this chat_id as SSE-mode before anything can call
+                # notifier.send()/notify_done() for it, and guarantee the
+                # matching cleanup runs even on client disconnect — Starlette
+                # closes this generator via GeneratorExit, and try/finally on
+                # *this* frame is honored even though the nested stream_queue()
+                # generator's own finally would not be (see notifier.py).
+                self._notifier.start_stream(chat_id)
+                try:
+                    # Run publish in background while we stream events. The
+                    # completion signal MUST fire even if publish() raises —
+                    # otherwise stream_queue()'s `while not done_event.is_set()`
+                    # spins on its 0.5s timeout forever and the client hangs.
+                    async def publish_task():
+                        text = ""
+                        try:
+                            response = await self._bus.publish(event)
+                            result["response"] = response
+                            text = response.text if response else ""
+                        except Exception as e:
+                            log.error(
+                                "SSE publish_task failed",
+                                event="sse_publish_error",
+                                chat_id=chat_id,
+                                error=str(e),
+                            )
+                            text = f"Error: {e}"
+                        finally:
+                            await self._notifier.notify_done(chat_id, text)
+                            done_event.set()
 
-                queue = self._notifier._get_queue(chat_id)
-                while True:
-                    try:
-                        msg_type, msg_text = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    task = asyncio.create_task(publish_task())
+
+                    async for msg_type, msg_text in self._notifier.stream_queue(
+                        chat_id, done_event
+                    ):
                         if msg_type == "done":
                             # This is the final response from notify_done
-                            yield f"data: {json.dumps({'type': 'response', 'text': msg_text, 'agent': '', 'success': True})}\n\n"
+                            response = result.get("response")
+                            yield f"data: {json.dumps({'type': 'response', 'text': msg_text, 'agent': response.agent_name if response else '', 'success': response.success if response else False})}\n\n"
                             yield "data: {\"type\": \"done\"}\n\n"
-                            break
-                        yield f"data: {json.dumps({'type': msg_type, 'text': msg_text})}\n\n"
-                    except asyncio.TimeoutError:
-                        if task.done():
-                            break
-                await task  # Clean up the task
+                        else:
+                            yield f"data: {json.dumps({'type': msg_type, 'text': msg_text})}\n\n"
+                    await task  # Clean up the task
+                finally:
+                    self._notifier.end_stream(chat_id)
 
             return StreamingResponse(sse_events(), media_type="text/event-stream")
 
