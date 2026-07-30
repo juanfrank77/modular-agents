@@ -15,8 +15,7 @@
 #   8. Installs and enables the systemd service (Linux only)
 #   9. Installs and enables a daily backup timer (Linux only)
 #   10. Installs log rotation for the manual run path (Linux only)
-#   11. Runs the integration test suite
-#   12. Prints a final status summary
+#   11. Prints a final status summary
 #
 # Usage:
 #   chmod +x setup.sh
