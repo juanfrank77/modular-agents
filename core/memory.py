@@ -195,13 +195,14 @@ class Memory(MemoryStore):
             last_period = truncated.rfind(". ")
             if last_period > _MAX_SOLUTION_CHARS * 0.7:
                 truncated = truncated[:last_period + 1]
+            original_len = len(content)
             content = truncated + "\n\n_[truncated to fit memory constraints]_"
             log.info(
                 "Solution truncated",
                 event="solution_truncated",
                 agent=agent,
                 topic=topic,
-                original_chars=len(content),
+                original_chars=original_len,
             )
 
         # Write the solution file
@@ -400,10 +401,8 @@ class Memory(MemoryStore):
         time since last consolidation.
         """
         # Check session count
-        recent = await self._storage.search_history(
-            "_", agent=agent, limit=_CONSOLIDATION_MIN_SESSIONS
-        )
-        if len(recent) < _CONSOLIDATION_MIN_SESSIONS:
+        session_count = await self._storage.count_sessions(agent)
+        if session_count < _CONSOLIDATION_MIN_SESSIONS:
             return False
 
         # Check time since last consolidation (stored as a marker in the index)
@@ -603,7 +602,12 @@ def _extract_summary(content: str) -> str:
     """
     for line in content.splitlines():
         line = line.strip()
-        if line and not line.startswith("#") and not line.startswith("_"):
+        if (
+            line
+            and not line.startswith("#")
+            and not line.startswith("_")
+            and not line.startswith("<!--")
+        ):
             return line[:150]
     return content[:150].replace("\n", " ")
 
