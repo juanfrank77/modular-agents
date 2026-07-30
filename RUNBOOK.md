@@ -27,7 +27,7 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-`setup.sh` performs a full automated setup: Python venv, dependencies, directory creation, `.env` validation, systemd service installation (the `modular-agents.service` template is bundled in the repo), and integration tests.
+`setup.sh` performs a full automated setup: Python venv, dependencies, directory creation, `.env` validation, and systemd service installation (the `modular-agents.service` template is bundled in the repo).
 
 If you're on WSL2 without systemd:
 ```bash
