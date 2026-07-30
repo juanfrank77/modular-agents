@@ -218,6 +218,21 @@ class TestHTTPPairRateLimit:
         assert r3.status_code == 429
         assert "Rate limit exceeded" in r3.json()["detail"]
 
+    @pytest.mark.asyncio
+    async def test_pair_rate_limits_wrong_code_attempts(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123", http_pair_rate_limit_rpm=2)
+        client = TestClient(interface.app)
+
+        # Wrong-code attempts must consume the rate-limit bucket too.
+        r1 = client.post("/pair", json={"code": "wrong"})
+        r2 = client.post("/pair", json={"code": "wrong"})
+        assert r1.status_code == 403
+        assert r2.status_code == 403
+
+        r3 = client.post("/pair", json={"code": "wrong"})
+        assert r3.status_code == 429
+        assert "Rate limit exceeded" in r3.json()["detail"]
+
 
 class TestHTTPModelEndpoints:
     @pytest.mark.asyncio

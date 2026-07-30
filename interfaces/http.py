@@ -158,14 +158,15 @@ class HTTPInterface:
 
         @app.post("/pair")
         async def pair(req: PairRequest, request: Request):
-            if not self._safety.pairing.verify_code(req.code):
-                raise HTTPException(status_code=403, detail="invalid code")
-
-            # Rate-limit pairing by client IP to slow down brute-force / token minting.
+            # Rate-limit pairing by client IP BEFORE validating the code so wrong-code
+            # brute-force attempts consume the bucket too.
             client_host = request.client.host if request.client else "unknown"
             pair_limit_msg = self._pair_rate_limiter.check(f"pair:{client_host}")
             if pair_limit_msg:
                 raise HTTPException(status_code=429, detail=pair_limit_msg)
+
+            if not self._safety.pairing.verify_code(req.code):
+                raise HTTPException(status_code=403, detail="invalid code")
 
             # Enforce a hard cap on total active HTTP sessions so one leaked code
             # cannot mint tokens forever.

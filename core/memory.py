@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.logger import get_logger
@@ -90,6 +91,9 @@ class Memory(MemoryStore):
         self._context_dir = settings.memory_context_dir
         self._solutions_dir = settings.memory_solutions_dir
         self._consolidation_lock = asyncio.Lock()
+        # path -> (mtime, content, content_tokens) — avoids re-reading
+        # unchanged solution files on every message.
+        self._solution_cache: dict[Path, tuple[float, str, set[str]]] = {}
 
     # ── Layer 1: SQLite (delegates to Storage) ──
 
@@ -211,9 +215,35 @@ class Memory(MemoryStore):
             summary=_extract_summary(content)
         )
 
+    def _load_solution_file(
+        self, solution_file: Path
+    ) -> tuple[str, set[str]] | None:
+        """Load (and cache) a single solution file's content + tokens, keyed
+        by mtime so edits are picked up without a stale cache hit."""
+        try:
+            mtime = solution_file.stat().st_mtime
+        except OSError:
+            return None
+
+        cached = self._solution_cache.get(solution_file)
+        if cached is not None and cached[0] == mtime:
+            return cached[1], cached[2]
+
+        try:
+            content = solution_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            return None
+        if not content:
+            self._solution_cache.pop(solution_file, None)
+            return None
+
+        result = (content, tokenize(content))
+        self._solution_cache[solution_file] = (mtime, *result)
+        return result
+
     async def _get_relevant_solutions(self, task: str) -> str:
         """
-        Load solution files whose filenames or first lines match the task.
+        Load solution files whose filenames match the task.
         Returns concatenated content of matching solutions, or empty string.
         All solutions are wrapped in <solution> XML delimiters.
         """
@@ -221,19 +251,25 @@ class Memory(MemoryStore):
             return ""
 
         task_words = tokenize(task)
-        matched: list[str] = []
 
-        for solution_file in self._solutions_dir.rglob("*.md"):
-            # Match on filename tokens
-            file_words = tokenize(solution_file.stem.replace("_", " "))
-            if task_words & file_words:  # any overlap
-                content = solution_file.read_text(encoding="utf-8").strip()
-                if content:
-                    wrapped = _SOLUTION_XML_TEMPLATE.format(
-                        content=f"### {solution_file.stem}\n{content}"
-                    )
-                    matched.append(wrapped)
+        def _scan() -> list[str]:
+            matched: list[str] = []
+            for solution_file in self._solutions_dir.rglob("*.md"):
+                # Match on filename tokens
+                file_words = tokenize(solution_file.stem.replace("_", " "))
+                if not (task_words & file_words):
+                    continue
+                loaded = self._load_solution_file(solution_file)
+                if loaded is None:
+                    continue
+                content, _content_tokens = loaded
+                wrapped = _SOLUTION_XML_TEMPLATE.format(
+                    content=f"### {solution_file.stem}\n{content}"
+                )
+                matched.append(wrapped)
+            return matched
 
+        matched = await asyncio.to_thread(_scan)
         return "\n\n".join(matched[:3])  # max 3 solutions per call
     # ── Index management ─────────────────────
 
