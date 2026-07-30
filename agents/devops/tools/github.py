@@ -291,7 +291,7 @@ class GitHubTool:
 
                 # Open PRs
                 prs = await self.list_prs(repo=repo, state="open")
-                summary["open_prs"].extend(prs)
+                summary["open_prs"].extend(p for p in prs if not p.get("error"))
 
             except ToolError as e:
                 summary["errors"].append({"repo": repo, "error": str(e)})
