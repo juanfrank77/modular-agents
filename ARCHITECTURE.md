@@ -546,8 +546,9 @@ curl -X POST http://127.0.0.1:8000/message \
 - **Default bind to `127.0.0.1`**: prevents remote access unless `HTTP_HOST=0.0.0.0` is set in `.env`. Only expose on a trusted or firewalled network.
 - **Pairing code as shared secret**: transmit it securely (SSH, encrypted channel) — never over plain HTTP on an untrusted network.
 - **Token lifetime**: tokens expire after `SESSION_TTL_HOURS` (default 24h) and are rejected with 401. `DELETE /session` endpoint allows explicit logout.
+- **Session cap**: the total number of concurrent sessions is capped by `MAX_HTTP_SESSIONS` (default 10); pairing requests are rejected with 503 once the cap is reached. Active sessions can be listed or revoked via `GET /admin/sessions`, `DELETE /admin/sessions/{token}`, and `DELETE /admin/sessions` (all require the pairing code).
 - **No HTTPS by default**: for local use, HTTP is fine. For network-exposed deployments, run behind a reverse proxy (nginx, Caddy) with TLS.
-- **Rate limiting**: not included in v1. For network-exposed deployments, add rate limiting at the reverse proxy layer.
+- **Rate limiting**: pairing (`POST /pair`) is rate-limited per client IP by `HTTP_PAIR_RATE_LIMIT_RPM` (default 10/min). Message-level rate limiting is not included; for network-exposed deployments, add additional rate limiting at the reverse proxy layer.
 
 ### Interface Routing
 
