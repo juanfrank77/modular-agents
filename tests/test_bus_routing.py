@@ -135,3 +135,30 @@ class TestResolveAgent:
         bus = MessageBus()
         resolved = await bus._resolve_agent(_user_event("hello"))
         assert resolved is None
+
+
+class TestChatAgentMapStickiness:
+    @pytest.mark.asyncio
+    async def test_scheduled_task_does_not_overwrite_sticky_agent(self):
+        state_store = AsyncMock()
+        bus = MessageBus(state_store=state_store)
+        business, devops = _FakeAgent("business"), _FakeAgent("devops")
+        bus.register(business)
+        bus.register(devops)
+
+        # User was last conversing with "business" in chat1.
+        await bus.publish(_user_event("hello", chat_id="chat1", agent_name="business"))
+        assert bus._chat_agent_map["chat1"] == "business"
+
+        # An autonomous scheduled task for devops fires against the same chat.
+        scheduled_event = AgentEvent(
+            type=EventType.SCHEDULED_TASK,
+            agent_name="devops",
+            chat_id="chat1",
+        )
+        await bus.publish(scheduled_event)
+
+        # Stickiness must still point at "business", not "devops" — both the
+        # in-memory map and the state-store persistence call.
+        assert bus._chat_agent_map["chat1"] == "business"
+        state_store.save_chat_agent.assert_awaited_once_with("chat1", "business")

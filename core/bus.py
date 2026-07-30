@@ -75,8 +75,11 @@ class MessageBus:
                         agent_hint=event.agent_name)
             return None
 
-        # Track which agent is handling this chat
-        if event.chat_id:
+        # Track which agent is handling this chat. Only real user messages
+        # should update stickiness — autonomous events (scheduled tasks,
+        # heartbeats, webhooks, etc.) must not overwrite the user's actual
+        # last-conversation-partner used as a routing fallback.
+        if event.chat_id and event.type is EventType.USER_MESSAGE:
             self._chat_agent_map[event.chat_id] = agent.name
             if self._state_store:
                 await self._state_store.save_chat_agent(event.chat_id, agent.name)
