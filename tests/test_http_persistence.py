@@ -41,6 +41,9 @@ def _interface(
     bus.registered_agents = ["business"]
     safety = MagicMock()
     safety.pairing.code = pairing_code
+    # verify_code is a real comparison in production; mock it so tests that
+    # supply the correct pairing_code pass and wrong ones fail.
+    safety.pairing.verify_code = lambda text: text.strip().lower() == pairing_code.lower()
     safety.pairing.is_locked = lambda chat_id: safety.pairing._locked.get(chat_id, False)
     safety.pairing._locked = {}
     safety.pairing.unlock = MagicMock()
@@ -214,6 +217,76 @@ class TestHTTPPairRateLimit:
         r3 = client.post("/pair", json={"code": "secret123"})
         assert r3.status_code == 429
         assert "Rate limit exceeded" in r3.json()["detail"]
+
+
+class TestHTTPModelEndpoints:
+    @pytest.mark.asyncio
+    async def test_get_model_returns_override_and_default(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        interface._bus.get_chat_model.return_value = "override-model"
+        interface._settings.default_model = "default-model"
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        r = client.get("/model", headers={"Authorization": f"Bearer {token}"})
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["override"] == "override-model"
+        assert data["default"] == "default-model"
+
+    @pytest.mark.asyncio
+    async def test_post_model_sets_override(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        interface._bus.set_chat_model = AsyncMock()
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        r = client.post(
+            "/model",
+            json={"model": "new-model"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "set"
+        interface._bus.set_chat_model.assert_awaited_once_with("http_" + token[:8], "new-model")
+
+    @pytest.mark.asyncio
+    async def test_post_model_rejects_empty_model(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        r = client.post(
+            "/model",
+            json={"model": "  "},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_delete_model_clears_override(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        interface._bus.clear_chat_model = AsyncMock()
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        r = client.delete("/model", headers={"Authorization": f"Bearer {token}"})
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "cleared"
+        interface._bus.clear_chat_model.assert_awaited_once_with("http_" + token[:8])
+
+    @pytest.mark.asyncio
+    async def test_model_endpoints_require_auth(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        assert client.get("/model").status_code == 401
+        assert client.post("/model", json={"model": "x"}).status_code == 401
+        assert client.delete("/model").status_code == 401
 
 
 class TestHTTPAdminSessionManagement:

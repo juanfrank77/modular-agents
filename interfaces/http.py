@@ -14,6 +14,9 @@ Endpoints:
   POST /message/stream   — stream agent responses via Server-Sent Events
   GET  /agents           — list registered agents
   GET  /health           — system health (no auth required)
+  GET  /model            — current per-chat model override and global default
+  POST /model            — set per-chat model override for this session
+  DELETE /model          — clear per-chat model override for this session
   POST /admin/unlock     — unlock a locked-out chat_id (requires pairing code)
   GET  /admin/sessions   — list active HTTP sessions (requires pairing code)
   DELETE /admin/sessions/{token} — revoke a specific session (requires pairing code)
@@ -70,6 +73,10 @@ class UnlockRequest(BaseModel):
 class MessageRequest(BaseModel):
     text: str
     agent: str = ""
+
+
+class ModelRequest(BaseModel):
+    model: str
 
 
 class HTTPInterface:
@@ -139,8 +146,11 @@ class HTTPInterface:
         return True
 
     def _require_admin_code(self, code: str) -> None:
-        """Raise 403 if the supplied code does not match the current pairing code."""
-        if code.strip() != self._safety.pairing.code:
+        """Raise 403 if the supplied code does not match the current pairing code.
+
+        Uses the constant-time verifier to avoid leaking timing information.
+        """
+        if not self._safety.pairing.verify_code(code):
             raise HTTPException(status_code=403, detail="invalid admin code")
 
     def _build_app(self) -> FastAPI:
@@ -148,7 +158,7 @@ class HTTPInterface:
 
         @app.post("/pair")
         async def pair(req: PairRequest, request: Request):
-            if req.code.strip() != self._safety.pairing.code:
+            if not self._safety.pairing.verify_code(req.code):
                 raise HTTPException(status_code=403, detail="invalid code")
 
             # Rate-limit pairing by client IP to slow down brute-force / token minting.
@@ -262,6 +272,44 @@ class HTTPInterface:
             if creds is None or not self._is_session_valid(creds.credentials):
                 raise HTTPException(status_code=401, detail="unauthorized")
             return self._sessions[creds.credentials][0]
+
+        @app.get("/model")
+        async def get_model(chat_id: str = Depends(_get_chat_id)):
+            """Return this session's per-chat model override and the global default."""
+            override = self._bus.get_chat_model(chat_id)
+            return {
+                "override": override,
+                "default": self._settings.default_model,
+            }
+
+        @app.post("/model")
+        async def set_model(
+            req: ModelRequest,
+            chat_id: str = Depends(_get_chat_id),
+        ):
+            """Set a per-chat model override for this session."""
+            new_model = req.model.strip()
+            if not new_model:
+                raise HTTPException(status_code=400, detail="model cannot be empty")
+            await self._bus.set_chat_model(chat_id, new_model)
+            log.info(
+                "HTTP model override set",
+                event="http_model_set",
+                chat_id=chat_id,
+                model=new_model,
+            )
+            return {"model": new_model, "status": "set"}
+
+        @app.delete("/model")
+        async def clear_model(chat_id: str = Depends(_get_chat_id)):
+            """Clear this session's per-chat model override."""
+            await self._bus.clear_chat_model(chat_id)
+            log.info(
+                "HTTP model override cleared",
+                event="http_model_clear",
+                chat_id=chat_id,
+            )
+            return {"status": "cleared"}
 
         @app.post("/message")
         async def message(

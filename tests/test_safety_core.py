@@ -21,6 +21,30 @@ from core.protocols import NotificationError
 from core.safety import ActionType, ApprovalGate, PairingManager
 
 
+class TestPairingManagerVerifyCode:
+    def test_accepts_exact_code(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.verify_code(pm.code) is True
+
+    def test_is_case_insensitive(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.verify_code(pm.code.upper()) is True
+
+    def test_strips_whitespace(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.verify_code(f"  {pm.code}  ") is True
+        assert pm.verify_code(f"\n{pm.code}\t") is True
+
+    def test_rejects_wrong_code(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.verify_code("wrong-code") is False
+
+    def test_rejects_empty_string(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.verify_code("") is False
+        assert pm.verify_code("   ") is False
+
+
 class TestPairingManagerLockout:
     @pytest.mark.asyncio
     async def test_not_locked_before_max_failed_attempts(self):

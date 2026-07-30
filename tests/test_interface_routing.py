@@ -122,6 +122,9 @@ class TestHTTPInterfaceTagParsing:
 
         safety = MagicMock()
         safety.pairing.code = "000000"
+        # verify_code is a real comparison in production; mirror it here so
+        # the /pair exchange in _client() succeeds with the expected code.
+        safety.pairing.verify_code = lambda text: text.strip().lower() == "000000"
         # pair_directly is async as of Task 3 (core/safety.py) — a plain
         # MagicMock isn't awaitable, so it must be an AsyncMock here.
         safety.pairing.pair_directly = AsyncMock()

@@ -286,6 +286,103 @@ class TestOnModel:
         assert settings.default_model == "original-model"
 
 
+class TestOnUnlock:
+    @pytest.mark.asyncio
+    async def test_admin_unlocks_locked_chat(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = True
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
+
+        settings = MagicMock()
+        settings.telegram_allowed_chat_ids = ["123"]
+
+        telegram = _make_telegram(bus=bus, safety=safety, settings=settings)
+
+        update = MagicMock()
+        update.message.chat_id = 123
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock()
+        context.args = ["456"]
+
+        await telegram._on_unlock(update, context)
+
+        safety.pairing.unlock.assert_called_once_with("456")
+        update.message.reply_text.assert_awaited_once()
+        assert "cleared" in update.message.reply_text.call_args.args[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_non_admin_cannot_unlock(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = True
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
+
+        settings = MagicMock()
+        settings.telegram_allowed_chat_ids = ["999"]
+
+        telegram = _make_telegram(bus=bus, safety=safety, settings=settings)
+
+        update = MagicMock()
+        update.message.chat_id = 123
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock()
+        context.args = ["456"]
+
+        await telegram._on_unlock(update, context)
+
+        safety.pairing.unlock.assert_not_called()
+        update.message.reply_text.assert_awaited_once()
+        assert "administrator" in update.message.reply_text.call_args.args[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_unlock_without_args_shows_usage(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = True
+        bus = MagicMock()
+
+        settings = MagicMock()
+        settings.telegram_allowed_chat_ids = ["123"]
+
+        telegram = _make_telegram(bus=bus, safety=safety, settings=settings)
+
+        update = MagicMock()
+        update.message.chat_id = 123
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock()
+        context.args = []
+
+        await telegram._on_unlock(update, context)
+
+        safety.pairing.unlock.assert_not_called()
+        update.message.reply_text.assert_awaited_once()
+        assert "usage" in update.message.reply_text.call_args.args[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_unlock_blocks_when_not_paired(self):
+        safety = MagicMock()
+        safety.pairing.is_paired.return_value = False
+        bus = MagicMock()
+        bus.send_notification = AsyncMock()
+
+        telegram = _make_telegram(bus=bus, safety=safety)
+
+        update = MagicMock()
+        update.message.chat_id = 123
+        update.message.reply_text = AsyncMock()
+
+        await telegram._on_unlock(update, MagicMock())
+
+        safety.pairing.unlock.assert_not_called()
+        update.message.reply_text.assert_not_awaited()
+        bus.send_notification.assert_awaited_once_with(
+            "123", "🔒 Send the pairing token shown in the server console to get started."
+        )
+
+
 class TestOnPlanmode:
     @pytest.mark.asyncio
     async def test_toggles_all_agents_when_no_arg(self):
@@ -446,6 +543,8 @@ class TestOnCommand:
         assert "Available commands" in body
         assert "/newagent" in body
         assert "/planmode" in body
+        assert "/model" in body
+        assert "/unlock" in body
         assert "/help" in body
 
     @pytest.mark.asyncio
