@@ -11,7 +11,7 @@ from __future__ import annotations
 
 async def apply_encryption_key(db, encryption_key: str) -> None:
     """Apply SQLCipher encryption key to an open aiosqlite connection, if configured."""
-    if not encription_key:
+    if not encryption_key:
         return
 
     if not re.match(r"^[\x20-\x7E]+$", encryption_key):
