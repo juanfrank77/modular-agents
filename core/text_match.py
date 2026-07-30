@@ -25,7 +25,23 @@ STOPWORDS: frozenset[str] = frozenset({
     "how", "when", "where", "why",
 })
 
-_SUFFIXES = ("ing", "edly", "ed", "ies", "es", "ly", "s")
+_SUFFIXES = ("ing", "edly", "ied", "ed", "ies", "es", "ly", "s")
+
+_VOWELS = frozenset("aeiou")
+
+
+def _collapse_doubled_consonant(word: str) -> str:
+    """Collapse a trailing doubled consonant (e.g. "runn" -> "run"),
+    used after stripping a suffix like "ing" so CVC gerunds ("running")
+    fold back to their base form ("run")."""
+    if (
+        len(word) > 2
+        and word[-1] == word[-2]
+        and word[-1] not in _VOWELS
+        and word[-1] not in ("l", "s", "z")
+    ):
+        return word[:-1]
+    return word
 
 
 def _stem(word: str) -> str:
@@ -36,7 +52,12 @@ def _stem(word: str) -> str:
     for _ in range(2):
         for suffix in _SUFFIXES:
             if len(word) > len(suffix) + 2 and word.endswith(suffix):
-                word = word[: -len(suffix)] + "y" if suffix == "ies" else word[: -len(suffix)]
+                if suffix in ("ies", "ied"):
+                    word = word[: -len(suffix)] + "y"
+                else:
+                    word = word[: -len(suffix)]
+                    if suffix == "ing":
+                        word = _collapse_doubled_consonant(word)
                 break
         else:
             break
