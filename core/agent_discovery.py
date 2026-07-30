@@ -84,7 +84,7 @@ def _load_agent_class(module_path: Path, class_name: str):
         try:
             spec.loader.exec_module(module)
         except Exception as e:
-            log.warning("Could not load agent module", event="load_error", module=module_name, error=str(e))
+            log.warning("Could not load agent module", event="load_error", agent_module=module_name, error=str(e))
             return None
     
     return getattr(module, class_name, None)
@@ -126,7 +126,7 @@ def discover_agents(
         
         class_names = _extract_agent_class_names(agent_path)
         if not class_names:
-            log.warning("No BaseAgent subclass found", event="discovery_skip", module=module_name)
+            log.warning("No BaseAgent subclass found", event="discovery_skip", agent_module=module_name)
             continue
         
         for class_name in class_names:

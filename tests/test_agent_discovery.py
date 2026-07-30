@@ -12,7 +12,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from core.agent_discovery import _extract_agent_class_names, _find_agent_modules
+from core.agent_discovery import (
+    _extract_agent_class_names,
+    _find_agent_modules,
+    _load_agent_class,
+    discover_agents,
+)
 
 
 class TestFindAgentModules:
@@ -63,6 +68,74 @@ class TestExtractAgentClassNames:
         
         names = _extract_agent_class_names(bad_file)
         assert names == []
+
+
+class TestLoadAgentClass:
+    def test_broken_import_returns_none_without_raising(self, tmp_path: Path):
+        """A module that raises on import (e.g. unresolvable import) should be
+        skipped with a logged warning, not crash discovery with a KeyError
+        from the logger's `extra=` dict clashing with LogRecord's reserved
+        `module` attribute."""
+        broken_agent = tmp_path / "broken_import" / "agent.py"
+        broken_agent.parent.mkdir(parents=True)
+        broken_agent.write_text(
+            "import this_module_does_not_exist_anywhere\n"
+            "\n"
+            "class BrokenAgent(this_module_does_not_exist_anywhere.BaseAgent):\n"
+            "    pass\n"
+        )
+
+        try:
+            result = _load_agent_class(broken_agent, "BrokenAgent")
+            assert result is None
+        finally:
+            import sys
+            sys.modules.pop("agents.broken_import.agent", None)
+
+    def test_no_base_agent_subclass_logs_warning_without_raising(self, tmp_path: Path, caplog):
+        """discover_agents should skip files with no BaseAgent subclass by
+        logging a warning, not crash with a KeyError from `module=` in
+        `extra=`."""
+        agents_dir = tmp_path / "agents"
+        no_agent_file = agents_dir / "no_agent_here" / "agent.py"
+        no_agent_file.parent.mkdir(parents=True)
+        no_agent_file.write_text("class NotAnAgent:\n    pass\n")
+
+        import core.agent_discovery as agent_discovery_module
+
+        original_agents_dir = agent_discovery_module._AGENTS_DIR
+        agent_discovery_module._AGENTS_DIR = agents_dir
+        try:
+            settings = MagicMock()
+            settings.debug_echo_agent = False
+            bus = MagicMock()
+            storage = MagicMock()
+            notifier = MagicMock()
+            llm = MagicMock()
+            memory = MagicMock()
+            safety = MagicMock()
+            skill_loader = MagicMock()
+
+            with caplog.at_level("WARNING"):
+                agents, failed = discover_agents(
+                    settings=settings,
+                    bus=bus,
+                    storage=storage,
+                    notifier=notifier,
+                    llm=llm,
+                    memory=memory,
+                    safety=safety,
+                    skill_loader=skill_loader,
+                )
+        finally:
+            agent_discovery_module._AGENTS_DIR = original_agents_dir
+
+        assert agents == []
+        assert failed == []
+        assert any(
+            r.levelname == "WARNING" and getattr(r, "agent_module", None) == "no_agent_here"
+            for r in caplog.records
+        )
 
 
 class TestDiscoverAgents:
