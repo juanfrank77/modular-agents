@@ -57,7 +57,7 @@ class TestApplyEncryptionKey:
 
         await apply_encryption_key(db, "o'brien's-key")
 
-        db.execute.assert_any_await("PRAGMA cypher version")
+        db.execute.assert_any_await("PRAGMA cipher_version")
         db.execute.assert_any_await("PRAGMA key = 'o''brien''s-key'")
 
     @pytest.mark.asyncio
@@ -69,3 +69,20 @@ class TestApplyEncryptionKey:
 
         with pytest.raises(RuntimeError, match="SQLCipher is not installed"):
             await apply_encryption_key(db, "valid-key")
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_runtime_error_against_real_plain_sqlite(
+        self, tmp_path: Path
+    ):
+        """Regression pin for #43: the probe pragma must be the real
+        SQLCipher pragma name (`cipher_version`, one word, underscore).
+        A prior fix attempt typo'd it as "cypher version" (wrong word, a
+        space instead of an underscore) — plain sqlite3 doesn't silently
+        return no rows for that, it's invalid PRAGMA syntax and raises a
+        confusing sqlite3.OperationalError instead of the intended clear
+        RuntimeError. Runs against a real (non-SQLCipher) connection, not a
+        mock, so the exact pragma string is what's actually verified."""
+        db_path = tmp_path / "plain.db"
+        async with aiosqlite.connect(str(db_path)) as db:
+            with pytest.raises(RuntimeError, match="SQLCipher is not installed"):
+                await apply_encryption_key(db, "valid-key")
