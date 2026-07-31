@@ -9,7 +9,9 @@ What happens on startup:
   2. Configure structured logging
   3. Initialise SQLite storage
   4. Build LLM, Memory, Safety, SkillLoader, Scheduler
-  5. Create RouterNotifier (dispatches to Telegram/CLI/HTTP by chat_id)
+  5. Create RouterNotifier (dispatches by explicit chat_id registration —
+     CLI's fixed chat_id here, HTTP's per-session via callbacks — anything
+     unregistered falls through to Telegram)
   6. Instantiate and register agents (all receive RouterNotifier)
   7. Run health checks
   8. Print pairing code
@@ -40,7 +42,7 @@ from core.storage import Storage
 from core.state_store import StateStore
 from core.agent_creator import AgentCreator
 from interfaces.telegram import TelegramInterface
-from interfaces.cli import CLIInterface
+from interfaces.cli import CLIInterface, CLI_CHAT_ID
 from interfaces.http import HTTPInterface
 
 log = get_logger("main")
@@ -91,8 +93,14 @@ async def bootstrap():
     http_notifier = HTTPNotifier()
 
     router = RouterNotifier(default=telegram_notifier)
-    router.register_prefix("cli", cli_notifier)
-    router.register_prefix("http_", http_notifier)
+    # "cli" is a single, fixed chat_id known at startup — register it once,
+    # unconditionally (this is delivery-channel selection, not a trust
+    # decision, so it doesn't need to wait on CLIInterface's pairing step).
+    # HTTP chat_ids are minted per-session at runtime, so HTTPInterface
+    # registers/unregisters them itself via the on_chat_paired/
+    # on_chat_revoked callbacks wired below (#45 — explicit registration
+    # replaces the old chat_id-prefix-matching convention).
+    router.register_chat(CLI_CHAT_ID, cli_notifier)
 
     try:
         llm = get_llm_provider()
@@ -156,7 +164,13 @@ async def bootstrap():
 
     await bus.load_chat_agent_map()
     await bus.load_chat_model_map()
-    await safety.gate.notify_orphaned()
+    # safety.gate.notify_orphaned() is deliberately NOT called here: it can
+    # target an HTTP chat_id, but HTTPInterface (and the router registration
+    # its load_sessions() performs) doesn't exist yet at this point in
+    # bootstrap() — main() calls it after that rehydration completes, so
+    # RouterNotifier can actually resolve those chat_ids instead of falling
+    # through to the Telegram default notifier (which would crash trying
+    # int("http_...")).
 
     health = await bus.health_check_all()
     all_healthy = True
@@ -172,7 +186,7 @@ async def bootstrap():
 
     log.info("Bootstrap complete", event="startup_complete", agents=bus.registered_agents)
 
-    return bus, safety, creator, cli_notifier, http_notifier, state_store, llm, storage
+    return bus, safety, creator, cli_notifier, http_notifier, router, state_store, llm, storage
 
 
 # ──────────────────────────────────────────────
@@ -216,7 +230,7 @@ async def _run_http_safe(interface: HTTPInterface) -> None:
 
 
 async def main() -> None:
-    bus, safety, creator, cli_notifier, http_notifier, state_store, llm, storage = await bootstrap()
+    bus, safety, creator, cli_notifier, http_notifier, router, state_store, llm, storage = await bootstrap()
 
     print(f"\n{'=' * 52}")
     print(f"  PAIRING TOKEN:  {safety.pairing.code}")
@@ -233,8 +247,13 @@ async def main() -> None:
     http_interface = HTTPInterface(
         bus=bus, safety=safety, creator=creator, notifier=http_notifier, settings=settings,
         state_store=state_store,
+        on_chat_paired=lambda chat_id: router.register_chat(chat_id, http_notifier),
+        on_chat_revoked=router.unregister_chat,
     )
     await http_interface.load_sessions()
+    # Runs after HTTP session rehydration (see bootstrap()'s comment) so any
+    # orphaned approval targeting an HTTP chat_id can actually be delivered.
+    await safety.gate.notify_orphaned()
 
     _scheduler.start()
     try:

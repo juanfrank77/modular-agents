@@ -35,7 +35,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -88,6 +88,8 @@ class HTTPInterface:
         notifier: "HTTPNotifier",
         settings: "Settings",
         state_store: "StateStore | None" = None,
+        on_chat_paired: "Callable[[str], None] | None" = None,
+        on_chat_revoked: "Callable[[str], None] | None" = None,
     ) -> None:
         self._bus = bus
         self._safety = safety
@@ -97,7 +99,26 @@ class HTTPInterface:
         self._state_store = state_store
         self._sessions: dict[str, tuple[str, float]] = {}  # token → (chat_id, created_at_ts)
         self._pair_rate_limiter = RateLimiter(rpm=self._settings.http_pair_rate_limit_rpm)
+        # Notifies a RouterNotifier (if any) which concrete notifier serves a
+        # chat_id, so delivery dispatch doesn't need to re-derive it from
+        # chat_id's "http_..." prefix — see core/notifier.py's #45 fix.
+        # Optional and decoupled from RouterNotifier's concrete type so
+        # HTTPInterface stays constructible without one (tests, non-router
+        # setups). Must be synchronous — called from both sync methods
+        # (_prune_expired_sessions, _is_session_valid) and async endpoint
+        # handlers; an async callback here would just hand back an
+        # unawaited coroutine that's silently dropped.
+        self._on_chat_paired = on_chat_paired
+        self._on_chat_revoked = on_chat_revoked
         self.app = self._build_app()
+
+    def _notify_paired(self, chat_id: str) -> None:
+        if self._on_chat_paired is not None:
+            self._on_chat_paired(chat_id)
+
+    def _notify_revoked(self, chat_id: str) -> None:
+        if self._on_chat_revoked is not None:
+            self._on_chat_revoked(chat_id)
 
     async def load_sessions(self) -> None:
         """Rehydrate session tokens from the state store, dropping any past
@@ -110,6 +131,12 @@ class HTTPInterface:
         for token, (chat_id, created_at) in loaded.items():
             if (now - created_at) < ttl_seconds:
                 self._sessions[token] = (chat_id, created_at)
+                # PairingManager._trusted_interfaces (see core/safety.py's
+                # #45 fix) is process-memory-only, not its own state_store
+                # table — re-pairing here rebuilds it for sessions that
+                # survive a restart, same as the initial /pair call does.
+                await self._safety.pairing.pair_directly(chat_id)
+                self._notify_paired(chat_id)
             else:
                 await self._state_store.delete_http_session(token)
         log.info(
@@ -123,13 +150,14 @@ class HTTPInterface:
         ttl_seconds = self._settings.session_ttl_hours * 3600
         now = datetime.now(timezone.utc).timestamp()
         expired = [
-            token for token, (_, created_at) in self._sessions.items()
+            (token, chat_id) for token, (chat_id, created_at) in self._sessions.items()
             if (now - created_at) >= ttl_seconds
         ]
-        for token in expired:
+        for token, chat_id in expired:
             del self._sessions[token]
+            self._notify_revoked(chat_id)
         if expired and self._state_store:
-            for token in expired:
+            for token, _chat_id in expired:
                 asyncio.create_task(self._state_store.delete_http_session(token))
 
     def _is_session_valid(self, token: str) -> bool:
@@ -140,6 +168,7 @@ class HTTPInterface:
         chat_id, created_at = self._sessions[token]
         if (datetime.now(timezone.utc).timestamp() - created_at) >= ttl_seconds:
             del self._sessions[token]
+            self._notify_revoked(chat_id)
             if self._state_store:
                 asyncio.create_task(self._state_store.delete_http_session(token))
             return False
@@ -192,6 +221,7 @@ class HTTPInterface:
             if self._state_store:
                 await self._state_store.save_http_session(token, chat_id, created_at)
             await self._safety.pairing.pair_directly(chat_id)
+            self._notify_paired(chat_id)
             log.info(
                 "HTTP session paired",
                 event="http_paired",
@@ -205,7 +235,9 @@ class HTTPInterface:
             """Revoke the current session token (logout)."""
             if creds is None or creds.credentials not in self._sessions:
                 raise HTTPException(status_code=401, detail="unauthorized")
+            chat_id, _created_at = self._sessions[creds.credentials]
             del self._sessions[creds.credentials]
+            self._notify_revoked(chat_id)
             if self._state_store:
                 await self._state_store.delete_http_session(creds.credentials)
             log.info("HTTP session deleted", event="http_session_deleted")
@@ -250,7 +282,9 @@ class HTTPInterface:
             self._require_admin_code(code)
             if token not in self._sessions:
                 raise HTTPException(status_code=404, detail="session not found")
+            chat_id, _created_at = self._sessions[token]
             del self._sessions[token]
+            self._notify_revoked(chat_id)
             if self._state_store:
                 await self._state_store.delete_http_session(token)
             log.info("Admin revoked session", event="admin_revoke_session", token_prefix=token[:8])
@@ -261,6 +295,8 @@ class HTTPInterface:
             """Admin endpoint: revoke every HTTP session (requires pairing code)."""
             self._require_admin_code(code)
             count = len(self._sessions)
+            for chat_id, _created_at in self._sessions.values():
+                self._notify_revoked(chat_id)
             self._sessions.clear()
             if self._state_store:
                 await self._state_store.clear_http_sessions()

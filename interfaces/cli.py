@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 log = get_logger("cli_interface")
 
-_CLI_CHAT_ID = "cli"
+CLI_CHAT_ID = "cli"
 
 _HELP_TEXT = (
     "Available commands:\n"
@@ -58,13 +58,13 @@ class CLIInterface:
         return AgentEvent(
             type=EventType.USER_MESSAGE,
             agent_name=agent_name,
-            chat_id=_CLI_CHAT_ID,
+            chat_id=CLI_CHAT_ID,
             text=text,
         )
 
     async def run(self) -> None:
         # Auto-pair the CLI chat_id — local users are trusted
-        await self._safety.pairing.pair_directly(_CLI_CHAT_ID)
+        await self._safety.pairing.pair_directly(CLI_CHAT_ID)
 
         loop = asyncio.get_event_loop()
         print("\n[CLI ready — type messages below, or 'exit' to quit]")
@@ -97,8 +97,8 @@ class CLIInterface:
             print("> ", end="", flush=True)
             return
 
-        if text.startswith("/newagent") or self._creator.is_active(_CLI_CHAT_ID):
-            response = await self._creator.handle(_CLI_CHAT_ID, text)
+        if text.startswith("/newagent") or self._creator.is_active(CLI_CHAT_ID):
+            response = await self._creator.handle(CLI_CHAT_ID, text)
             print(f"\n{response}\n> ", end="", flush=True)
             return
 
@@ -122,7 +122,7 @@ class CLIInterface:
             if agent_name is None or name == agent_name:
                 agent = self._bus.get_agent(name)
                 if agent:
-                    new_state = agent.toggle_plan_mode(_CLI_CHAT_ID)
+                    new_state = agent.toggle_plan_mode(CLI_CHAT_ID)
                     state = "ON" if new_state else "OFF"
                     toggled.append(f"{name}: Plan mode {state}")
 

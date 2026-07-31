@@ -399,27 +399,42 @@ class HTTPNotifier:
 
 class RouterNotifier:
     """
-    Dispatches all Notifier calls to the correct backing notifier
-    based on chat_id prefix.
+    Dispatches all Notifier calls to the correct backing notifier for a
+    given chat_id.
 
     Usage:
         router = RouterNotifier(default=telegram_notifier)
-        router.register_prefix("cli", cli_notifier)
-        router.register_prefix("http_", http_notifier)
+        router.register_chat("cli", cli_notifier)
+        router.register_chat(new_http_chat_id, http_notifier)  # per HTTP session
+        ...
+        router.unregister_chat(expired_http_chat_id)
+
+    Chat_ids are registered explicitly by whichever interface mints them
+    (CLI's fixed "cli" once at startup, HTTP per session at /pair and on
+    restart-rehydration), rather than dispatched by matching a string
+    prefix ("cli" / "http_..."). The old prefix convention meant this
+    module and core/safety.py's approval gate had to independently agree
+    on the same implicit chat_id string format to make unrelated decisions
+    (which notifier delivers vs. whether an action auto-approves) — #45.
+    Any chat_id not explicitly registered (i.e. every Telegram chat) falls
+    through to `default`.
     """
 
     def __init__(self, default: "TelegramNotifier") -> None:
         self._default = default
-        self._prefixes: list[tuple[str, object]] = []  # (prefix, notifier), checked in order
+        self._registry: dict[str, object] = {}
 
-    def register_prefix(self, prefix: str, notifier: object) -> None:
-        self._prefixes.append((prefix, notifier))
+    def register_chat(self, chat_id: str, notifier: object) -> None:
+        """Associate chat_id with the notifier that can deliver to it."""
+        self._registry[chat_id] = notifier
+
+    def unregister_chat(self, chat_id: str) -> None:
+        """Drop chat_id's registration — call when a session ends/expires so
+        _registry doesn't grow unbounded for short-lived HTTP sessions."""
+        self._registry.pop(chat_id, None)
 
     def _resolve(self, chat_id: str) -> Any:
-        for prefix, notifier in self._prefixes:
-            if chat_id.startswith(prefix):
-                return notifier
-        return self._default
+        return self._registry.get(chat_id, self._default)
 
     async def send(self, chat_id: str, text: str) -> None:
         await self._resolve(chat_id).send(chat_id, text)

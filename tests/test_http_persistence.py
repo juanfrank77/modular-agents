@@ -34,6 +34,8 @@ def _interface(
     session_ttl_hours=24,
     max_http_sessions=10,
     http_pair_rate_limit_rpm=10,
+    on_chat_paired=None,
+    on_chat_revoked=None,
 ):
     from interfaces.http import HTTPInterface
 
@@ -60,6 +62,7 @@ def _interface(
     return HTTPInterface(
         bus=bus, safety=safety, creator=creator, notifier=MagicMock(),
         settings=settings, state_store=store,
+        on_chat_paired=on_chat_paired, on_chat_revoked=on_chat_revoked,
     )
 
 
@@ -363,3 +366,89 @@ class TestHTTPAdminSessionManagement:
 
         sessions = await store.load_http_sessions()
         assert sessions == {}
+
+
+class TestHTTPRouterCallbacks:
+    """#45: HTTPInterface must tell a RouterNotifier (via the optional
+    on_chat_paired/on_chat_revoked callbacks) which chat_ids it owns,
+    instead of the router re-deriving that from the "http_" prefix."""
+
+    @pytest.mark.asyncio
+    async def test_pair_fires_on_chat_paired_with_the_new_chat_id(self, store: StateStore):
+        paired = []
+        interface = _interface(store, on_chat_paired=paired.append)
+        client = TestClient(interface.app)
+
+        r = client.post("/pair", json={"code": "000000"})
+        token = r.json()["token"]
+        chat_id = interface._sessions[token][0]
+
+        assert paired == [chat_id]
+
+    @pytest.mark.asyncio
+    async def test_delete_session_fires_on_chat_revoked(self, store: StateStore):
+        revoked = []
+        interface = _interface(store, on_chat_revoked=revoked.append)
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "000000"}).json()["token"]
+        chat_id = interface._sessions[token][0]
+        client.delete("/session", headers={"Authorization": f"Bearer {token}"})
+
+        assert revoked == [chat_id]
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_session_fires_on_chat_revoked(self, store: StateStore):
+        revoked = []
+        interface = _interface(
+            store, pairing_code="secret123", on_chat_revoked=revoked.append
+        )
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        chat_id = interface._sessions[token][0]
+        client.delete(f"/admin/sessions/{token}", params={"code": "secret123"})
+
+        assert revoked == [chat_id]
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_all_sessions_fires_on_chat_revoked_for_each(
+        self, store: StateStore
+    ):
+        revoked = []
+        interface = _interface(
+            store, pairing_code="secret123", on_chat_revoked=revoked.append
+        )
+        client = TestClient(interface.app)
+
+        t1 = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        t2 = client.post("/pair", json={"code": "secret123"}).json()["token"]
+        expected = {interface._sessions[t1][0], interface._sessions[t2][0]}
+        # (session dict entries are gone after this call, so read chat_ids first)
+        client.delete("/admin/sessions", params={"code": "secret123"})
+
+        assert set(revoked) == expected
+
+    @pytest.mark.asyncio
+    async def test_load_sessions_fires_on_chat_paired_for_rehydrated_sessions(
+        self, store: StateStore
+    ):
+        await store.save_http_session("tok-valid", "http_abcd1234", time.time())
+        paired = []
+        interface = _interface(store, on_chat_paired=paired.append)
+
+        await interface.load_sessions()
+
+        assert paired == ["http_abcd1234"]
+
+    @pytest.mark.asyncio
+    async def test_no_callback_configured_does_not_raise(self, store: StateStore):
+        # Default HTTPInterface() construction (no router wired up at all)
+        # must keep working — on_chat_paired/on_chat_revoked are optional.
+        interface = _interface(store)
+        client = TestClient(interface.app)
+
+        token = client.post("/pair", json={"code": "000000"}).json()["token"]
+        r = client.delete("/session", headers={"Authorization": f"Bearer {token}"})
+
+        assert r.status_code == 200

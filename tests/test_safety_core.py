@@ -18,7 +18,7 @@ import pytest
 from unittest.mock import AsyncMock
 
 from core.protocols import NotificationError
-from core.safety import ActionType, ApprovalGate, PairingManager
+from core.safety import ActionType, ApprovalGate, PairingManager, Safety
 
 
 class TestPairingManagerVerifyCode:
@@ -87,6 +87,35 @@ class TestPairingManagerLockout:
         assert pm.is_locked("123") is True
         assert pm.is_locked("456") is False
         assert await pm.try_pair("456", pm.code) is True
+
+
+class TestPairingManagerTrustedInterface:
+    """#45: trust must be explicit (set at pair_directly()), not inferred
+    from chat_id's string shape."""
+
+    @pytest.mark.asyncio
+    async def test_pair_directly_marks_chat_id_trusted(self):
+        pm = PairingManager(allowed_ids=[])
+        await pm.pair_directly("cli")
+        assert pm.is_trusted_interface("cli") is True
+
+    @pytest.mark.asyncio
+    async def test_pair_directly_marks_a_numeric_looking_chat_id_trusted_too(self):
+        # Trust must not depend on the chat_id happening to look like a
+        # Telegram numeric ID or not — only on how it was paired.
+        pm = PairingManager(allowed_ids=[])
+        await pm.pair_directly("123456")
+        assert pm.is_trusted_interface("123456") is True
+
+    @pytest.mark.asyncio
+    async def test_try_pair_does_not_mark_chat_id_trusted(self):
+        pm = PairingManager(allowed_ids=[])
+        await pm.try_pair("123", pm.code)
+        assert pm.is_trusted_interface("123") is False
+
+    def test_unknown_chat_id_is_not_trusted(self):
+        pm = PairingManager(allowed_ids=[])
+        assert pm.is_trusted_interface("never-seen") is False
 
 
 class TestPairingManagerAttemptsRemaining:
@@ -208,12 +237,39 @@ class TestApprovalGateTimeout:
         assert approved is True
 
     @pytest.mark.asyncio
-    async def test_non_numeric_chat_id_auto_approves_without_waiting(self):
+    async def test_trusted_interface_auto_approves_without_waiting(self):
         gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 5})
+        approved = await gate.request_approval(
+            chat_id="cli",
+            description="do a thing",
+            action_type=ActionType.WRITE_HIGH,
+            trusted_interface=True,
+        )
+        assert approved is True
+
+    @pytest.mark.asyncio
+    async def test_numeric_chat_id_marked_trusted_still_auto_approves(self):
+        """#45: trust must come from the explicit flag, not chat_id's shape —
+        a numeric-looking chat_id marked trusted must still auto-approve."""
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 5})
+        approved = await gate.request_approval(
+            chat_id="123456",
+            description="do a thing",
+            action_type=ActionType.WRITE_HIGH,
+            trusted_interface=True,
+        )
+        assert approved is True
+
+    @pytest.mark.asyncio
+    async def test_non_numeric_chat_id_without_trusted_flag_still_waits(self):
+        """#45: a non-numeric chat_id is no longer auto-approved on shape
+        alone — without the explicit trusted_interface flag it must go
+        through the normal wait/timeout path like any other chat_id."""
+        gate = ApprovalGate(notifier=AsyncMock(), timeouts={"WRITE_HIGH": 0.05})
         approved = await gate.request_approval(
             chat_id="cli", description="do a thing", action_type=ActionType.WRITE_HIGH
         )
-        assert approved is True
+        assert approved is False  # timed out, not auto-approved
 
 
 class TestApprovalGateConfigurableDefaultTimeout:
@@ -355,3 +411,57 @@ class TestApprovalGateAuthentication:
 
         assert resolved is True
         assert approved is True
+
+
+class TestSafetyCheckActionTrustedInterface:
+    """#45: Safety.check_action() must look trust up from PairingManager
+    (via pair_directly()), not re-derive it from chat_id's shape."""
+
+    @pytest.mark.asyncio
+    async def test_directly_paired_chat_auto_approves_high_risk_action(self):
+        safety = Safety(notifier=AsyncMock(), allowed_ids=[])
+        await safety.pairing.pair_directly("cli")
+
+        allowed = await safety.check_action(
+            chat_id="cli",
+            action_type=ActionType.WRITE_HIGH,
+            autonomy_level="supervised",
+            description="do a risky thing",
+        )
+
+        assert allowed is True
+
+    @pytest.mark.asyncio
+    async def test_directly_paired_numeric_chat_id_also_auto_approves(self):
+        # Same as above but with a Telegram-shaped chat_id, proving the
+        # decision no longer depends on string shape.
+        safety = Safety(notifier=AsyncMock(), allowed_ids=[])
+        await safety.pairing.pair_directly("555000")
+
+        allowed = await safety.check_action(
+            chat_id="555000",
+            action_type=ActionType.WRITE_HIGH,
+            autonomy_level="supervised",
+            description="do a risky thing",
+        )
+
+        assert allowed is True
+
+    @pytest.mark.asyncio
+    async def test_non_trusted_chat_waits_and_times_out(self):
+        # Paired via try_pair (Telegram-style), not pair_directly — must NOT
+        # auto-approve even though allowed_ids=[] makes it "paired".
+        safety = Safety(
+            notifier=AsyncMock(),
+            allowed_ids=[],
+            approval_timeouts={"WRITE_HIGH": 0.05},
+        )
+
+        allowed = await safety.check_action(
+            chat_id="cli",  # non-numeric shape, but never pair_directly()'d
+            action_type=ActionType.WRITE_HIGH,
+            autonomy_level="supervised",
+            description="do a risky thing",
+        )
+
+        assert allowed is False  # timed out waiting for a button click
