@@ -19,7 +19,7 @@ async def apply_encryption_key(db, encryption_key: str) -> None:
         raise ValueError("Key contains invalid characters.")
     
     if encryption_key:
-        result = await db.execute("PRAGMA cypher version")
+        result = await db.execute("PRAGMA cipher_version")
         row = await result.fetchone()
         if row is None:
             raise RuntimeError(
