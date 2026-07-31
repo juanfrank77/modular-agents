@@ -66,6 +66,7 @@ class PairingManager:
         self._token = uuid.uuid4().hex  # 32-char cryptographically random token
         self._allowed_ids = set(allowed_ids)
         self._paired: set[str] = set()
+        self._trusted_interfaces: set[str] = set()
         self._failed_attempts: dict[str, int] = {}  # chat_id -> attempt count
         self._state_store = state_store
         if max_failed_attempts is not None:
@@ -139,12 +140,34 @@ class PairingManager:
         return False
 
     async def pair_directly(self, chat_id: str) -> None:
-        """Pair a chat_id without requiring the code — for trusted local interfaces."""
+        """Pair a chat_id without requiring the code — for trusted local interfaces.
+
+        Also marks chat_id as a trusted interface (see is_trusted_interface()):
+        CLI and HTTP are the only callers of this method, and both lack the
+        interactive approve/deny button UI Telegram has, so approvals for
+        them auto-approve after showing the plan instead of waiting on a
+        callback that can never arrive. This used to be inferred from
+        chat_id's string shape (`"cli"`/`"http_..."` vs. all-digit Telegram
+        IDs) in ApprovalGate — an implicit convention two unrelated modules
+        had to agree on. Recording it explicitly here, at the one place a
+        chat_id's trust is actually established, removes that guesswork
+        (#45). _trusted_interfaces is intentionally not persisted on its
+        own: both callers re-pair on every startup/session-rehydration
+        (interfaces/cli.py at launch, interfaces/http.py's load_sessions()),
+        so it's correctly rebuilt without a dedicated state_store table.
+        """
         self._paired.add(chat_id)
+        self._trusted_interfaces.add(chat_id)
         self._failed_attempts.pop(chat_id, None)
         log.info("Chat paired directly", event="pairing_direct", chat_id=chat_id)
         if self._state_store:
             await self._state_store.save_paired_chat(chat_id)
+
+    def is_trusted_interface(self, chat_id: str) -> bool:
+        """True if chat_id was established via pair_directly() (CLI/HTTP) —
+        i.e. it has no interactive approval-button UI, so ApprovalGate
+        should auto-approve after showing the plan rather than wait."""
+        return chat_id in self._trusted_interfaces
 
     async def load(self) -> None:
         """Rehydrate paired chats and lockout counters from the state store.
@@ -297,13 +320,20 @@ class ApprovalGate:
         chat_id: str,
         description: str,
         action_type: "ActionType | None" = None,
+        trusted_interface: bool = False,
     ) -> bool:
         """Send approval buttons and wait for response. Returns True if approved.
-        Non-Telegram chat_ids (not all-digit) are auto-approved after showing the plan.
+
+        trusted_interface=True auto-approves after showing the plan instead
+        of waiting for a button click — for interfaces (CLI, HTTP) that have
+        no interactive approve/deny UI, so an actual wait would just hang
+        until the configured timeout. Callers should pass
+        PairingManager.is_trusted_interface(chat_id) (see Safety.check_action);
+        this used to be inferred here from chat_id's string shape
+        (all-digit == Telegram), an implicit convention that broke down for
+        any non-Telegram chat_id that happened to look numeric (#45).
         """
-        # Telegram chat_ids are always integers (possibly negative for groups).
-        # CLI uses "cli", HTTP uses "http_<token>". Auto-approve those.
-        if not chat_id.lstrip("-").isdigit():
+        if trusted_interface:
             await self._notifier.send(
                 chat_id,
                 f"*Plan*\n\n{description}\n\n_(Auto-approved — executing now)_",
@@ -521,6 +551,8 @@ class Safety:
         if self.is_command_blocked(description):
             return False
 
+        trusted_interface = self.pairing.is_trusted_interface(chat_id)
+
         # Autonomous agents skip the approval gate for everything EXCEPT
         # destructive actions. Destructive (DEPLOY_PROD, DB_MIGRATE,
         # DELETE_RESOURCE, etc.) always require explicit approval regardless
@@ -528,7 +560,10 @@ class Safety:
         if autonomy_level == "autonomous":
             if action_type == ActionType.DESTRUCTIVE:
                 return await self.gate.request_approval(
-                    chat_id, description, action_type=action_type
+                    chat_id,
+                    description,
+                    action_type=action_type,
+                    trusted_interface=trusted_interface,
                 )
             return True
 
@@ -542,7 +577,10 @@ class Safety:
                 return True
             # High-risk actions need explicit approval
             return await self.gate.request_approval(
-                chat_id, description, action_type=action_type
+                chat_id,
+                description,
+                action_type=action_type,
+                trusted_interface=trusted_interface,
             )
 
         return False

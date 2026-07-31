@@ -73,8 +73,10 @@ class TestApprovalGateNoStateStore:
         notifier = MagicMock()
         notifier.send = AsyncMock()
         gate = ApprovalGate(notifier)
-        approved = await gate.request_approval("cli", "do a thing")
-        assert approved is True  # non-digit chat_id auto-approves
+        approved = await gate.request_approval(
+            "cli", "do a thing", trusted_interface=True
+        )
+        assert approved is True  # trusted_interface auto-approves
 
 
 class TestApprovalGatePersistence:
@@ -83,9 +85,9 @@ class TestApprovalGatePersistence:
         notifier = MagicMock()
         notifier.send = AsyncMock()
         gate = ApprovalGate(notifier, state_store=store)
-        # Non-digit chat_id auto-approves without ever registering a pending
+        # trusted_interface auto-approves without ever registering a pending
         # wait, so no row should be written for it in the first place.
-        await gate.request_approval("cli", "do a thing")
+        await gate.request_approval("cli", "do a thing", trusted_interface=True)
         assert await store.load_pending_approvals() == []
 
     @pytest.mark.asyncio
