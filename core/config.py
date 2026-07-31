@@ -143,12 +143,6 @@ class Settings:
     # Skill matching
     skill_min_score: float = 0.05  # relevance threshold for find_relevant()
 
-    # Local file access
-    local_file_paths: list[Path] = field(default_factory=list)
-
-    # Web tools
-    tavily_api_key: str = ""
-
     # Debug
     debug_echo_agent: bool = False  # construct/register EchoAgent (off by default in production)
 
@@ -282,11 +276,6 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
         approval_timeouts=approval_timeouts,
-        local_file_paths=[
-            Path(p.strip())
-            for p in _optional("LOCAL_FILE_PATHS", "").split(",")
-            if p.strip()
-        ],
         quiet_hours_enabled=_optional("QUIET_HOURS_ENABLED", "true").lower() == "true",
         quiet_hours_windows=quiet_hours_windows,
         emergency_keywords=[
@@ -299,7 +288,6 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         wellbeing_location=_optional("WELLBEING_LOCATION", ""),
         wellbeing_wake_time=_optional("WELLBEING_WAKE_TIME", "07:00"),
         wellbeing_bedtime=_optional("WELLBEING_BEDTIME", "23:00"),
-        tavily_api_key=_optional("TAVILY_API_KEY", ""),
         composio_api_key=_optional("COMPOSIO_API_KEY", ""),
         composio_user_id=_optional("COMPOSIO_USER_ID", ""),
         extra_blocked_patterns=extra_patterns,
