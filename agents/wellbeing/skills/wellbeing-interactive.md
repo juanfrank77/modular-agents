@@ -37,8 +37,7 @@ For stats requests:
 - "Last evening nudge: [date] at [time]."
 
 For configuration requests:
-- "I can't change quiet hours from here. Edit memory/context/preferences.md directly
-  or let me know what you need and I'll update it there."
+- "I can't change quiet hours or preferences from here. Edit memory/context/preferences.md directly."
 
 ## Skills Loading
 This skill is NOT loaded on every message — it is context for the agent when
