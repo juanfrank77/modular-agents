@@ -125,6 +125,22 @@ class TestHTTPInterfaceTagParsing:
         # verify_code is a real comparison in production; mirror it here so
         # the /pair exchange in _client() succeeds with the expected code.
         safety.pairing.verify_code = lambda text: text.strip().lower() == "000000"
+        safety.pairing._failed_attempts = {}
+
+        async def _verify_code_with_lockout(chat_id, text):
+            if text.strip().lower() == "000000":
+                safety.pairing._failed_attempts.pop(chat_id, None)
+                return True
+            safety.pairing._failed_attempts[chat_id] = (
+                safety.pairing._failed_attempts.get(chat_id, 0) + 1
+            )
+            return False
+
+        safety.pairing.verify_code_with_lockout = _verify_code_with_lockout
+        safety.pairing.is_locked = lambda chat_id: safety.pairing._failed_attempts.get(chat_id, 0) >= 5
+        safety.pairing.attempts_remaining = lambda chat_id: max(
+            0, 5 - safety.pairing._failed_attempts.get(chat_id, 0)
+        )
         # pair_directly is async as of Task 3 (core/safety.py) — a plain
         # MagicMock isn't awaitable, so it must be an AsyncMock here.
         safety.pairing.pair_directly = AsyncMock()

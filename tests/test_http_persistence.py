@@ -46,12 +46,32 @@ def _interface(
     # verify_code is a real comparison in production; mock it so tests that
     # supply the correct pairing_code pass and wrong ones fail.
     safety.pairing.verify_code = lambda text: text.strip().lower() == pairing_code.lower()
-    safety.pairing.is_locked = lambda chat_id: safety.pairing._locked.get(chat_id, False)
-    safety.pairing._locked = {}
+    safety.pairing._failed_attempts = {}
+    safety.pairing.is_locked = (
+        lambda chat_id: safety.pairing._failed_attempts.get(chat_id, 0) >= 5
+    )
+    safety.pairing.attempts_remaining = lambda chat_id: max(
+        0, 5 - safety.pairing._failed_attempts.get(chat_id, 0)
+    )
     safety.pairing.unlock = MagicMock()
     # pair_directly is async as of Task 3 (core/safety.py) — a plain
     # MagicMock isn't awaitable, so it must be an AsyncMock here.
     safety.pairing.pair_directly = AsyncMock()
+
+    # verify_code_with_lockout must be awaitable and honor the same lockout
+    # logic as the real implementation for the new /pair tests.
+    async def _verify_code_with_lockout(chat_id, text):
+        if safety.pairing.is_locked(chat_id):
+            return False
+        if text.strip().lower() == pairing_code.lower():
+            safety.pairing._failed_attempts.pop(chat_id, None)
+            return True
+        safety.pairing._failed_attempts[chat_id] = (
+            safety.pairing._failed_attempts.get(chat_id, 0) + 1
+        )
+        return False
+
+    safety.pairing.verify_code_with_lockout = _verify_code_with_lockout
     settings = MagicMock()
     settings.session_ttl_hours = session_ttl_hours
     settings.max_http_sessions = max_http_sessions
@@ -155,7 +175,7 @@ class TestAdminUnlock:
     async def test_unlock_unlocks_locked_chat(self, store: StateStore):
         interface = _interface(store, pairing_code="secret123")
         client = TestClient(interface.app)
-        interface._safety.pairing._locked["123"] = True
+        interface._safety.pairing._failed_attempts["123"] = 5
 
         r = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
         assert r.status_code == 200
@@ -166,7 +186,7 @@ class TestAdminUnlock:
     async def test_unlock_fails_for_unlocked_chat(self, store: StateStore):
         interface = _interface(store, pairing_code="secret123")
         client = TestClient(interface.app)
-        interface._safety.pairing._locked["123"] = False
+        interface._safety.pairing._failed_attempts["123"] = 0
 
         r = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
         assert r.status_code == 400
@@ -366,6 +386,45 @@ class TestHTTPAdminSessionManagement:
 
         sessions = await store.load_http_sessions()
         assert sessions == {}
+
+
+class TestHTTPPairLockout:
+    @pytest.mark.asyncio
+    async def test_pair_rejects_after_max_failed_attempts(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123", max_http_sessions=10)
+        client = TestClient(interface.app)
+
+        for _ in range(5):
+            r = client.post("/pair", json={"code": "wrong"})
+            assert r.status_code == 403
+
+        # Sixth attempt is locked out even with the correct code.
+        r = client.post("/pair", json={"code": "secret123"})
+        assert r.status_code == 403
+        assert "locked" in r.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_pair_failed_attempts_count_towards_lockout(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        r = client.post("/pair", json={"code": "wrong"})
+        assert r.status_code == 403
+        assert "4 attempts remaining" in r.json()["detail"]
+
+        r = client.post("/pair", json={"code": "secret123"})
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_pair_directly_is_not_trusted_for_http(self, store: StateStore):
+        interface = _interface(store, pairing_code="secret123")
+        client = TestClient(interface.app)
+
+        client.post("/pair", json={"code": "secret123"})
+
+        assert interface._safety.pairing.pair_directly.awaited
+        call_kwargs = interface._safety.pairing.pair_directly.await_args.kwargs
+        assert call_kwargs.get("trusted_interface") is False
 
 
 class TestHTTPRouterCallbacks:

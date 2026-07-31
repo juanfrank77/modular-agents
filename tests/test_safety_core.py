@@ -108,6 +108,13 @@ class TestPairingManagerTrustedInterface:
         assert pm.is_trusted_interface("123456") is True
 
     @pytest.mark.asyncio
+    async def test_pair_directly_can_opt_out_of_trusted_interface(self):
+        pm = PairingManager(allowed_ids=[])
+        await pm.pair_directly("http_abc", trusted_interface=False)
+        assert pm.is_paired("http_abc") is True
+        assert pm.is_trusted_interface("http_abc") is False
+
+    @pytest.mark.asyncio
     async def test_try_pair_does_not_mark_chat_id_trusted(self):
         pm = PairingManager(allowed_ids=[])
         await pm.try_pair("123", pm.code)
@@ -116,6 +123,36 @@ class TestPairingManagerTrustedInterface:
     def test_unknown_chat_id_is_not_trusted(self):
         pm = PairingManager(allowed_ids=[])
         assert pm.is_trusted_interface("never-seen") is False
+
+
+class TestPairingManagerVerifyCodeWithLockout:
+    @pytest.mark.asyncio
+    async def test_accepts_correct_code_without_pairing(self):
+        # Non-empty allowed_ids so is_paired() is not unconditionally True.
+        pm = PairingManager(allowed_ids=["999"])
+        assert await pm.verify_code_with_lockout("x", pm.code) is True
+        assert pm.is_paired("x") is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_wrong_code_and_counts_attempts(self):
+        pm = PairingManager(allowed_ids=["999"])
+        assert await pm.verify_code_with_lockout("x", "wrong") is False
+        assert pm.attempts_remaining("x") == PairingManager.MAX_FAILED_ATTEMPTS - 1
+
+    @pytest.mark.asyncio
+    async def test_locks_after_max_failed_attempts(self):
+        pm = PairingManager(allowed_ids=["999"])
+        for _ in range(PairingManager.MAX_FAILED_ATTEMPTS):
+            assert await pm.verify_code_with_lockout("x", "wrong") is False
+        assert pm.is_locked("x") is True
+        assert await pm.verify_code_with_lockout("x", pm.code) is False
+
+    @pytest.mark.asyncio
+    async def test_resets_attempts_on_correct_code(self):
+        pm = PairingManager(allowed_ids=["999"])
+        await pm.verify_code_with_lockout("x", "wrong")
+        assert await pm.verify_code_with_lockout("x", pm.code) is True
+        assert pm.attempts_remaining("x") == PairingManager.MAX_FAILED_ATTEMPTS
 
 
 class TestPairingManagerAttemptsRemaining:
@@ -465,3 +502,23 @@ class TestSafetyCheckActionTrustedInterface:
         )
 
         assert allowed is False  # timed out waiting for a button click
+
+    @pytest.mark.asyncio
+    async def test_directly_paired_but_not_trusted_chat_waits_for_approval(self):
+        # HTTP sessions are paired directly but with trusted_interface=False,
+        # so supervised high-risk actions must wait for explicit approval.
+        safety = Safety(
+            notifier=AsyncMock(),
+            allowed_ids=[],
+            approval_timeouts={"WRITE_HIGH": 0.05},
+        )
+        await safety.pairing.pair_directly("http_abc", trusted_interface=False)
+
+        allowed = await safety.check_action(
+            chat_id="http_abc",
+            action_type=ActionType.WRITE_HIGH,
+            autonomy_level="supervised",
+            description="do a risky thing",
+        )
+
+        assert allowed is False  # timed out waiting for explicit approval

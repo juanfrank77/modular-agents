@@ -347,7 +347,26 @@ class HTTPNotifier:
         chat_id: str,
         text: str,
         buttons: list[tuple[str, str]],
-    ):
+    ) -> None:
+        """Forward the approval text plus an HTTP callback instruction.
+
+        Telegram uses inline buttons; HTTP has no native button UI, so we
+        append the approval_id and the POST /approve payload the user must
+        send to approve or deny the request.
+        """
+        approval_id = ""
+        for _label, data in buttons:
+            if data.startswith("approve:"):
+                approval_id = data.split(":", 1)[1]
+                break
+
+        if approval_id:
+            text += (
+                f"\n\nTo approve, POST /approve with: "
+                f'{{"approval_id": "{approval_id}", "approved": true}}'
+                f"\nTo deny, POST /approve with: "
+                f'{{"approval_id": "{approval_id}", "approved": false}}'
+            )
         await self.send(chat_id, text)
 
     async def send_and_get_id(self, chat_id: str, text: str) -> int | None:

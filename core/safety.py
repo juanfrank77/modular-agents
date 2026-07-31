@@ -139,29 +139,81 @@ class PairingManager:
             await self._state_store.save_failed_attempts(chat_id, self._failed_attempts[chat_id])
         return False
 
-    async def pair_directly(self, chat_id: str) -> None:
-        """Pair a chat_id without requiring the code — for trusted local interfaces.
+    async def pair_directly(
+        self, chat_id: str, *, trusted_interface: bool = True
+    ) -> None:
+        """Pair a chat_id without requiring the code — for local/API interfaces.
 
-        Also marks chat_id as a trusted interface (see is_trusted_interface()):
-        CLI and HTTP are the only callers of this method, and both lack the
-        interactive approve/deny button UI Telegram has, so approvals for
-        them auto-approve after showing the plan instead of waiting on a
-        callback that can never arrive. This used to be inferred from
-        chat_id's string shape (`"cli"`/`"http_..."` vs. all-digit Telegram
-        IDs) in ApprovalGate — an implicit convention two unrelated modules
-        had to agree on. Recording it explicitly here, at the one place a
-        chat_id's trust is actually established, removes that guesswork
-        (#45). _trusted_interfaces is intentionally not persisted on its
-        own: both callers re-pair on every startup/session-rehydration
+        By default also marks chat_id as a trusted interface (see
+        is_trusted_interface()): CLI uses this default because it has no
+        interactive approve/deny button UI, so approvals auto-approve after
+        showing the plan instead of waiting on a callback that can never
+        arrive. HTTP passes `trusted_interface=False` because it now has a
+        real approval callback path (`POST /approve`), so supervised actions
+        must wait for explicit user approval.
+
+        The trusted-interface decision used to be inferred from chat_id's
+        string shape (`"cli"`/`"http_..."` vs. all-digit Telegram IDs) in
+        ApprovalGate — an implicit convention two unrelated modules had to
+        agree on. Recording it explicitly here, at the one place a chat_id's
+        trust is actually established, removes that guesswork (#45).
+        _trusted_interfaces is intentionally not persisted on its own: both
+        callers re-pair on every startup/session-rehydration
         (interfaces/cli.py at launch, interfaces/http.py's load_sessions()),
         so it's correctly rebuilt without a dedicated state_store table.
         """
         self._paired.add(chat_id)
-        self._trusted_interfaces.add(chat_id)
+        if trusted_interface:
+            self._trusted_interfaces.add(chat_id)
         self._failed_attempts.pop(chat_id, None)
-        log.info("Chat paired directly", event="pairing_direct", chat_id=chat_id)
+        log.info(
+            "Chat paired directly",
+            event="pairing_direct",
+            chat_id=chat_id,
+            trusted_interface=trusted_interface,
+        )
         if self._state_store:
             await self._state_store.save_paired_chat(chat_id)
+
+    async def verify_code_with_lockout(self, chat_id: str, text: str) -> bool:
+        """Verify the pairing code for chat_id, enforcing lockout and failed-
+        attempt counting. Unlike :meth:`try_pair`, this does *not* mark the
+        chat_id as paired or trusted — it only validates the code.
+
+        Used by the HTTP `/pair` endpoint: the pairing attempt itself must be
+        subject to the same lockout/failed-attempt accounting as Telegram,
+        but the actual HTTP session chat_id is minted only after the code is
+        accepted.
+        """
+        if self.is_locked(chat_id):
+            log.warning(
+                "Pairing locked for chat",
+                event="pairing_locked",
+                chat_id=chat_id,
+                attempts=self._failed_attempts.get(chat_id, 0),
+            )
+            return False
+
+        if self.verify_code(text):
+            self._failed_attempts.pop(chat_id, None)
+            log.info("Pairing code accepted", event="pairing_code_accepted", chat_id=chat_id)
+            if self._state_store:
+                await self._state_store.delete_failed_attempts(chat_id)
+            return True
+
+        # Increment failed attempts
+        self._failed_attempts[chat_id] = self._failed_attempts.get(chat_id, 0) + 1
+        log.warning(
+            "Invalid pairing attempt",
+            event="pairing_failed",
+            chat_id=chat_id,
+            attempts=self._failed_attempts[chat_id],
+        )
+        if self._state_store:
+            await self._state_store.save_failed_attempts(
+                chat_id, self._failed_attempts[chat_id]
+            )
+        return False
 
     def is_trusted_interface(self, chat_id: str) -> bool:
         """True if chat_id was established via pair_directly() (CLI/HTTP) —
@@ -205,6 +257,19 @@ _BLOCKED_PATTERNS = [
 ]
 
 
+def _check_builtin_blocked_patterns(text: str) -> bool:
+    """Check if text matches any built-in blocked dangerous command pattern."""
+    for pattern in _BLOCKED_PATTERNS:
+        if pattern.search(text):
+            log.warning(
+                "Blocked command detected",
+                event="command_blocked",
+                pattern=pattern.pattern,
+            )
+            return True
+    return False
+
+
 def is_blocked_command(text: str) -> bool:
     """Check if text contains a blocked dangerous command pattern.
 
@@ -220,15 +285,7 @@ def is_blocked_command(text: str) -> bool:
         DeprecationWarning,
         stacklevel=2,
     )
-    for pattern in _BLOCKED_PATTERNS:
-        if pattern.search(text):
-            log.warning(
-                "Blocked command detected",
-                event="command_blocked",
-                pattern=pattern.pattern,
-            )
-            return True
-    return False
+    return _check_builtin_blocked_patterns(text)
 
 
 # ──────────────────────────────────────────────
@@ -520,7 +577,7 @@ class Safety:
     def is_command_blocked(self, text: str) -> bool:
         """Check if text matches any blocked pattern (built-in + extra)."""
         # Check built-in patterns
-        if is_blocked_command(text):
+        if _check_builtin_blocked_patterns(text):
             return True
         # Check extra patterns
         for pattern in self._extra_patterns:
