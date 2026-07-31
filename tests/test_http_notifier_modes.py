@@ -143,6 +143,32 @@ class TestSSEQueueCleanup:
         assert notifier.get_and_clear("chat1") == "hello"
 
 
+class TestSendWithButtonsIncludesApprovalInstructions:
+    @pytest.mark.asyncio
+    async def test_send_with_buttons_extracts_approval_id(self):
+        notifier = HTTPNotifier()
+        buttons = [("Approve", "approve:abc123"), ("Deny", "deny:abc123")]
+        await notifier.send_with_buttons(
+            "chat1", "*Approval Required*\n\nDeploy to prod?", buttons
+        )
+
+        text = notifier.get_and_clear("chat1")
+        assert "approve:abc123" not in text  # callback_data is internal
+        assert 'approval_id": "abc123"' in text
+        assert '"approved": true' in text
+        assert '"approved": false' in text
+        assert "POST /approve" in text
+
+    @pytest.mark.asyncio
+    async def test_send_with_buttons_without_approve_button_just_sends_text(self):
+        notifier = HTTPNotifier()
+        buttons = [("Open", "open:https://example.com")]
+        await notifier.send_with_buttons("chat1", "Click below:", buttons)
+
+        text = notifier.get_and_clear("chat1")
+        assert text == "Click below:"
+
+
 class TestSSEEndpointDisconnectCleanup:
     @pytest.mark.asyncio
     async def test_disconnect_mid_stream_runs_end_stream(self):

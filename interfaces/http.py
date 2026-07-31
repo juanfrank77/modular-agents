@@ -12,6 +12,7 @@ Endpoints:
   DELETE /session        — revoke session token (logout)
   POST /message          — send a message to an agent (returns JSON response)
   POST /message/stream   — stream agent responses via Server-Sent Events
+  POST /approve          — resolve an approval request (requires session token)
   GET  /agents           — list registered agents
   GET  /health           — system health (no auth required)
   GET  /model            — current per-chat model override and global default
@@ -75,6 +76,11 @@ class MessageRequest(BaseModel):
     agent: str = ""
 
 
+class ApproveRequest(BaseModel):
+    approval_id: str
+    approved: bool
+
+
 class ModelRequest(BaseModel):
     model: str
 
@@ -135,7 +141,9 @@ class HTTPInterface:
                 # #45 fix) is process-memory-only, not its own state_store
                 # table — re-pairing here rebuilds it for sessions that
                 # survive a restart, same as the initial /pair call does.
-                await self._safety.pairing.pair_directly(chat_id)
+                await self._safety.pairing.pair_directly(
+                    chat_id, trusted_interface=False
+                )
                 self._notify_paired(chat_id)
             else:
                 await self._state_store.delete_http_session(token)
@@ -194,8 +202,19 @@ class HTTPInterface:
             if pair_limit_msg:
                 raise HTTPException(status_code=429, detail=pair_limit_msg)
 
-            if not self._safety.pairing.verify_code(req.code):
-                raise HTTPException(status_code=403, detail="invalid code")
+            # Use a stable synthetic chat_id for the pairing attempt so lockout
+            # and failed-attempt counting apply even though the real HTTP
+            # session chat_id is minted only after the code is accepted.
+            pair_chat_id = f"http_pair:{client_host}"
+            if not await self._safety.pairing.verify_code_with_lockout(
+                pair_chat_id, req.code
+            ):
+                if self._safety.pairing.is_locked(pair_chat_id):
+                    detail = "Too many failed pairing attempts. Pairing is locked."
+                else:
+                    remaining = self._safety.pairing.attempts_remaining(pair_chat_id)
+                    detail = f"Invalid code. {remaining} attempts remaining."
+                raise HTTPException(status_code=403, detail=detail)
 
             # Enforce a hard cap on total active HTTP sessions so one leaked code
             # cannot mint tokens forever.
@@ -220,7 +239,12 @@ class HTTPInterface:
             self._sessions[token] = (chat_id, created_at)
             if self._state_store:
                 await self._state_store.save_http_session(token, chat_id, created_at)
-            await self._safety.pairing.pair_directly(chat_id)
+            # HTTP sessions are explicitly *not* trusted for approvals: the HTTP
+            # interface now has its own callback path (POST /approve), so
+            # supervised actions must wait for explicit approval.
+            await self._safety.pairing.pair_directly(
+                chat_id, trusted_interface=False
+            )
             self._notify_paired(chat_id)
             log.info(
                 "HTTP session paired",
@@ -476,6 +500,36 @@ class HTTPInterface:
                     self._notifier.end_stream(chat_id)
 
             return StreamingResponse(sse_events(), media_type="text/event-stream")
+
+        @app.post("/approve")
+        async def approve(
+            req: ApproveRequest,
+            chat_id: str = Depends(_get_chat_id),
+        ):
+            """Resolve an approval request that was sent to this session.
+
+            Supervised actions over HTTP do not auto-approve; the agent waits
+            until this endpoint is called with the `approval_id` shown in the
+            approval message.
+            """
+            if not self._safety.gate.resolve(
+                req.approval_id, chat_id, req.approved
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Approval request not found, expired, or not owned by this session.",
+                )
+            log.info(
+                "HTTP approval resolved",
+                event="http_approval_resolved",
+                chat_id=chat_id,
+                approval_id=req.approval_id,
+                approved=req.approved,
+            )
+            return {
+                "status": "approved" if req.approved else "denied",
+                "approval_id": req.approval_id,
+            }
 
         @app.get("/agents")
         async def agents(chat_id: str = Depends(_get_chat_id)):

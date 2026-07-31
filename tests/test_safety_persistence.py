@@ -55,6 +55,15 @@ class TestPairingManagerPersistence:
         assert await store.load_paired_chats() == {"cli"}
 
     @pytest.mark.asyncio
+    async def test_verify_code_with_lockout_failed_attempt_writes_through(
+        self, store: StateStore
+    ):
+        pm = PairingManager(allowed_ids=[], state_store=store)
+        assert await pm.verify_code_with_lockout("x", "wrong-code") is False
+        assert await store.load_failed_attempts() == {"x": 1}
+        assert await store.load_paired_chats() == set()
+
+    @pytest.mark.asyncio
     async def test_load_rehydrates_state(self, store: StateStore):
         await store.save_paired_chat("123")
         await store.save_failed_attempts("456", 3)

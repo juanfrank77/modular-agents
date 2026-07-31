@@ -40,6 +40,21 @@ def _interface(bus, notifier=None):
     safety.pairing.code = "000000"
     safety.pairing.verify_code = lambda text: text.strip().lower() == "000000"
     safety.pairing.is_locked = lambda chat_id: False
+    safety.pairing._failed_attempts = {}
+    safety.pairing.attempts_remaining = lambda chat_id: max(
+        0, 5 - safety.pairing._failed_attempts.get(chat_id, 0)
+    )
+
+    async def _verify_code_with_lockout(chat_id, text):
+        if text.strip().lower() == "000000":
+            safety.pairing._failed_attempts.pop(chat_id, None)
+            return True
+        safety.pairing._failed_attempts[chat_id] = (
+            safety.pairing._failed_attempts.get(chat_id, 0) + 1
+        )
+        return False
+
+    safety.pairing.verify_code_with_lockout = _verify_code_with_lockout
     safety.pairing.pair_directly = AsyncMock()
     safety.rate_limiter.check = MagicMock(return_value=None)
     settings = MagicMock()
