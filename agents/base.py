@@ -215,55 +215,6 @@ class BaseAgent(ABC):
 
     # ── Cross-agent notifications ─────────────
 
-    async def emit(
-        self, agent_name: str, event: str, data: dict | None = None, context: str = ""
-    ) -> "AgentResponse | None":
-        """
-        Send a notification to another agent.
-
-        Exanple:
-            await self.emit(
-                agent_name="business",
-                event="deploy_failure",
-                data={"service": "api", "env": "production"},
-                context="Production API returned 503 three times in the last 15 minutes."
-            )
-        """
-        if not self.bus:
-            log.warning(
-                "emit called before bus was stored — call register_schedules first",
-                event="notify_no_bus",
-                from_agent=self.name,
-                to_agent=agent_name,
-            )
-            return
-
-        message = AgentEvent(
-            type=EventType.AGENT_MESSAGE,
-            origin_agent=self.name,
-            agent_name=agent_name,
-            chat_id="",
-            text=context,
-            data={
-                "from_agent": self.name,
-                "event": event,
-                **(data or {}),
-            },
-        )
-
-        response = await self.bus.publish(message)
-
-        log.info(
-            "Agent message sent",
-            event="agent_emit",
-            from_agent=self.name,
-            to_agent=agent_name,
-            message_event=event,
-            success=response.success if response else None,
-        )
-
-        return response
-
     async def _handle_agent_message(self, event: AgentEvent) -> AgentResponse:
         """
         Default handler for AGENT_MESSAGE events.
