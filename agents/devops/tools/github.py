@@ -16,7 +16,6 @@ Usage:
     from agents.devops.tools.github import GitHubTool
     gh = GitHubTool(memory=memory)
     prs = await gh.list_prs()
-    issues = await gh.list_issues(repo="org/repo", state="open")
 """
 
 from __future__ import annotations
@@ -35,7 +34,6 @@ log = get_logger("devops.github")
 
 # Fields requested from gh's --json flag
 _PR_FIELDS = "number,title,author,state,isDraft,reviewDecision,createdAt,url,headRefName"
-_ISSUE_FIELDS = "number,title,author,state,labels,createdAt,url,assignees"
 _RUN_FIELDS = "databaseId,name,status,conclusion,createdAt,url,headBranch"
 
 
@@ -150,39 +148,6 @@ class GitHubTool:
         return {"repo": repo, "number": number, "merged": True, "output": result.stdout}
 
     # ── Issues ────────────────────────────────
-
-    async def list_issues(
-        self,
-        repo: str | None = None,
-        state: str = "open",
-        label: str | None = None,
-        limit: int = 20,
-    ) -> list[dict[str, Any]]:
-        """List issues across all project repos, or a specific one."""
-        repos = [repo] if repo else await self.get_repos()
-        all_issues: list[dict[str, Any]] = []
-
-        for r in repos:
-            try:
-                args = ["gh", "issue", "list",
-                        "--repo", r,
-                        "--state", state,
-                        "--limit", str(limit),
-                        "--json", _ISSUE_FIELDS]
-                if label:
-                    args += ["--label", label]
-
-                result = await run_cli(args, tool_name="github")
-                issues = json.loads(result.stdout or "[]")
-                for issue in issues:
-                    issue["repo"] = r
-                all_issues.extend(issues)
-            except ToolError as e:
-                log.error("Failed to list issues", event="issue_list_error",
-                          repo=r, error=str(e))
-                all_issues.append({"repo": r, "error": str(e)})
-
-        return all_issues
 
     async def create_issue(
         self,
