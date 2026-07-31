@@ -552,10 +552,10 @@ curl -X POST http://127.0.0.1:8000/message \
 
 ### Interface Routing
 
-Agents and `Safety` receive a `RouterNotifier` that dispatches notifications to the correct interface based on `chat_id` prefix:
+Agents and `Safety` receive a `RouterNotifier` that dispatches each notification to the notifier explicitly registered for its `chat_id`, falling back to `TelegramNotifier` for any unregistered `chat_id` (i.e. every Telegram chat):
 
-| chat_id pattern | Interface | Notifier |
+| chat_id | Interface | Notifier |
 |---|---|---|
-| All digits (e.g. `987654321`) | Telegram | `TelegramNotifier` |
-| `"cli"` | Terminal REPL | `CLINotifier` |
-| `"http_<token[:8]>"` | HTTP API | `HTTPNotifier` |
+| Telegram chat IDs | Telegram | `TelegramNotifier` (default) |
+| `"cli"` | Terminal REPL | `CLINotifier` (registered once at startup in `main.py`) |
+| HTTP session chat_ids | HTTP API | `HTTPNotifier` (registered/deregistered per session by `HTTPInterface` via `on_chat_paired`/`on_chat_revoked` callbacks) |
