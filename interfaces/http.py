@@ -413,7 +413,12 @@ class HTTPInterface:
                                 chat_id=chat_id,
                                 error=str(e),
                             )
-                            text = f"Error: {e}"
+                            # Full exception detail stays server-side in the
+                            # log above — the client only sees a generic
+                            # message, matching /message's behavior (an
+                            # uncaught publish() exception there surfaces as
+                            # a bare 500, not the exception text).
+                            text = "An error occurred while processing your request."
                         finally:
                             await self._notifier.notify_done(chat_id, text)
                             done_event.set()

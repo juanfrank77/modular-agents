@@ -122,7 +122,10 @@ class TestMessageStreamPublishFailure:
 
         response_events = [e for e in events if e.get("type") == "response"]
         assert response_events, events
-        assert "boom" in response_events[0]["text"]
+        # The exception's own text ("boom") must NOT reach the client —
+        # only a generic message. Full detail is server-side log only.
+        assert "boom" not in response_events[0]["text"]
+        assert response_events[0]["text"]
         assert response_events[0]["success"] is False
         assert events[-1] == {"type": "done"}
 

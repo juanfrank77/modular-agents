@@ -325,9 +325,16 @@ class HTTPNotifier:
         clients (/message/stream) read _queues via stream_queue(). Writing to
         both unconditionally left the unread structure growing forever
         (#33), so route to the active one only.
+
+        Looks the queue up with a plain dict .get() rather than
+        _get_queue(), which would silently recreate — and thus leak — a
+        queue entry that end_stream() already dropped. Falls back to
+        buffering so a message never vanishes if the two ever end up out of
+        sync.
         """
-        if chat_id in self._streaming:
-            await self._get_queue(chat_id).put(("notification", text))
+        queue = self._queues.get(chat_id) if chat_id in self._streaming else None
+        if queue is not None:
+            await queue.put(("notification", text))
         else:
             self._buffers.setdefault(chat_id, []).append(text)
 
@@ -351,9 +358,15 @@ class HTTPNotifier:
         pass
 
     async def notify_done(self, chat_id: str, text: str) -> None:
-        """Signal end-of-stream for SSE consumers."""
-        if chat_id in self._streaming:
-            await self._get_queue(chat_id).put(("done", text))
+        """Signal end-of-stream for SSE consumers.
+
+        Same _get_queue()-avoidance as send(): a stream that's already
+        ended has nothing listening, so recreating its queue here would
+        just leak it again.
+        """
+        queue = self._queues.get(chat_id) if chat_id in self._streaming else None
+        if queue is not None:
+            await queue.put(("done", text))
 
     async def stream_queue(
         self,

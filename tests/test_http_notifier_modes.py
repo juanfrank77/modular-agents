@@ -126,6 +126,22 @@ class TestSSEQueueCleanup:
         assert "chat1" not in notifier._queues
         assert notifier.get_and_clear("chat1") == "late"
 
+    @pytest.mark.asyncio
+    async def test_send_does_not_resurrect_a_dropped_queue(self):
+        """Defensive case flagged in review: if _streaming and _queues ever
+        end up desynced (chat_id still marked streaming but its queue entry
+        already gone), send()/notify_done() must not recreate the queue —
+        that queue would have no consumer and leak, and could deliver stale
+        messages to a later, unrelated stream for the same chat_id."""
+        notifier = HTTPNotifier()
+        notifier._streaming.add("chat1")  # desynced on purpose
+
+        await notifier.send("chat1", "hello")
+        await notifier.notify_done("chat1", "final")
+
+        assert "chat1" not in notifier._queues
+        assert notifier.get_and_clear("chat1") == "hello"
+
 
 class TestSSEEndpointDisconnectCleanup:
     @pytest.mark.asyncio
