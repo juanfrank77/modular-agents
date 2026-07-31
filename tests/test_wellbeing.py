@@ -2,9 +2,11 @@
 """Tests for wellbeing integration: quiet_hours, BaseAgent.should_notify, WellbeingAgent."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from textwrap import dedent
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from core.protocols import Message
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -134,6 +136,7 @@ class TestShouldNotify:
         now = datetime(2024, 1, 1, 8, 0, 0)
         assert should_notify(settings, tag="deploy-alert", now=now) is True
 
+
 # ── BaseAgent.should_notify tests ─────────────────────────────────────────
 
 class TestBaseAgentShouldNotify:
@@ -158,6 +161,8 @@ class TestBaseAgentShouldNotify:
         agent = self._make_agent()
         now = datetime(2024, 1, 1, 8, 0, 0)
         assert agent.should_notify("anything", is_emergency=True, _now=now) is True
+
+
 # ── WellbeingAgent tests ──────────────────────────────────────────────────────
 
 class TestWellbeingAgentHelpers:
@@ -165,6 +170,9 @@ class TestWellbeingAgentHelpers:
         from agents.wellbeing.agent import WellbeingAgent
         settings = _make_settings(**setting_overrides)
         storage = MagicMock()
+        storage.get_or_create_session = AsyncMock(return_value="wellbeing_123")
+        storage.get_session_messages = AsyncMock(return_value=[])
+        storage.save_message = AsyncMock()
         notifier = MagicMock()
         notifier.send = AsyncMock()
         return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
@@ -208,29 +216,105 @@ class TestWellbeingAgentHelpers:
         agent = self._make_agent()
         assert agent._suggest_activity({"rainy": False, "temp": 18}) == "run"
 
-    def test_build_morning_message_weekend_no_weather(self):
+    async def test_build_morning_message_weekend_no_weather(self):
         agent = self._make_agent()
-        with patch.object(agent, "_get_weather", return_value=None):
-            msg = agent._build_morning_message(is_weekend=True)
+        with (
+            patch.object(agent, "_get_weather", new_callable=AsyncMock, return_value=None),
+            patch("random.choice", return_value="Morning. Routine when you're ready."),
+        ):
+            msg = await agent._build_morning_message(is_weekend=True)
         assert "Routine when you're ready" in msg
 
-    def test_build_morning_message_weekday_no_weather(self):
+    async def test_build_morning_message_weekday_no_weather(self):
         agent = self._make_agent()
-        with patch.object(agent, "_get_weather", return_value=None):
-            msg = agent._build_morning_message(is_weekend=False)
+        with (
+            patch.object(agent, "_get_weather", new_callable=AsyncMock, return_value=None),
+            patch("random.choice", return_value="Morning. Good day for [run/yoga]."),
+        ):
+            msg = await agent._build_morning_message(is_weekend=False)
         assert "Good day for" in msg
 
-    def test_build_morning_message_weekday_with_weather(self):
+    async def test_build_morning_message_weekday_with_weather(self):
         agent = self._make_agent()
         weather = {"temp": 12, "desc": "partly cloudy", "rainy": False}
-        with patch.object(agent, "_get_weather", return_value=weather):
-            msg = agent._build_morning_message(is_weekend=False)
+        with (
+            patch.object(agent, "_get_weather", new_callable=AsyncMock, return_value=weather),
+            patch("random.choice", return_value="Morning. [temp]C, [condition]. Good day for [run/yoga]."),
+        ):
+            msg = await agent._build_morning_message(is_weekend=False)
         assert "12C" in msg
+        assert "partly cloudy" in msg
         assert "run" in msg
 
-    def test_get_weather_no_location_returns_none(self):
+    async def test_build_morning_message_uses_skill_pool(self):
+        agent = self._make_agent()
+        skill = dedent("""
+        ## Weekday pool:
+        - "Morning. [temp]C, [condition]. Skill weekday one."
+        - "Morning. [temp]C, [condition]. Skill weekday two."
+        ## Weather fallback
+        - "Morning. Skill fallback."
+        """)
+        with (
+            patch.object(agent, "_get_weather", new_callable=AsyncMock, return_value=None),
+            patch("random.choice", return_value="Morning. Skill fallback."),
+            patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=skill),
+        ):
+            msg = await agent._build_morning_message(is_weekend=False)
+        assert "Skill fallback" in msg
+
+    async def test_get_weather_no_location_returns_none(self):
         agent = self._make_agent(location="")
-        assert agent._get_weather() is None
+        assert await agent._get_weather() is None
+
+    def test_parse_bullet_pool(self):
+        from agents.wellbeing.agent import WellbeingAgent
+        content = dedent("""
+        ## Message Construction
+        Weekday pool:
+        - "Message one."
+        - "Message two."
+        ## Next section
+        - "Ignored."
+        """)
+        assert WellbeingAgent._parse_bullet_pool(content, "Weekday pool:") == [
+            "Message one.",
+            "Message two.",
+        ]
+
+    def test_parse_numbered_pool(self):
+        from agents.wellbeing.agent import WellbeingAgent
+        content = dedent("""
+        ## Message Construction
+        1. "First message."
+        2. "Second message."
+        """)
+        assert WellbeingAgent._parse_numbered_pool(content) == [
+            "First message.",
+            "Second message.",
+        ]
+
+    def test_parse_deflection_rules(self):
+        from agents.wellbeing.agent import WellbeingAgent
+        content = dedent("""
+        ### Should deflect (not the agent's job)
+        - Requests to send an immediate nudge → "That would skip the quiet-hours guard.
+          Use /quiet to check your current settings."
+        - Complex emotional support → "I'm a scheduled nudge bot."
+        - Medical or health professional topics → "I'm not a doctor."
+        """)
+        agent = WellbeingAgent(settings=_make_settings(), storage=MagicMock(), notifier=MagicMock())
+        rules = agent._parse_deflection_rules(content)
+        assert len(rules) == 3
+        keywords, response = rules[0]
+        assert "send now" in keywords
+        assert "That would skip the quiet-hours guard." in response
+
+    def test_respond_settings_does_not_claim_to_update_preferences(self):
+        agent = self._make_agent()
+        text = agent._respond_settings("quiet hours")
+        assert "Edit memory/context/preferences.md directly" in text
+        assert "I can update it there" not in text
 
 
 class TestWellbeingAgentHandle:
@@ -238,6 +322,9 @@ class TestWellbeingAgentHandle:
         from agents.wellbeing.agent import WellbeingAgent
         settings = _make_settings(**setting_overrides)
         storage = MagicMock()
+        storage.get_or_create_session = AsyncMock(return_value="wellbeing_123")
+        storage.get_session_messages = AsyncMock(return_value=[])
+        storage.save_message = AsyncMock()
         notifier = MagicMock()
         notifier.send = AsyncMock()
         return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
@@ -255,10 +342,12 @@ class TestWellbeingAgentHandle:
         agent = self._make_agent()
         event = self._make_event("wellbeing_morning_weekday")
         with (
-            patch.object(agent, "_load_state", return_value={}),
-            patch.object(agent, "_save_state"),
-            patch.object(agent, "_get_weather", return_value=None),
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "_get_weather", new_callable=AsyncMock, return_value=None),
+            patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=None),
             patch.object(agent, "should_notify", return_value=True),
+            patch("random.choice", return_value="Morning. Good day for [run/yoga]."),
         ):
             response = await agent.handle(event)
         agent.notifier.send.assert_called_once()
@@ -270,7 +359,7 @@ class TestWellbeingAgentHandle:
         from core.timezone import now_in_user_timezone
         state = {"morning_nudge_sent_at": now_in_user_timezone(agent.settings).isoformat()}
         with (
-            patch.object(agent, "_load_state", return_value=state),
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value=state),
             patch.object(agent, "should_notify", return_value=True),
         ):
             await agent.handle(event)
@@ -280,11 +369,102 @@ class TestWellbeingAgentHandle:
         agent = self._make_agent()
         event = self._make_event("wellbeing_morning_weekday")
         with (
-            patch.object(agent, "_load_state", return_value={}),
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
             patch.object(agent, "should_notify", return_value=False),
         ):
             await agent.handle(event)
         agent.notifier.send.assert_not_called()
+
+    async def test_followup_skips_when_user_replied_today(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_followup")
+        agent.storage.get_session_messages = AsyncMock(return_value=[
+            Message(role="user", content="already up", agent="wellbeing", timestamp=datetime.now(timezone.utc))
+        ])
+        with (
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            await agent.handle(event)
+        agent.notifier.send.assert_not_called()
+
+    async def test_followup_sends_when_user_has_not_replied(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_followup")
+        agent.storage.get_session_messages = AsyncMock(return_value=[])
+        with (
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            await agent.handle(event)
+        agent.notifier.send.assert_called_once()
+        agent.notifier.send.assert_called_with("123", "Time to move.")
+
+    async def test_followup_skips_on_weekends(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_followup")
+        # 2024-01-06 is a Saturday
+        with (
+            patch("agents.wellbeing.agent.now_in_user_timezone") as mock_now,
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            mock_now.return_value = datetime(2024, 1, 6, 8, 30, 0)
+            await agent.handle(event)
+        agent.notifier.send.assert_not_called()
+
+    async def test_evening_uses_skill_message(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_evening")
+        skill = dedent("""
+        ## Message Construction
+        1. "Evening skill one."
+        2. "Evening skill two."
+        """)
+        with (
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=skill),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            response = await agent.handle(event)
+        assert response.text in ["Evening skill one.", "Evening skill two."]
+        agent.notifier.send.assert_called_once()
+
+    async def test_bedtime_uses_skill_message(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_bedtime")
+        skill = dedent("""
+        ## Message Construction
+        1. "Bedtime skill one."
+        2. "Bedtime skill two."
+        """)
+        with (
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=skill),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            response = await agent.handle(event)
+        assert response.text in ["Bedtime skill one.", "Bedtime skill two."]
+        agent.notifier.send.assert_called_once()
+
+    async def test_weekly_checkin_uses_seven_day_denominator(self):
+        agent = self._make_agent()
+        event = self._make_event("wellbeing_weekly")
+        # 2024-01-01 is a Monday; today is Tuesday, so only 1 day recorded.
+        state = {"weekly_stats": {"routine_days": ["2024-01-01"], "streak": 3}}
+        with (
+            patch("agents.wellbeing.agent.now_in_user_timezone") as mock_now,
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value=state),
+            patch.object(agent, "_save_state", new_callable=AsyncMock),
+            patch.object(agent, "should_notify", return_value=True),
+        ):
+            mock_now.return_value = datetime(2024, 1, 2, 9, 0, 0)
+            response = await agent.handle(event)
+        assert "1/7 days" in response.text
 
     async def test_weekly_checkin_resets_stats(self):
         agent = self._make_agent()
@@ -296,8 +476,8 @@ class TestWellbeingAgentHandle:
             saved.update(s)
 
         with (
-            patch.object(agent, "_load_state", return_value=state),
-            patch.object(agent, "_save_state", side_effect=capture_save),
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value=state),
+            patch.object(agent, "_save_state", new_callable=AsyncMock, side_effect=capture_save),
             patch.object(agent, "should_notify", return_value=True),
         ):
             await agent.handle(event)
@@ -307,3 +487,101 @@ class TestWellbeingAgentHandle:
     async def test_health_check_returns_true(self):
         agent = self._make_agent()
         assert await agent.health_check() is True
+
+
+class TestWellbeingAgentSchedules:
+    def _make_agent(self, **setting_overrides):
+        from agents.wellbeing.agent import WellbeingAgent
+        settings = _make_settings(**setting_overrides)
+        storage = MagicMock()
+        notifier = MagicMock()
+        return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
+
+    async def test_register_schedules_uses_wake_and_bedtime(self):
+        from core.scheduler import scheduler
+        agent = self._make_agent(wake_time="06:30", bedtime="22:00", chat_ids=["123"])
+        bus = MagicMock()
+        with patch.object(scheduler, "add_cron_job") as mock_add:
+            await agent.register_schedules(bus)
+
+        registered_crons = [call.kwargs["cron"] for call in mock_add.call_args_list]
+        assert "30 6 * * 1-5" in registered_crons
+        assert "30 7 * * 0,6" in registered_crons  # weekend = wake + 1 hour
+        assert "0 22 * * *" in registered_crons
+
+    async def test_register_schedules_defaults_when_invalid(self):
+        from core.scheduler import scheduler
+        agent = self._make_agent(wake_time="bad", bedtime="bad", chat_ids=["123"])
+        bus = MagicMock()
+        with patch.object(scheduler, "add_cron_job") as mock_add:
+            await agent.register_schedules(bus)
+
+        registered_crons = [call.kwargs["cron"] for call in mock_add.call_args_list]
+        assert "0 7 * * 1-5" in registered_crons
+        assert "0 8 * * 0,6" in registered_crons
+        assert "0 23 * * *" in registered_crons
+
+
+class TestWellbeingInteractive:
+    def _make_agent(self, **setting_overrides):
+        from agents.wellbeing.agent import WellbeingAgent
+        settings = _make_settings(**setting_overrides)
+        storage = MagicMock()
+        storage.get_or_create_session = AsyncMock(return_value="wellbeing_123")
+        storage.get_session_messages = AsyncMock(return_value=[])
+        storage.save_message = AsyncMock()
+        notifier = MagicMock()
+        notifier.send = AsyncMock()
+        return WellbeingAgent(settings=settings, storage=storage, notifier=notifier)
+
+    def _make_event(self, text: str):
+        from core.protocols import AgentEvent, EventType
+        return AgentEvent(
+            type=EventType.USER_MESSAGE,
+            agent_name="wellbeing",
+            chat_id="123",
+            text=text,
+        )
+
+    async def test_deflects_send_now_request(self):
+        agent = self._make_agent()
+        event = self._make_event("send now please")
+        skill = dedent("""
+        ### Should deflect (not the agent's job)
+        - Requests to send an immediate nudge → "That would skip the quiet-hours guard.
+          Use /quiet to check your current settings."
+        """)
+        with patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=skill):
+            response = await agent.handle(event)
+        assert "skip the quiet-hours guard" in response.text
+
+    async def test_deflects_medical_topic(self):
+        agent = self._make_agent()
+        event = self._make_event("I need medical advice")
+        skill = """
+### Should deflect (not the agent's job)
+- Medical or health professional topics → "I'm not a doctor."
+"""
+        with patch.object(agent, "_load_skill_text", new_callable=AsyncMock, return_value=skill):
+            response = await agent.handle(event)
+        assert "I'm not a doctor" in response.text
+
+    async def test_responds_with_stats(self):
+        agent = self._make_agent()
+        event = self._make_event("how is my routine")
+        state = {"weekly_stats": {"routine_days": ["2024-01-01", "2024-01-02"], "streak": 2}}
+        with (
+            patch("agents.wellbeing.agent.now_in_user_timezone") as mock_now,
+            patch.object(agent, "_load_state", new_callable=AsyncMock, return_value=state),
+        ):
+            mock_now.return_value = datetime(2024, 1, 2, 14, 0, 0)
+            response = await agent.handle(event)
+        assert "2/7 days" in response.text
+        assert "Streak: 2 weeks" in response.text
+
+    async def test_unauthorized_interactive_returns_failure(self):
+        agent = self._make_agent(chat_ids=["999"])
+        event = self._make_event("hello")
+        response = await agent.handle(event)
+        assert response.text == "Unauthorized."
+        assert response.success is False
