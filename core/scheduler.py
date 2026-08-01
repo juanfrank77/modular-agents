@@ -70,6 +70,26 @@ async def _fire_cron_job(agent_name: str, chat_id: str, task: str) -> None:
         log.error("Cron job execution failed", event="cron_job_error", agent=agent_name, task=task, error=str(e))
 
 
+async def _heartbeat_tick() -> None:
+    """Picklable module-level heartbeat target.
+
+    A bound method (``self._heartbeat``) drags the entire ``Scheduler``
+    instance — which owns the non-serializable ``AsyncIOScheduler`` — into
+    the pickle, so SQLAlchemyJobStore crashes on ``scheduler.start()``.
+    Keeping this at module level and looking up the bus via the registry
+    avoids that, mirroring ``_fire_cron_job``.
+    """
+    if _bus_registry is None:
+        return
+    event = AgentEvent(
+        type=EventType.HEARTBEAT_TICK,
+        agent_name="",
+        chat_id="",
+    )
+    await _bus_registry.publish_all(event)
+    log.info("Heartbeat published", event="heartbeat_tick")
+
+
 class Scheduler:
     def __init__(self, heartbeat_minutes: int = 30) -> None:
         self._scheduler = AsyncIOScheduler()
@@ -178,25 +198,12 @@ class Scheduler:
             timezone=str(self._timezone),
         )
 
-    # ── Heartbeat ─────────────────────────────
-    async def _heartbeat(self) -> None:
-        """Publish a heartbeat tick to all registered agents."""
-        if not self._bus:
-            return
-        event = AgentEvent(
-            type=EventType.HEARTBEAT_TICK,
-            agent_name="",
-            chat_id="",
-        )
-        await self._bus.publish_all(event)
-        log.info("Heartbeat published", event="heartbeat_tick")
-
     # ── Lifecycle ─────────────────────────────
     def start(self) -> None:
         """Start the scheduler. Call after all jobs are registered."""
         if self._heartbeat_minutes > 0:
             self._scheduler.add_job(
-                self._heartbeat,
+                _heartbeat_tick,
                 IntervalTrigger(minutes=self._heartbeat_minutes),
                 id="heartbeat",
                 replace_existing=True,
