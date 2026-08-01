@@ -4,11 +4,11 @@ agents/wellbeing/agent.py
 WellbeingAgent — scheduled nudges with quiet-hours awareness and skill-driven
 message construction.
 
-Six cron schedules (defaults below; morning/bedtime are derived from the
+Six cron schedules (defaults below; morning/follow-up/bedtime are derived from the
 WELLBEING_WAKE_TIME / WELLBEING_BEDTIME settings at registration time):
   Morning nudge (weekday):  0 7  * * 1-5
   Morning nudge (weekend):  0 8  * * 0,6
-  Morning follow-up:        30 8 * * 1-5
+  Morning follow-up:        30 8 * * 1-5   (wake + 1h30m, weekdays only)
   Evening wind-down:        30 19 * * *
   Bedtime:                  0 23 * * *
   Weekly check-in:          0 9  * * 0
@@ -122,15 +122,16 @@ class WellbeingAgent(BaseAgent):
         return dt.hour, dt.minute
 
     async def register_schedules(self, bus: "MessageBus") -> None:
-        """Register cron schedules, deriving morning/bedtime from user settings."""
+        """Register cron schedules, deriving morning/bedtime/follow-up from user settings."""
         wake = self._parse_hhmm(self.settings.wellbeing_wake_time, 7, 0)
         weekend_wake = self._shift_hhmm(wake, hours=1)
+        followup = self._shift_hhmm(wake, hours=1, minutes=30)
         bedtime = self._parse_hhmm(self.settings.wellbeing_bedtime, 23, 0)
         # Instance-level override keeps the class attribute intact for other agents.
         self.SCHEDULES = [
             ("wellbeing_morning_weekday", f"{wake[1]} {wake[0]} * * 1-5"),
             ("wellbeing_morning_weekend", f"{weekend_wake[1]} {weekend_wake[0]} * * 0,6"),
-            ("wellbeing_followup", "30 8 * * 1-5"),
+            ("wellbeing_followup", f"{followup[1]} {followup[0]} * * 1-5"),
             ("wellbeing_evening", "30 19 * * *"),
             ("wellbeing_bedtime", f"{bedtime[1]} {bedtime[0]} * * *"),
             ("wellbeing_weekly", "0 9 * * 0"),

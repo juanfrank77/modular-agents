@@ -10,9 +10,9 @@ prompt that respects the user's morning routine. The goal is to support consiste
 not to police it.
 
 ## Timing
-- Weekdays: sent at 7:00 AM (Bogota time, UTC-5)
-- Weekend: sent at 8:00 AM (Bogota time, UTC-5)
-- Follow-up nudge: 8:30 AM weekdays only
+- Weekdays: sent at wake time (default 07:00, Bogota time, UTC-5)
+- Weekend: sent at wake time + 1 hour (default 08:00, Bogota time, UTC-5)
+- Follow-up nudge: wake time + 1h30m, weekdays only
 
 ## Message Construction
 Pick from the correct pool based on whether it's a weekday or weekend.
@@ -37,7 +37,7 @@ Weather fallback (when wttr.in is unavailable):
 - If no weather data: default to "run or yoga"
 
 ## Follow-up Message
-Send once at 8:00 AM on weekdays only if no reply to the morning nudge:
+Send once at wake+1h30m on weekdays only if no reply to the morning nudge:
 - "Time to move."
 Keep it minimal — the user already knows they missed it.
 

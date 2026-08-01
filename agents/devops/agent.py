@@ -434,7 +434,9 @@ class DevOpsAgent(BaseAgent):
                 "Health check failures detected:\n"
                 + "\n".join(f"  • {f}" for f in failures)
             )
-            await self.notifier.send(event.chat_id, alert)
+            await self.send_scheduled(
+                event.chat_id, alert, is_emergency=True
+            )
             log.warning(
                 "Health check failures", event="health_alert", failures=failures
             )
@@ -508,10 +510,11 @@ class DevOpsAgent(BaseAgent):
             log.error(
                 "GitHub fetch failed for digest", event="digest_error", error=str(e)
             )
-            await self.notifier.send(
+            await self.send_scheduled(
                 event.chat_id,
                 "\U0001f419 *GitHub Digest*\n\n\u26a0\ufe0f Could not fetch GitHub data: "
                 + str(e),
+                tag="devops-digest",
             )
             return AgentResponse(
                 text="GitHub fetch failed.", agent_name=self.name, success=False
@@ -578,15 +581,16 @@ class DevOpsAgent(BaseAgent):
             model=self.resolve_model(event.chat_id),
         )).text
 
-        await self.notifier.send(
-            event.chat_id, "\U0001f419 *GitHub Digest*\n\n" + digest
+        sent = await self.send_scheduled(
+            event.chat_id, "\U0001f419 *GitHub Digest*\n\n" + digest, tag="devops-digest"
         )
-        log.info(
-            "GitHub digest sent",
-            event="digest_sent",
-            open_prs=len(open_prs),
-            failing_ci=len(failing_ci),
-        )
+        if sent:
+            log.info(
+                "GitHub digest sent",
+                event="digest_sent",
+                open_prs=len(open_prs),
+                failing_ci=len(failing_ci),
+            )
         return AgentResponse(text=digest, agent_name=self.name)
 
     async def _incident_watchdog(self, event: AgentEvent) -> AgentResponse:
@@ -622,7 +626,9 @@ class DevOpsAgent(BaseAgent):
         if alerts:
             bullet_list = "\n".join(f"  \u2022 {a}" for a in alerts)
             message = f"\U0001f6a8 *Incident Watchdog*\n\n{bullet_list}"
-            await self.notifier.send(event.chat_id, message)
+            await self.send_scheduled(
+                event.chat_id, message, is_emergency=True
+            )
             log.warning(
                 "Watchdog alerts fired", event="watchdog_alert", count=len(alerts)
             )

@@ -270,6 +270,35 @@ class BaseAgent(ABC):
         await self.notifier.send(event.chat_id, f"[{self.name}] {text}")
         return AgentResponse(text=text, agent_name=self.name)
 
+    async def send_scheduled(
+        self,
+        chat_id: str,
+        text: str,
+        tag: str = "",
+        is_emergency: bool = False,
+    ) -> bool:
+        """Send a scheduled notification, respecting quiet hours.
+
+        Returns True if the message was sent, False if suppressed by
+        quiet-hours gating. Interactive replies (``_handle_message``)
+        should use ``self.notifier.send()`` directly — quiet hours only
+        gate unscheduled/push notifications, not conversations the user
+        initiated.
+
+        Pass ``is_emergency=True`` to bypass quiet hours (e.g. health
+        check failures, incident alerts).
+        """
+        if not self.should_notify(tag, is_emergency=is_emergency):
+            log.info(
+                "Scheduled notification suppressed by quiet hours",
+                event="quiet_hours_suppressed",
+                agent=self.name,
+                tag=tag,
+            )
+            return False
+        await self.notifier.send(chat_id, text)
+        return True
+
     def resolve_model(self, chat_id: str) -> str:
         """
         Effective model for a chat, in precedence order:

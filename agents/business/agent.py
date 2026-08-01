@@ -434,8 +434,11 @@ class BusinessAgent(BaseAgent):
             model=self.resolve_model(event.chat_id),
         )).text
 
-        await self.notifier.send(event.chat_id, f"🌅 *Morning Briefing*\n\n{briefing}")
-        log.info("Morning briefing sent", event="briefing_sent")
+        sent = await self.send_scheduled(
+            event.chat_id, f"🌅 *Morning Briefing*\n\n{briefing}", tag="business-briefing"
+        )
+        if sent:
+            log.info("Morning briefing sent", event="briefing_sent")
         return AgentResponse(text=briefing, agent_name=self.name)
 
     async def _weekly_review(self, event: AgentEvent) -> AgentResponse:
@@ -465,8 +468,11 @@ class BusinessAgent(BaseAgent):
             model=self.resolve_model(event.chat_id),
         )).text
 
-        await self.notifier.send(event.chat_id, f"📋 *Weekly Review*\n\n{review}")
-        log.info("Weekly review sent", event="review_sent")
+        sent = await self.send_scheduled(
+            event.chat_id, f"📋 *Weekly Review*\n\n{review}", tag="business-briefing"
+        )
+        if sent:
+            log.info("Weekly review sent", event="review_sent")
         return AgentResponse(text=review, agent_name=self.name)
 
     # ── System prompt builder ─────────────────

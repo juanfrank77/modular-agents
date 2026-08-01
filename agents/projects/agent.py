@@ -231,7 +231,7 @@ class ProjectsAgent(BaseAgent):
 
         msg = f"🗂 *Weekly Kickoff*\n\n{kickoff}"
         for chat_id in self.settings.telegram_allowed_chat_ids:
-            await self.notifier.send(chat_id, msg)
+            await self.send_scheduled(chat_id, msg, tag="projects-kickoff")
         log.info("Weekly kickoff sent", event="kickoff_sent")
         return AgentResponse(text=kickoff, agent_name=self.name)
 
