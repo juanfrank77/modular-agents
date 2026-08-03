@@ -154,8 +154,11 @@ class TestHTTPInterfaceTagParsing:
         creator = MagicMock()
         creator.is_active.return_value = False
 
+        notifier = MagicMock()
+        notifier.get_and_clear = AsyncMock(return_value="")
+
         interface = HTTPInterface(
-            bus=bus, safety=safety, creator=creator, notifier=MagicMock(), settings=settings
+            bus=bus, safety=safety, creator=creator, notifier=notifier, settings=settings
         )
         client = TestClient(interface.app)
         r = client.post("/pair", json={"code": "000000"})

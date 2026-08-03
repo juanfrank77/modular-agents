@@ -79,7 +79,7 @@ class TestApproveEndpoint:
         task = asyncio.create_task(agent_task())
         # Wait for the approval request to be buffered.
         await asyncio.sleep(0.05)
-        text = notifier.get_and_clear(interface._sessions[_token][0])
+        text = await notifier.get_and_clear(interface._sessions[_token][0])
         assert "approval_id" in text
         # Extract the approval_id from the instructions.
         approval_id = text.split('approval_id": "')[1].split('"')[0]
@@ -108,7 +108,7 @@ class TestApproveEndpoint:
 
         task = asyncio.create_task(agent_task())
         await asyncio.sleep(0.05)
-        text = notifier.get_and_clear(interface._sessions[_token][0])
+        text = await notifier.get_and_clear(interface._sessions[_token][0])
         approval_id = text.split('approval_id": "')[1].split('"')[0]
 
         r = client.post("/approve", json={"approval_id": approval_id, "approved": False})
@@ -135,7 +135,7 @@ class TestApproveEndpoint:
 
         task = asyncio.create_task(agent_task())
         await asyncio.sleep(0.05)
-        text = notifier.get_and_clear(interface._sessions[token1][0])
+        text = await notifier.get_and_clear(interface._sessions[token1][0])
         approval_id = text.split('approval_id": "')[1].split('"')[0]
 
         # Session 2 must not be able to resolve session 1's approval.

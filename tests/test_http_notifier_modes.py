@@ -24,7 +24,7 @@ class TestPollingOnlyDoesNotLeakQueues:
         await notifier.send("chat1", "hello")
 
         assert "chat1" not in notifier._queues
-        assert notifier.get_and_clear("chat1") == "hello"
+        assert await notifier.get_and_clear("chat1") == "hello"
 
     @pytest.mark.asyncio
     async def test_repeated_polling_sends_never_populate_queues(self):
@@ -124,7 +124,7 @@ class TestSSEQueueCleanup:
         await notifier.send("chat1", "late")
 
         assert "chat1" not in notifier._queues
-        assert notifier.get_and_clear("chat1") == "late"
+        assert await notifier.get_and_clear("chat1") == "late"
 
     @pytest.mark.asyncio
     async def test_send_does_not_resurrect_a_dropped_queue(self):
@@ -140,7 +140,7 @@ class TestSSEQueueCleanup:
         await notifier.notify_done("chat1", "final")
 
         assert "chat1" not in notifier._queues
-        assert notifier.get_and_clear("chat1") == "hello"
+        assert await notifier.get_and_clear("chat1") == "hello"
 
 
 class TestSendWithButtonsIncludesApprovalInstructions:
@@ -152,7 +152,7 @@ class TestSendWithButtonsIncludesApprovalInstructions:
             "chat1", "*Approval Required*\n\nDeploy to prod?", buttons
         )
 
-        text = notifier.get_and_clear("chat1")
+        text = await notifier.get_and_clear("chat1")
         assert "approve:abc123" not in text  # callback_data is internal
         assert 'approval_id": "abc123"' in text
         assert '"approved": true' in text
@@ -165,8 +165,58 @@ class TestSendWithButtonsIncludesApprovalInstructions:
         buttons = [("Open", "open:https://example.com")]
         await notifier.send_with_buttons("chat1", "Click below:", buttons)
 
-        text = notifier.get_and_clear("chat1")
+        text = await notifier.get_and_clear("chat1")
         assert text == "Click below:"
+
+
+class TestConcurrentGetAndClear:
+    @pytest.mark.asyncio
+    async def test_concurrent_get_and_clear_partitions_buffer(self):
+        """Two concurrent get_and_clear() calls for the same chat_id must
+        not both see the same messages (a race that could duplicate
+        responses to /message) and must not lose any. The lock makes the
+        pop-and-return atomic: one call gets everything, the other gets
+        whatever (if anything) arrives on top of it."""
+        notifier = HTTPNotifier()
+        await notifier.send("chat1", "first")
+        await notifier.send("chat1", "second")
+
+        results = await asyncio.gather(
+            notifier.get_and_clear("chat1"),
+            notifier.get_and_clear("chat1"),
+        )
+
+        # One call got both messages, the other got nothing — no duplication,
+        # no loss. Without the lock a non-atomic read+pop could hand the same
+        # buffer to both calls.
+        non_empty = [r for r in results if r]
+        assert len(non_empty) == 1
+        assert non_empty[0] == "first\n\nsecond"
+        assert notifier._buffers.get("chat1", []) == []
+
+    @pytest.mark.asyncio
+    async def test_concurrent_send_and_get_and_clear_is_safe(self):
+        """A concurrent send() interleaved with get_and_clear() must not
+        lose messages or raise — the lock serializes the buffer mutation."""
+        notifier = HTTPNotifier()
+        await notifier.send("chat1", "before")
+
+        async def send_concurrent():
+            await asyncio.sleep(0.01)
+            await notifier.send("chat1", "concurrent")
+
+        sender = asyncio.create_task(send_concurrent())
+        results = await asyncio.gather(
+            notifier.get_and_clear("chat1"),
+            sender,
+        )
+
+        popped, _ = results
+        await asyncio.sleep(0.01)
+        remainder = await notifier.get_and_clear("chat1")
+        all_messages = (popped + "\n\n" + remainder).strip()
+        assert "before" in all_messages
+        assert "concurrent" in all_messages
 
 
 class TestSSEEndpointDisconnectCleanup:

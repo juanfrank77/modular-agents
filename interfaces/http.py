@@ -400,7 +400,7 @@ class HTTPInterface:
             response = await self._bus.publish(event)
 
             # Collect any extra messages sent via notifier.send() directly
-            extra = self._notifier.get_and_clear(chat_id)
+            extra = await self._notifier.get_and_clear(chat_id)
 
             if response:
                 text = response.text or extra or ""

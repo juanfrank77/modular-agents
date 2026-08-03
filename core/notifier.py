@@ -407,13 +407,16 @@ class HTTPNotifier:
             except asyncio.TimeoutError:
                 continue
 
-    def get_and_clear(self, chat_id: str) -> str:
+    async def get_and_clear(self, chat_id: str) -> str:
         """Return all buffered messages joined by double newline, then clear.
 
-        Thread-safe for concurrent access from the same event loop via the
-        per-chat_id lock."""
-        messages = self._buffers.pop(chat_id, [])
-        return "\n\n".join(messages)
+        Safe for concurrent access: acquires the per-chat_id asyncio.Lock so
+        interleaved get_and_clear() / send() calls for the same chat_id
+        can't race on self._buffers.pop(chat_id, []).
+        """
+        async with self._get_lock(chat_id):
+            messages = self._buffers.pop(chat_id, [])
+            return "\n\n".join(messages)
 
 
 class RouterNotifier:
