@@ -26,6 +26,7 @@ Endpoints:
 Session tokens expire after SESSION_TTL_HOURS (default: 24). The total
 number of concurrent sessions is capped by MAX_HTTP_SESSIONS (default: 10).
 Pairing is rate-limited per client IP by HTTP_PAIR_RATE_LIMIT_RPM.
+Admin endpoints are rate-limited per client IP by HTTP_ADMIN_RATE_LIMIT_RPM.
 Sessions persist across restarts via StateStore, with expired tokens pruned
 on access.
 """
@@ -105,6 +106,7 @@ class HTTPInterface:
         self._state_store = state_store
         self._sessions: dict[str, tuple[str, float]] = {}  # token → (chat_id, created_at_ts)
         self._pair_rate_limiter = RateLimiter(rpm=self._settings.http_pair_rate_limit_rpm)
+        self._admin_rate_limiter = RateLimiter(rpm=self._settings.http_admin_rate_limit_rpm)
         # Notifies a RouterNotifier (if any) which concrete notifier serves a
         # chat_id, so delivery dispatch doesn't need to re-derive it from
         # chat_id's "http_..." prefix — see core/notifier.py's #45 fix.
@@ -189,6 +191,18 @@ class HTTPInterface:
         """
         if not self._safety.pairing.verify_code(code):
             raise HTTPException(status_code=403, detail="invalid admin code")
+
+    def _check_admin_rate_limit(self, request: Request) -> None:
+        """Rate-limit admin endpoints per client IP.
+
+        Checked *before* the pairing-code validation so that wrong-code
+        brute-force attempts against admin endpoints also consume the bucket
+        (same hardening applied to POST /pair).
+        """
+        client_host = self._client_host(request)
+        limit_msg = self._admin_rate_limiter.check(f"admin:{client_host}")
+        if limit_msg:
+            raise HTTPException(status_code=429, detail=limit_msg)
 
     def _client_host(self, request: Request) -> str:
         """Return the client IP for per-IP rate limiting.
@@ -297,8 +311,9 @@ class HTTPInterface:
             return {"status": "revoked"}
 
         @app.post("/admin/unlock")
-        async def admin_unlock(req: UnlockRequest):
+        async def admin_unlock(req: UnlockRequest, request: Request):
             """Admin endpoint: unlock a chat_id locked out from pairing (requires pairing code)."""
+            self._check_admin_rate_limit(request)
             self._require_admin_code(req.code)
             if not self._safety.pairing.is_locked(req.chat_id):
                 raise HTTPException(status_code=400, detail="chat not locked")
@@ -307,11 +322,12 @@ class HTTPInterface:
             return {"status": "unlocked", "chat_id": req.chat_id}
 
         @app.get("/admin/sessions")
-        async def admin_list_sessions(code: str):
+        async def admin_list_sessions(code: str, request: Request):
             """Admin endpoint: list active HTTP sessions (requires pairing code).
 
             Tokens are masked to keep the endpoint read-only safe.
             """
+            self._check_admin_rate_limit(request)
             self._require_admin_code(code)
             self._prune_expired_sessions()
             now = datetime.now(timezone.utc).timestamp()
@@ -330,8 +346,9 @@ class HTTPInterface:
             return {"sessions": sessions, "count": len(sessions)}
 
         @app.delete("/admin/sessions/{token}")
-        async def admin_revoke_session(token: str, code: str):
+        async def admin_revoke_session(token: str, code: str, request: Request):
             """Admin endpoint: revoke a specific HTTP session (requires pairing code)."""
+            self._check_admin_rate_limit(request)
             self._require_admin_code(code)
             if token not in self._sessions:
                 raise HTTPException(status_code=404, detail="session not found")
@@ -344,8 +361,9 @@ class HTTPInterface:
             return {"status": "revoked", "token_prefix": token[:8]}
 
         @app.delete("/admin/sessions")
-        async def admin_revoke_all_sessions(code: str):
+        async def admin_revoke_all_sessions(code: str, request: Request):
             """Admin endpoint: revoke every HTTP session (requires pairing code)."""
+            self._check_admin_rate_limit(request)
             self._require_admin_code(code)
             count = len(self._sessions)
             for chat_id, _created_at in self._sessions.values():

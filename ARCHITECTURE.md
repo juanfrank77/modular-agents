@@ -548,7 +548,7 @@ curl -X POST http://127.0.0.1:8000/message \
 - **Token lifetime**: tokens expire after `SESSION_TTL_HOURS` (default 24h) and are rejected with 401. `DELETE /session` endpoint allows explicit logout.
 - **Session cap**: the total number of concurrent sessions is capped by `MAX_HTTP_SESSIONS` (default 10); pairing requests are rejected with 503 once the cap is reached. Active sessions can be listed or revoked via `GET /admin/sessions`, `DELETE /admin/sessions/{token}`, and `DELETE /admin/sessions` (all require the pairing code).
 - **No HTTPS by default**: for local use, HTTP is fine. For network-exposed deployments, run behind a reverse proxy (nginx, Caddy) with TLS.
-- **Rate limiting**: pairing (`POST /pair`) is rate-limited per client IP by `HTTP_PAIR_RATE_LIMIT_RPM` (default 10/min). Message-level rate limiting is not included; for network-exposed deployments, add additional rate limiting at the reverse proxy layer.
+- **Rate limiting**: pairing (`POST /pair`) is rate-limited per client IP by `HTTP_PAIR_RATE_LIMIT_RPM` (default 10/min). Admin endpoints (`POST /admin/unlock`, `GET /admin/sessions`, `DELETE /admin/sessions/{token}`, `DELETE /admin/sessions`) are likewise rate-limited per client IP by `HTTP_ADMIN_RATE_LIMIT_RPM` (default 10/min), checked before pairing-code validation so both wrong-code brute-force and rapid enumeration/revocation of a leaked code are throttled. Message-level rate limiting is not included; for network-exposed deployments, add additional rate limiting at the reverse proxy layer.
 
 ### Interface Routing
 
