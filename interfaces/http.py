@@ -384,6 +384,12 @@ class HTTPInterface:
 
             if self._creator and self._creator.is_active(chat_id):
                 response_text = await self._creator.handle(chat_id, req.text)
+                # Drain any progress notifications sent via notifier.send()
+                # during handle() so they don't leak into the next /message
+                # call for this chat_id (#30-style buffer race).
+                extra = await self._notifier.get_and_clear(chat_id)
+                if extra:
+                    response_text = f"{response_text}\n\n{extra}"
                 return {"response": response_text, "agent": "creator", "success": True}
 
             agent_name = req.agent
@@ -425,10 +431,35 @@ class HTTPInterface:
             if self._creator and self._creator.is_active(chat_id):
 
                 async def creator_events():
-                    yield f"data: {json.dumps({'type': 'notification', 'text': 'Creating agent...'})}\n\n"
-                    response_text = await self._creator.handle(chat_id, req.text)
-                    yield f"data: {json.dumps({'type': 'response', 'text': response_text, 'agent': 'creator', 'success': True})}\n\n"
-                    yield "data: {\"type\": \"done\"}\n\n"
+                    done_event = asyncio.Event()
+                    self._notifier.start_stream(chat_id)
+                    try:
+                        yield f"data: {json.dumps({'type': 'notification', 'text': 'Creating agent...'})}\n\n"
+
+                        async def publish_task():
+                            try:
+                                response_text = await self._creator.handle(
+                                    chat_id, req.text
+                                )
+                            except Exception:
+                                log.exception("Creator handler failed")
+                                response_text = "An error occurred while creating the agent."
+                            finally:
+                                await self._notifier.notify_done(chat_id, response_text)
+                                done_event.set()
+
+                        task = asyncio.create_task(publish_task())
+                        async for msg_type, msg_text in self._notifier.stream_queue(
+                            chat_id, done_event
+                        ):
+                            if msg_type == "done":
+                                yield f"data: {json.dumps({'type': 'response', 'text': msg_text, 'agent': 'creator', 'success': True})}\n\n"
+                                yield "data: {\"type\": \"done\"}\n\n"
+                            else:
+                                yield f"data: {json.dumps({'type': msg_type, 'text': msg_text})}\n\n"
+                        await task
+                    finally:
+                        self._notifier.end_stream(chat_id)
 
                 return StreamingResponse(creator_events(), media_type="text/event-stream")
 
