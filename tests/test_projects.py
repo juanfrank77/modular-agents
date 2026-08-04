@@ -53,6 +53,7 @@ def _make_agent(cls, tmp_path: Path, llm_response: str = ""):
     storage = AsyncMock()
     storage.get_or_create_session = AsyncMock(return_value="sess1")
     llm = AsyncMock()
+    llm.supports_tools = False
     llm.complete = AsyncMock(return_value=LLMResult(text=llm_response))
     safety = AsyncMock()
     safety.check_action = AsyncMock(return_value=True)
@@ -255,3 +256,60 @@ class TestProjectsAgent:
         assert "- 2026-07-20 · NINA: Earlier work" in updated
         assert "NINA: Shipped onboarding flow" in updated
         assert updated.index("Earlier work") < updated.index("Shipped onboarding flow")
+
+
+# ── Projects actions / tools ──────────────────────────────────────────────
+
+class TestProjectsActions:
+    async def test_web_search_action_executes(self, tmp_path):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        agent.tools.web.search = AsyncMock(return_value=[
+            {"title": "Asyncio docs", "url": "https://docs.python.org", "content": "Guide to asyncio"}
+        ])
+        response = "ACTION: WEB_SEARCH | query=\"asyncio guide\" max_results=3"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Asyncio docs" in result
+        assert "ACTION:" not in result
+        agent.tools.web.search.assert_called_once_with("asyncio guide", max_results=3)
+
+    async def test_read_local_file_action_executes(self, tmp_path):
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        file_path = notes_dir / "project.md"
+        file_path.write_text("Project notes")
+
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        agent.settings.local_file_paths = [notes_dir]
+        agent._tools = None  # force rebuild with new settings
+
+        response = f"ACTION: READ_LOCAL_FILE | path={file_path}"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Project notes" in result
+        assert "ACTION:" not in result
+
+    async def test_read_local_file_action_denied_outside_allowed_paths(self, tmp_path):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        agent.settings.local_file_paths = [tmp_path / "notes"]
+        agent._tools = None
+
+        response = f"ACTION: READ_LOCAL_FILE | path={tmp_path / 'secret.txt'}"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Access denied" in result or "Could not read" in result
+
+    async def test_missing_required_arg_fails_before_approval(self, tmp_path):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        response = "ACTION: WEB_SEARCH | max_results=3"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "❌ Action failed: missing required argument 'query'" in result
+        agent.safety.check_action.assert_not_awaited()
+
+    async def test_unmapped_action_shows_not_wired_note(self, tmp_path):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        response = "ACTION: DELETE_PROJECT | Delete the NINA project"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "no execution handler wired for DELETE_PROJECT yet" in result
