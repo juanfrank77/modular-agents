@@ -132,6 +132,7 @@ class Settings:
     session_ttl_hours: int = 24
     max_http_sessions: int = 10  # total active HTTP sessions allowed
     http_pair_rate_limit_rpm: int = 10  # /pair requests per minute per IP
+    http_trusted_proxies_count: int = 0  # trust X-Forwarded-For when > 0
 
     # Rate limiting
     rate_limit_rpm: int = 20  # messages per minute per chat_id
@@ -310,6 +311,9 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         session_ttl_hours=int(_optional("SESSION_TTL_HOURS", "24")),
         max_http_sessions=int(_optional("MAX_HTTP_SESSIONS", "10")),
         http_pair_rate_limit_rpm=int(_optional("HTTP_PAIR_RATE_LIMIT_RPM", "10")),
+        http_trusted_proxies_count=int(
+            _optional("HTTP_TRUSTED_PROXIES_COUNT", "0")
+        ),
         rate_limit_rpm=int(_optional("RATE_LIMIT_RPM", "20")),
         debug_echo_agent=_optional("DEBUG_ECHO_AGENT", "false").lower() == "true",
         pairing_max_failed_attempts=int(_optional("PAIRING_MAX_FAILED_ATTEMPTS", "5")),
