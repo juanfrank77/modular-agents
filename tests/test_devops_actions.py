@@ -92,6 +92,54 @@ class TestCreateIssue:
         assert result == "✅ Created issue in org/x: Flaky CI → https://github.com/org/x/issues/9"
 
 
+class TestListIssues:
+    def test_describe_all_repos(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        resolved = resolve_args(spec, {})
+        assert spec.describe(resolved) == "List open issues in all project repos"
+
+    def test_describe_specific_repo(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        resolved = resolve_args(spec, {"repo": "org/x"})
+        assert spec.describe(resolved) == "List open issues in org/x"
+
+    def test_describe_with_label(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        resolved = resolve_args(spec, {"repo": "org/x", "label": "bug"})
+        assert spec.describe(resolved) == "List open issues in org/x with label bug"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_github_list_issues(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        tools = _fake_tools()
+        tools.github.list_issues = AsyncMock(return_value=[
+            {"repo": "org/x", "number": 3, "title": "Flaky CI", "state": "OPEN", "url": "https://github.com/org/x/issues/3"}
+        ])
+        resolved = resolve_args(spec, {"repo": "org/x"})
+        result = await spec.execute(tools, resolved)
+        tools.github.list_issues.assert_called_once_with(repo="org/x", state="open", label=None, limit=20)
+        assert "Flaky CI" in result
+        assert "https://github.com/org/x/issues/3" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_omitted_repo_becomes_none(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        tools = _fake_tools()
+        tools.github.list_issues = AsyncMock(return_value=[])
+        resolved = resolve_args(spec, {})
+        await spec.execute(tools, resolved)
+        tools.github.list_issues.assert_called_once_with(repo=None, state="open", label=None, limit=20)
+
+    @pytest.mark.asyncio
+    async def test_execute_shows_error_entries(self):
+        spec = ACTIONS["LIST_ISSUES"]
+        tools = _fake_tools()
+        tools.github.list_issues = AsyncMock(return_value=[{"repo": "org/bad", "error": "boom"}])
+        resolved = resolve_args(spec, {})
+        result = await spec.execute(tools, resolved)
+        assert "error: boom" in result
+
+
 class TestDeployProd:
     def test_describe_with_service(self):
         spec = ACTIONS["DEPLOY_PROD"]
