@@ -61,6 +61,7 @@ def _interface(bus, notifier=None):
     settings.session_ttl_hours = 24
     settings.max_http_sessions = 10
     settings.http_pair_rate_limit_rpm = 100
+    settings.http_admin_rate_limit_rpm = 100
     creator = MagicMock()
     creator.is_active.return_value = False
 

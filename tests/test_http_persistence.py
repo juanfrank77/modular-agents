@@ -34,6 +34,7 @@ def _interface(
     session_ttl_hours=24,
     max_http_sessions=10,
     http_pair_rate_limit_rpm=10,
+    http_admin_rate_limit_rpm=10,
     on_chat_paired=None,
     on_chat_revoked=None,
 ):
@@ -76,6 +77,7 @@ def _interface(
     settings.session_ttl_hours = session_ttl_hours
     settings.max_http_sessions = max_http_sessions
     settings.http_pair_rate_limit_rpm = http_pair_rate_limit_rpm
+    settings.http_admin_rate_limit_rpm = http_admin_rate_limit_rpm
     creator = MagicMock()
     creator.is_active.return_value = False
 
@@ -255,6 +257,61 @@ class TestHTTPPairRateLimit:
         r3 = client.post("/pair", json={"code": "wrong"})
         assert r3.status_code == 429
         assert "Rate limit exceeded" in r3.json()["detail"]
+
+
+class TestHTTPAdminRateLimit:
+    @pytest.mark.asyncio
+    async def test_admin_rate_limited_per_ip(self, store: StateStore):
+        interface = _interface(
+            store, pairing_code="secret123", http_admin_rate_limit_rpm=2
+        )
+        client = TestClient(interface.app)
+
+        # First admin request is allowed (rate-limit bucket has 2 slots).
+        r1 = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
+        assert r1.status_code == 400  # not locked -> 400, but past the rate limiter
+        assert "chat not locked" in r1.json()["detail"]
+
+        r2 = client.get("/admin/sessions", params={"code": "secret123"})
+        assert r2.status_code == 200
+
+        # Third admin request from the same IP is rate-limited, even with the
+        # correct code — the limiter is checked before code validation.
+        r3 = client.post("/admin/unlock", json={"code": "secret123", "chat_id": "123"})
+        assert r3.status_code == 429
+        assert "Rate limit exceeded" in r3.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_admin_rate_limits_wrong_code_attempts(self, store: StateStore):
+        """Wrong-code brute-force of the admin code must consume the bucket too."""
+        interface = _interface(
+            store, pairing_code="secret123", http_admin_rate_limit_rpm=2
+        )
+        client = TestClient(interface.app)
+
+        r1 = client.post("/admin/unlock", json={"code": "wrong", "chat_id": "123"})
+        r2 = client.post("/admin/unlock", json={"code": "wrong", "chat_id": "123"})
+        assert r1.status_code == 403  # invalid code, but bucket consumed
+        assert r2.status_code == 403
+
+        r3 = client.post("/admin/unlock", json={"code": "wrong", "chat_id": "123"})
+        # Even though the code is wrong, the rate limiter fires first at the cap.
+        assert r3.status_code == 429
+        assert "Rate limit exceeded" in r3.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_admin_revoke_all_is_rate_limited(self, store: StateStore):
+        interface = _interface(
+            store, pairing_code="secret123", http_admin_rate_limit_rpm=1
+        )
+        client = TestClient(interface.app)
+
+        r1 = client.delete("/admin/sessions", params={"code": "secret123"})
+        assert r1.status_code == 200
+
+        r2 = client.delete("/admin/sessions", params={"code": "secret123"})
+        assert r2.status_code == 429
+        assert "Rate limit exceeded" in r2.json()["detail"]
 
 
 class TestHTTPModelEndpoints:

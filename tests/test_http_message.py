@@ -27,6 +27,7 @@ def _interface(
     pairing_code="000000",
     http_trusted_proxies_count=0,
     http_pair_rate_limit_rpm=100,
+    http_admin_rate_limit_rpm=100,
 ):
     from interfaces.http import HTTPInterface
 
@@ -64,6 +65,7 @@ def _interface(
     settings.session_ttl_hours = 24
     settings.max_http_sessions = 10
     settings.http_pair_rate_limit_rpm = http_pair_rate_limit_rpm
+    settings.http_admin_rate_limit_rpm = http_admin_rate_limit_rpm
     settings.http_trusted_proxies_count = http_trusted_proxies_count
 
     creator = MagicMock()
