@@ -114,6 +114,38 @@ class TestMalformedArgDoesNotCrash:
         agent.tools.github.merge_pr.assert_not_called()
 
 
+class TestListIssuesAction:
+    @pytest.mark.asyncio
+    async def test_list_issues_executes_and_replaces_line(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.list_issues = AsyncMock(
+            return_value=[
+                {"repo": "org/x", "number": 1, "title": "Bug", "state": "OPEN", "url": "https://x"}
+            ]
+        )
+        response = "ACTION: LIST_ISSUES | repo=org/x"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Bug" in result
+        assert "ACTION:" not in result
+        agent.tools.github.list_issues.assert_called_once_with(repo="org/x", state="open", label=None, limit=20)
+
+    @pytest.mark.asyncio
+    async def test_list_issues_native_tool_call(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.list_issues = AsyncMock(
+            return_value=[
+                {"repo": "org/x", "number": 2, "title": "Docs", "state": "OPEN", "url": "https://x"}
+            ]
+        )
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Here are the issues."))
+
+        result = await _tool_result(agent, "chat1", "LIST_ISSUES", {"repo": "org/x", "label": "bug"})
+
+        assert result == "Here are the issues."
+        agent.tools.github.list_issues.assert_called_once_with(repo="org/x", state="open", label="bug", limit=20)
+
+
 class TestUnmappedActionShowsNotWiredNote:
     @pytest.mark.asyncio
     async def test_unwired_type_approved_shows_note(self):

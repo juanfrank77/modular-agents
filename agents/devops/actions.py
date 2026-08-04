@@ -56,6 +56,36 @@ async def _run_create_issue(tools: "DevOpsTools", args: dict[str, str]) -> str:
     return f"✅ Created issue in {repo}: {title} → {result['url']}"
 
 
+async def _run_list_issues(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    repo = args.get("repo") or None
+    state = args.get("state", "open")
+    label = args.get("label") or None
+    limit = int(args.get("limit", "20"))
+    issues = await tools.github.list_issues(repo=repo, state=state, label=label, limit=limit)
+
+    if repo:
+        header = f"Issues in {repo}"
+    else:
+        header = "Issues across project repos"
+    if state != "open":
+        header += f" (state: {state})"
+    if label:
+        header += f" [label: {label}]"
+
+    lines = [header]
+    for issue in issues:
+        if issue.get("error"):
+            lines.append(f"- [{issue.get('repo')}] error: {issue.get('error')}")
+            continue
+        lines.append(
+            f"- [{issue.get('repo')}] #{issue.get('number')} {issue.get('title')} "
+            f"({issue.get('state')}, {issue.get('url')})"
+        )
+    if len(lines) == 1:
+        lines.append("No issues found.")
+    return "\n".join(lines)
+
+
 async def _run_deploy(tools: "DevOpsTools", args: dict[str, str]) -> str:
     service = args.get("service") or None
     environment = args["environment"]
@@ -103,6 +133,20 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Create a GitHub issue.",
         describe=lambda a: f"Create issue in {a['repo']}: {a['title']}",
         execute=_run_create_issue,
+    ),
+    "LIST_ISSUES": ActionSpec(
+        required=[],
+        defaults={"repo": "", "state": "open", "label": "", "limit": "20"},
+        schema={
+            "repo": {"type": "string", "description": "owner/repo, e.g. org/x (omit for all project repos)"},
+            "state": {"type": "string", "enum": ["open", "closed", "all"], "description": "Issue state filter"},
+            "label": {"type": "string", "description": "Filter by label"},
+            "limit": {"type": "integer", "description": "Maximum issues to return per repo"},
+        },
+        description="List GitHub issues across project repos or a specific repo.",
+        describe=lambda a: f"List {a.get('state', 'open')} issues in {a.get('repo') or 'all project repos'}"
+        + (f" with label {a.get('label')}" if a.get("label") else ""),
+        execute=_run_list_issues,
     ),
     "DEPLOY_PROD": ActionSpec(
         required=[],

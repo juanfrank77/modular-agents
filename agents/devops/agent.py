@@ -80,6 +80,8 @@ _ACTION_INSTRUCTIONS_LEGACY = (
     "    ACTION: MERGE_PR | number=42 repo=org/x method=squash\n"
     "      (method defaults to \"rebase\" if omitted)\n"
     "    ACTION: CREATE_ISSUE | repo=org/x title=\"Flaky CI on main\" body=\"Steps to reproduce\"\n"
+    "    ACTION: LIST_ISSUES | repo=org/x state=open label=bug limit=20\n"
+    "      (repo, state, label, and limit are all optional; omit repo for all project repos)\n"
     "    ACTION: DEPLOY_PROD | service=api\n"
     "    ACTION: DEPLOY_STAGING | service=api\n"
     "    ACTION: DB_ROLLBACK | deployment_id=abc123 service=api environment=production\n"
@@ -99,6 +101,7 @@ _ACTION_MAP = {
     "MERGE_PR": ActionType.WRITE_HIGH,
     "CLOSE_ISSUE": ActionType.WRITE_LOW,
     "CREATE_ISSUE": ActionType.WRITE_LOW,
+    "LIST_ISSUES": ActionType.READ,
     "RUN_SCRIPT": ActionType.EXECUTE,
     "READ": ActionType.READ,
     "SEARCH": ActionType.READ,
