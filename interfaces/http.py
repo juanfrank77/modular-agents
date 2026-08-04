@@ -190,6 +190,35 @@ class HTTPInterface:
         if not self._safety.pairing.verify_code(code):
             raise HTTPException(status_code=403, detail="invalid admin code")
 
+    def _client_host(self, request: Request) -> str:
+        """Return the client IP for per-IP rate limiting.
+
+        When HTTP_TRUSTED_PROXIES_COUNT is > 0, the ``X-Forwarded-For`` header
+        is trusted and the IP ``count`` hops away from the closest proxy is
+        used. This prevents every client behind a reverse proxy from sharing
+        one rate-limit bucket. Falls back to ``request.client.host`` when the
+        header is missing, malformed, or has fewer entries than the trusted
+        proxy count.
+        """
+        raw = getattr(self._settings, "http_trusted_proxies_count", 0)
+        try:
+            trusted = int(raw)
+        except (TypeError, ValueError):
+            trusted = 0
+
+        if trusted <= 0:
+            return request.client.host if request.client else "unknown"
+
+        header = request.headers.get("x-forwarded-for")
+        if not header:
+            return request.client.host if request.client else "unknown"
+
+        ips = [ip.strip() for ip in header.split(",") if ip.strip()]
+        if len(ips) <= trusted:
+            return request.client.host if request.client else "unknown"
+
+        return ips[-(trusted + 1)]
+
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="modular-agents HTTP API", docs_url=None, redoc_url=None)
 
@@ -197,7 +226,7 @@ class HTTPInterface:
         async def pair(req: PairRequest, request: Request):
             # Rate-limit pairing by client IP BEFORE validating the code so wrong-code
             # brute-force attempts consume the bucket too.
-            client_host = request.client.host if request.client else "unknown"
+            client_host = self._client_host(request)
             pair_limit_msg = self._pair_rate_limiter.check(f"pair:{client_host}")
             if pair_limit_msg:
                 raise HTTPException(status_code=429, detail=pair_limit_msg)
@@ -409,7 +438,9 @@ class HTTPInterface:
             extra = await self._notifier.get_and_clear(chat_id)
 
             if response:
-                text = response.text or extra or ""
+                text = response.text
+                if extra and text:
+                    text = f"{text}\n\n{extra}"
                 return {
                     "response": text,
                     "agent": response.agent_name,
@@ -442,7 +473,11 @@ class HTTPInterface:
                                     chat_id, req.text
                                 )
                             except Exception:
-                                log.exception("Creator handler failed")
+                                log.error(
+                                    "Creator handler failed",
+                                    event="creator_handler_failed",
+                                    exc_info=True,
+                                )
                                 response_text = "An error occurred while creating the agent."
                             finally:
                                 await self._notifier.notify_done(chat_id, response_text)
