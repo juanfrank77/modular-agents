@@ -94,7 +94,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (most common) |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one API |
 | **Kilo** | `KILO_API_KEY` | Primary provider (default) |
-| **OpenAI** | `OPENAI_API_KEY` | OpenAI API access (your own API key — ChatGPT Plus/Pro don't grant API access) |
+| **OpenAI** | `OPENAI_API_KEY` | OpenAI API access (your own API key) |
 | **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Qwen, Kimi, Deepseek,  etc.) |
 
 Configure at least one provider. Provider priority: Kilo → OpenRouter → Anthropic → OpenAI → Ollama. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
@@ -204,7 +204,7 @@ python main.py
 
 **Using systemd?** The pairing code is in the logs, not the terminal:
 ```bash
-journalctl -u modular-agents | grep "PAIRING CODE"
+journalctl -u modular-agents | grep "PAIRING TOKEN"
 ```
 
 When the bot starts, it prints a cryptographically random pairing token to the console (32 characters):
