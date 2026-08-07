@@ -1,11 +1,11 @@
 """
 test_railway_output_parsers.py
 ---------------------------------
-Tests for agents.devops.tools.railway's free-text CLI output parsers —
-_parse_status_output and _parse_deployments_output. The Railway CLI has
-no --json flag for these commands, so this hand-rolled parsing is the
-brittle surface improvement-ideas.md §8 flags: if the CLI's output format
-shifts, get_health_summary's "healthy" check (used by the hourly
+Tests for agents.devops.tools.railway's free-text CLI output parser —
+_parse_status_output. The Railway CLI has no --json flag for these
+commands, so this hand-rolled parsing is the brittle surface
+improvement-ideas.md §8 flags: if the CLI's output format shifts,
+get_health_summary's "healthy" check (used by the hourly
 incident_watchdog) could silently misparse and fire forever.
 
 Run:
@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agents.devops.tools.railway import _parse_deployments_output, _parse_status_output
+from agents.devops.tools.railway import _parse_status_output
 
 
 class TestParseStatusOutput:
@@ -73,56 +73,6 @@ class TestParseStatusOutput:
         text = "Status: ACTIVE\nStatus: CRASHED\n"
         result = _parse_status_output(text)
         assert result["status"] == "CRASHED"
-
-
-class TestParseDeploymentsOutput:
-    def test_extracts_id_status_and_timestamp(self):
-        text = "abcdef1234567890 SUCCESS 2026-07-19 12:00:00\n"
-        deployments = _parse_deployments_output(text)
-        assert len(deployments) == 1
-        dep = deployments[0]
-        assert dep["id"] == "abcdef1234567890"
-        assert dep["status"] == "SUCCESS"
-        assert dep["created_at"] == "2026-07-19 12:00:00"
-
-    def test_skips_blank_lines(self):
-        text = "abcdef1234567890 SUCCESS 2026-07-19 12:00:00\n\n\n"
-        deployments = _parse_deployments_output(text)
-        assert len(deployments) == 1
-
-    def test_skips_comment_lines(self):
-        text = "# header comment\nabcdef1234567890 SUCCESS 2026-07-19 12:00:00\n"
-        deployments = _parse_deployments_output(text)
-        assert len(deployments) == 1
-
-    def test_multiple_deployments_all_parsed(self):
-        text = (
-            "abcdef1234567890 SUCCESS 2026-07-19 12:00:00\n"
-            "1234567890abcdef CRASHED 2026-07-18 09:30:00\n"
-        )
-        deployments = _parse_deployments_output(text)
-        assert len(deployments) == 2
-        assert deployments[0]["status"] == "SUCCESS"
-        assert deployments[1]["status"] == "CRASHED"
-
-    def test_raw_line_is_always_preserved(self):
-        line = "abcdef1234567890 SUCCESS 2026-07-19 12:00:00"
-        deployments = _parse_deployments_output(line + "\n")
-        assert deployments[0]["raw"] == line
-
-    def test_line_without_hex_like_first_token_omits_id(self):
-        text = "not-an-id SUCCESS 2026-07-19 12:00:00\n"
-        deployments = _parse_deployments_output(text)
-        assert "id" not in deployments[0]
-        assert deployments[0]["status"] == "SUCCESS"
-
-    def test_single_token_line_produces_no_deployment(self):
-        text = "onlyonetoken\n"
-        deployments = _parse_deployments_output(text)
-        assert deployments == []
-
-    def test_empty_text_returns_empty_list(self):
-        assert _parse_deployments_output("") == []
 
 
 class TestParseStatusOutputHealthCheckContract:

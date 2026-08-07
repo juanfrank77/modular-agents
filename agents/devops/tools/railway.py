@@ -163,52 +163,7 @@ class RailwayTool:
         result = await run_cli(args, tool_name="railway", timeout=60.0)
         return result.stdout
 
-    async def get_error_logs(
-        self,
-        service: str | None = None,
-        environment: str | None = None,
-        lines: int = 50,
-    ) -> str:
-        """
-        Fetch logs filtered to error/exception lines only.
-        Useful for incident triage without the noise of healthy log output.
-        """
-        raw_logs = await self.get_logs(service=service, environment=environment,
-                                       lines=lines * 5)
-        error_keywords = {"error", "exception", "traceback", "fatal", "critical",
-                          "failed", "panic", "500", "unhandled"}
-        error_lines = [
-            line for line in raw_logs.splitlines()
-            if any(kw in line.lower() for kw in error_keywords)
-        ]
-        return "\n".join(error_lines[-lines:])  # most recent N error lines
-
     # ── Rollback ─────────────────────────────
-
-    async def list_deployments(
-        self,
-        service: str | None = None,
-        environment: str | None = None,
-        limit: int = 10,
-    ) -> list[dict[str, Any]]:
-        """List recent deployments — used to pick a rollback target."""
-        cfg = await self.get_project_config()
-        svc = service or cfg.get("service", "")
-        env = environment or cfg.get("environment", "production")
-
-        args = ["railway", "deployments",
-                "--limit", str(limit)]
-        if svc:
-            args += ["--service", svc]
-        if env:
-            args += ["--environment", env]
-
-        try:
-            result = await run_cli(args, tool_name="railway")
-            return _parse_deployments_output(result.stdout)
-        except ToolError as e:
-            log.error("Failed to list deployments", event="deployments_error", error=str(e))
-            return [{"error": str(e)}]
 
     async def rollback(
         self,
@@ -247,38 +202,6 @@ class RailwayTool:
             "rolled_back": True,
             "output": result.stdout,
         }
-
-    # ── Environment variables ─────────────────
-
-    async def list_env_vars(
-        self,
-        service: str | None = None,
-        environment: str | None = None,
-    ) -> dict[str, str]:
-        """
-        List environment variable keys for a service.
-        Returns keys only — never values. Values stay in Railway.
-        """
-        cfg = await self.get_project_config()
-        svc = service or cfg.get("service", "")
-        env = environment or cfg.get("environment", "production")
-
-        args = ["railway", "variables"]
-        if svc:
-            args += ["--service", svc]
-        if env:
-            args += ["--environment", env]
-
-        result = await run_cli(args, tool_name="railway")
-
-        # Parse KEY=VALUE lines — return only keys for safety
-        keys: dict[str, str] = {}
-        for line in result.stdout.splitlines():
-            if "=" in line:
-                key = line.split("=", 1)[0].strip()
-                keys[key] = "[set]"  # never expose values
-
-        return keys
 
     # ── Health summary ────────────────────────
 
@@ -337,30 +260,3 @@ def _parse_status_output(text: str, service: str = "", environment: str = "") ->
             result["build"] = line.split(":", 1)[1].strip()
 
     return result
-
-
-def _parse_deployments_output(text: str) -> list[dict[str, Any]]:
-    """
-    Parse `railway deployments` output into a list of deployment dicts.
-    Each deployment typically has an ID, status, and timestamp.
-    """
-    deployments = []
-
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        # Try to extract: ID, status, timestamp from space-separated columns
-        parts = line.split()
-        if len(parts) >= 2:
-            deployment: dict[str, Any] = {"raw": line}
-            # Heuristic: first token that looks like an ID (hex-ish or UUID-ish)
-            if re.match(r"^[a-f0-9-]{8,}", parts[0], re.I):
-                deployment["id"] = parts[0]
-            if len(parts) >= 3:
-                deployment["status"] = parts[1]
-                deployment["created_at"] = " ".join(parts[2:4])
-            deployments.append(deployment)
-
-    return deployments
