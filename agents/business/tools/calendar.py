@@ -17,11 +17,6 @@ Usage:
         end="2026-04-05T11:00:00Z",
         description="Weekly check-in",
     )
-    block  = await cal.block_time(
-        title="Deep Work",
-        start="2026-04-05T14:00:00Z",
-        end="2026-04-05T16:00:00Z",
-    )
 """
 
 from __future__ import annotations
@@ -153,44 +148,5 @@ class CalendarTool:
                 "create_event complete",
                 event="calendar_create_event_done",
                 title=title,
-            )
-        return result
-
-    async def block_time(self, title: str, start: str, end: str) -> dict:
-        """Block off time on the calendar with a prefixed title.
-
-        Creates a calendar event with the title prefixed by ``"Blocked: "`` to
-        indicate the time should not be scheduled over.
-
-        Args:
-            title: Description of what the block is for.
-            start: Start datetime in ISO 8601 format.
-            end: End datetime in ISO 8601 format.
-
-        Returns:
-            Result dict from Composio (contains ``"id"`` on success,
-            or ``"error"`` on failure).
-        """
-        blocked_title = f"Blocked: {title}"
-        log.debug(
-            "block_time",
-            event="calendar_block_time",
-            title=blocked_title,
-            start=start,
-            end=end,
-        )
-        result = await self._create_event_raw(blocked_title, start, end)
-        if "error" in result:
-            log.warning(
-                "block_time failed",
-                event="calendar_block_time_error",
-                title=blocked_title,
-                error=result["error"],
-            )
-        else:
-            log.debug(
-                "block_time complete",
-                event="calendar_block_time_done",
-                title=blocked_title,
             )
         return result

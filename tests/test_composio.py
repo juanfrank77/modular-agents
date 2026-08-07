@@ -329,34 +329,3 @@ class TestCalendarToolCreateEvent:
             title="X", start="2026-04-05T09:00:00Z", end="2026-04-05T09:15:00Z"
         )
         assert "error" in result
-
-
-class TestCalendarToolBlockTime:
-    @pytest.mark.asyncio
-    async def test_block_time_prefixes_title(self, mock_composio):
-        from agents.business.tools.calendar import CalendarTool
-        mock_composio.execute = AsyncMock(return_value={"id": "evt_block"})
-        cal = CalendarTool(composio=mock_composio)
-        result = await cal.block_time(
-            title="Deep Work",
-            start="2026-04-05T14:00:00Z",
-            end="2026-04-05T16:00:00Z",
-        )
-        assert result["id"] == "evt_block"
-        mock_composio.execute.assert_called_once_with(
-            "GOOGLECALENDAR_CREATE_EVENT",
-            summary="Blocked: Deep Work",
-            start="2026-04-05T14:00:00Z",
-            end="2026-04-05T16:00:00Z",
-            description="",
-        )
-
-    @pytest.mark.asyncio
-    async def test_block_time_propagates_error(self, mock_composio):
-        from agents.business.tools.calendar import CalendarTool
-        mock_composio.execute = AsyncMock(return_value={"error": "conflict"})
-        cal = CalendarTool(composio=mock_composio)
-        result = await cal.block_time(
-            title="Focus", start="2026-04-05T14:00:00Z", end="2026-04-05T16:00:00Z"
-        )
-        assert "error" in result
