@@ -71,6 +71,7 @@ def _load_agent_class(module_path: Path, class_name: str):
     import sys
     
     module_name = f"agents.{module_path.parent.name}.agent"
+    parent_package = f"agents.{module_path.parent.name}"
     
     # Avoid re-importing if already loaded
     if module_name in sys.modules:
@@ -86,6 +87,17 @@ def _load_agent_class(module_path: Path, class_name: str):
         except Exception as e:
             log.warning("Could not load agent module", event="load_error", agent_module=module_name, error=str(e))
             return None
+    
+    # exec_module does not bind the submodule onto its parent package the way
+    # the normal import machinery does. Import the parent package (if not
+    # already loaded) and bind the submodule so that attribute lookup — and
+    # mock.patch() — can resolve `agents.<name>.agent` after discovery.
+    if parent_package not in sys.modules:
+        importlib.import_module(parent_package)
+    parent = sys.modules[parent_package]
+    submodule_attr = module_path.stem
+    if getattr(parent, submodule_attr, None) is not module:
+        setattr(parent, submodule_attr, module)
     
     return getattr(module, class_name, None)
 

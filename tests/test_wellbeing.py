@@ -393,7 +393,9 @@ class TestWellbeingAgentHandle:
         agent = self._make_agent()
         event = self._make_event("wellbeing_followup")
         agent.storage.get_session_messages = AsyncMock(return_value=[])
+        # 2024-01-03 is a weekday, so the weekend guard does not short-circuit.
         with (
+            patch("agents.wellbeing.agent.now_in_user_timezone", return_value=datetime(2024, 1, 3, 8, 30, 0)),
             patch.object(agent, "_load_state", new_callable=AsyncMock, return_value={}),
             patch.object(agent, "_save_state", new_callable=AsyncMock),
             patch.object(agent, "should_notify", return_value=True),

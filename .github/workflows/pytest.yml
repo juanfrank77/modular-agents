@@ -26,4 +26,7 @@ jobs:
       - name: Run pytest
         env:
           TELEGRAM_BOT_TOKEN: test-token
+          # Pin to UTC so time-dependent tests behave the same regardless of
+          # the runner's local timezone (e.g. weekend/weekday boundaries).
+          TZ: UTC
         run: python -m pytest tests/ -q
