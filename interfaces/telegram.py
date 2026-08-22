@@ -58,6 +58,7 @@ class TelegramInterface:
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(CommandHandler("model", self._on_model))
         app.add_handler(CommandHandler("planmode", self._on_planmode))
+        app.add_handler(CommandHandler("agents", self._on_agents))
         app.add_handler(CommandHandler("unlock", self._on_unlock))
         app.add_handler(
             CommandHandler(["newagent", "help"], self._on_command)
@@ -162,6 +163,30 @@ class TelegramInterface:
 
         chat_id = str(update.effective_chat.id)
         data = query.data
+
+        # Handle agent lock button presses
+        if data.startswith("lock_agent:"):
+            agent_name = data.split(":", 1)[1]
+            if agent_name == "unlock":
+                await self._bus.unlock_chat_agent(chat_id)
+                await query.edit_message_text(
+                    "🔓 Agent lock cleared. Messages will now be routed automatically."
+                )
+            else:
+                success = await self._bus.lock_chat_agent(chat_id, agent_name)
+                if success:
+                    agent = self._bus.get_agent(agent_name)
+                    emoji = getattr(agent, "emoji", "🤖") if agent else "🤖"
+                    await query.edit_message_text(
+                        f"🔒 Locked to *{emoji} {agent_name}*. "
+                        f"All your messages will now go to this agent.\n\n"
+                        f"Type `/agents unlock` or tap below to unlock.",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await query.edit_message_text(f"❌ Could not lock to '{agent_name}'.")
+            return
+
         invalid_text = "This approval request is not valid or has expired."
 
         if data.startswith("approve:"):
@@ -263,6 +288,67 @@ class TelegramInterface:
                 f"Available: {', '.join(self._bus.registered_agents)}"
             )
 
+    async def _on_agents(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Show available agents with inline buttons to lock conversation to one."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        if not await self._require_paired(chat_id):
+            return
+
+        args = context.args or []
+        if args and args[0].lower() == "unlock":
+            await self._bus.unlock_chat_agent(chat_id)
+            await update.message.reply_text(
+                "🔓 Agent lock cleared. Messages will now be routed automatically."
+            )
+            return
+
+        # Build inline keyboard with available agents
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        buttons = []
+        row = []
+        locked = self._bus.get_chat_agent_lock(chat_id)
+
+        for i, name in enumerate(self._bus.registered_agents):
+            agent = self._bus.get_agent(name)
+            if agent:
+                emoji = getattr(agent, "emoji", "🤖")
+                label = f"{emoji} {name}"
+                if locked == name:
+                    label += " ✓"
+                callback_data = f"lock_agent:{name}"
+                row.append(InlineKeyboardButton(label, callback_data=callback_data))
+                if len(row) == 2:  # 2 buttons per row
+                    buttons.append(row)
+                    row = []
+        if row:
+            buttons.append(row)
+
+        # Add unlock button if locked
+        if locked:
+            buttons.append([
+                InlineKeyboardButton("🔓 Unlock (auto-route)", callback_data="lock_agent:unlock")
+            ])
+
+        keyboard = InlineKeyboardMarkup(buttons)
+
+        status = f"🔒 Locked to: *{locked}*" if locked else "🔄 Auto-routing active"
+        message = (
+            f"*{status}*\n\n"
+            "Tap an agent to lock your conversation to it. "
+            "All your messages will go to that agent until you unlock.\n\n"
+            "Or type `@agentname` in any message to route to a specific agent "
+            "without locking."
+        )
+
+        await update.message.reply_text(
+            message, parse_mode="Markdown", reply_markup=keyboard
+        )
+
     async def _on_unlock(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -318,11 +404,13 @@ class TelegramInterface:
                 (
                     "*Available commands*\n\n"
                     "/newagent — create a new agent interactively\n"
+                    "/agents — view and lock to a specific agent\n"
                     "/planmode [agent] — toggle plan mode for one or all agents\n"
                     "/model [model-id|reset] — show or set the model override for this chat\n"
                     "/unlock <chat_id> — clear pairing lockouts for a chat (admin only)\n"
                     "/help — show this message\n\n"
-                    "Or just send a message to talk to your agents."
+                    "Or just send a message to talk to your agents.\n"
+                    "Use `@agentname` to route to a specific agent."
                 ),
             )
             return

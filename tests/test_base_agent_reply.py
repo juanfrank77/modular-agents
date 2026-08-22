@@ -1,7 +1,7 @@
 """
 test_base_agent_reply.py
-----------------------------
-Tests for BaseAgent.reply()'s "[agent]" prefix (item 6, "which agent am
+---------------------------
+Tests for BaseAgent.reply()'s prominent "**🤖 agent**" formatting (item 6, "which agent am
 I talking to") and BaseAgent.resolve_model()'s chat-override precedence
 (item 6, "/model mutates the global default for everyone").
 
@@ -35,13 +35,14 @@ def _make_agent(bus=None, model=""):
 
 class TestReplyPrefix:
     @pytest.mark.asyncio
-    async def test_notifier_receives_agent_name_prefix(self):
+    async def test_notifier_receives_prominent_agent_formatting(self):
         agent = _make_agent()
         event = AgentEvent(type=EventType.USER_MESSAGE, agent_name="echo", chat_id="123", text="hi")
 
         await agent.reply(event, "hello there")
 
-        agent.notifier.send.assert_awaited_once_with("123", "[echo] hello there")
+        # New format: **🤖 Agent Name**\n\nresponse text
+        agent.notifier.send.assert_awaited_once_with("123", "**🤖 echo**\n\nhello there")
 
     @pytest.mark.asyncio
     async def test_returned_response_text_is_unprefixed(self):

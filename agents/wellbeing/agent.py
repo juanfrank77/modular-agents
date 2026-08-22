@@ -85,6 +85,7 @@ _BEDTIME_FALLBACK = [
 
 class WellbeingAgent(BaseAgent):
     name = "wellbeing"
+    emoji = "🧘"
     description = (
         "Sends scheduled wellbeing nudges: morning, evening, bedtime, and "
         "weekly check-in. Handles interactive wellbeing queries. "

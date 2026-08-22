@@ -52,6 +52,7 @@ class BaseAgent(ABC):
     description: str  # used by bus for routing decisions
     autonomy_level: str  # "read_only" | "supervised" | "autonomous"
     routable: bool = True  # False = never picked by the intent classifier (e.g. echo)
+    emoji: str = "🤖"  # Display emoji for prominent identification in messages
     SCHEDULES: list[tuple[str, str]] = []  # [(task_name, cron_expr), ...]
 
     def __init__(
@@ -266,8 +267,13 @@ class BaseAgent(ABC):
     # ── Helpers available to all agents ───────
 
     async def reply(self, event: AgentEvent, text: str) -> AgentResponse:
-        """Send a message back to the user and return a response object."""
-        await self.notifier.send(event.chat_id, f"[{self.name}] {text}")
+        """Send a message back to the user and return a response object.
+        
+        Format: **🤖 Agent Name**\n\nresponse text
+        The agent name is bolded with an emoji for prominent identification.
+        """
+        formatted = f"**{self.emoji} {self.name}**\n\n{text}"
+        await self.notifier.send(event.chat_id, formatted)
         return AgentResponse(text=text, agent_name=self.name)
 
     async def send_scheduled(

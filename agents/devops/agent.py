@@ -111,6 +111,7 @@ _ACTION_MAP = {
 
 class DevOpsAgent(BaseAgent):
     name = "devops"
+    emoji = "🔧"
     description = (
         "Handles DevOps work: GitHub monitoring, deployment pipelines, "
         "infrastructure health checks, incident response, and system diagnostics."

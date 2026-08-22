@@ -44,6 +44,8 @@ class MessageBus:
         # Maps chat_id → last active agent name (fallback when classification
         # is unavailable or inconclusive)
         self._chat_agent_map: dict[str, str] = {}
+        # Maps chat_id → locked agent name (user explicitly chose this agent)
+        self._chat_agent_lock: dict[str, str] = {}
         # Maps chat_id → per-chat /model override (empty = use each agent's
         # own default: its <AGENT>_AGENT_MODEL env var, else the global default)
         self._chat_model_map: dict[str, str] = {}
@@ -186,6 +188,14 @@ class MessageBus:
         if event.agent_name and event.agent_name in self._agents:
             return self._agents[event.agent_name]
 
+        # If the chat has a locked agent, use it (unless explicit @tag was used,
+        # which is handled above). This prevents the classifier from hijacking
+        # the conversation when the user forgets the @tag.
+        if event.chat_id:
+            locked = self.get_chat_agent_lock(event.chat_id)
+            if locked:
+                return self._agents[locked]
+
         # Content-based routing for untagged user messages, when a
         # classifier LLM is wired up.
         if event.type is EventType.USER_MESSAGE and event.text and self._llm:
@@ -223,6 +233,45 @@ class MessageBus:
             event="chat_agent_map_loaded",
             count=len(self._chat_agent_map),
         )
+
+    # ── Per-chat agent lock ──────────────────────
+
+    async def lock_chat_agent(self, chat_id: str, agent_name: str) -> bool:
+        """Lock a chat to a specific agent. All future messages in this chat
+        will route to this agent unless an explicit @tag is used.
+        
+        Returns True if successful, False if agent doesn't exist.
+        """
+        if agent_name not in self._agents:
+            return False
+        self._chat_agent_lock[chat_id] = agent_name
+        # Also update the stickiness map so fallback routing agrees
+        self._chat_agent_map[chat_id] = agent_name
+        if self._state_store:
+            await self._state_store.save_chat_agent(chat_id, agent_name)
+        log.info(
+            "Chat agent locked",
+            event="agent_lock",
+            chat_id=chat_id,
+            agent=agent_name,
+        )
+        return True
+
+    async def unlock_chat_agent(self, chat_id: str) -> None:
+        """Remove the agent lock for a chat, allowing normal routing."""
+        self._chat_agent_lock.pop(chat_id, None)
+        log.info(
+            "Chat agent unlocked",
+            event="agent_unlock",
+            chat_id=chat_id,
+        )
+
+    def get_chat_agent_lock(self, chat_id: str) -> str | None:
+        """Return the locked agent name for a chat, or None if not locked."""
+        locked = self._chat_agent_lock.get(chat_id)
+        if locked and locked in self._agents:
+            return locked
+        return None
 
     # ── Per-chat model override ──────────────────
 

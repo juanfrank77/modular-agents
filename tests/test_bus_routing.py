@@ -162,3 +162,113 @@ class TestChatAgentMapStickiness:
         # in-memory map and the state-store persistence call.
         assert bus._chat_agent_map["chat1"] == "business"
         state_store.save_chat_agent.assert_awaited_once_with("chat1", "business")
+
+
+class TestAgentLock:
+    """Tests for the agent lock/persist feature."""
+
+    @pytest.mark.asyncio
+    async def test_lock_routes_to_locked_agent_over_classifier(self):
+        bus = MessageBus(llm=object(), classifier_model="cheap-model")
+        business, devops, projects = _FakeAgent("business"), _FakeAgent("devops"), _FakeAgent("projects")
+        bus.register(business)
+        bus.register(devops)
+        bus.register(projects)
+
+        # Lock to "projects"
+        assert await bus.lock_chat_agent("chat1", "projects") is True
+
+        # Even if classifier would pick "devops", the lock wins
+        with patch(
+            "core.bus.classify_agent", new=AsyncMock(return_value="devops")
+        ) as mock_classify:
+            resolved = await bus._resolve_agent(_user_event("tell me about tools"))
+            assert resolved is projects
+            # Classifier should not be consulted when lock is active
+            mock_classify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_explicit_tag_still_wins_over_lock(self):
+        bus = MessageBus(llm=object(), classifier_model="cheap-model")
+        business, devops = _FakeAgent("business"), _FakeAgent("devops")
+        bus.register(business)
+        bus.register(devops)
+
+        # Lock to "business"
+        await bus.lock_chat_agent("chat1", "business")
+
+        # Explicit @tag should still override the lock
+        resolved = await bus._resolve_agent(
+            _user_event("restart server", agent_name="devops")
+        )
+        assert resolved is devops
+
+    @pytest.mark.asyncio
+    async def test_unlock_returns_to_normal_routing(self):
+        bus = MessageBus(llm=object(), classifier_model="cheap-model")
+        business, devops = _FakeAgent("business"), _FakeAgent("devops")
+        bus.register(business)
+        bus.register(devops)
+
+        # Lock then unlock
+        await bus.lock_chat_agent("chat1", "business")
+        assert bus.get_chat_agent_lock("chat1") == "business"
+
+        await bus.unlock_chat_agent("chat1")
+        assert bus.get_chat_agent_lock("chat1") is None
+
+        # Now classifier should be used again
+        with patch(
+            "core.bus.classify_agent", new=AsyncMock(return_value="devops")
+        ) as mock_classify:
+            resolved = await bus._resolve_agent(_user_event("deploy stuff"))
+            assert resolved is devops
+            mock_classify.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_lock_to_nonexistent_agent_returns_false(self):
+        bus = MessageBus()
+        business = _FakeAgent("business")
+        bus.register(business)
+
+        assert await bus.lock_chat_agent("chat1", "ghost") is False
+
+    @pytest.mark.asyncio
+    async def test_lock_updates_stickiness_map(self):
+        bus = MessageBus()
+        business, devops = _FakeAgent("business"), _FakeAgent("devops")
+        bus.register(business)
+        bus.register(devops)
+
+        # Pre-existing stickiness to devops
+        bus._chat_agent_map["chat1"] = "devops"
+
+        # Lock to business should update stickiness
+        await bus.lock_chat_agent("chat1", "business")
+        assert bus._chat_agent_map["chat1"] == "business"
+        assert bus.get_chat_agent_lock("chat1") == "business"
+
+    @pytest.mark.asyncio
+    async def test_lock_persists_to_state_store(self):
+        state_store = AsyncMock()
+        bus = MessageBus(state_store=state_store)
+        business = _FakeAgent("business")
+        bus.register(business)
+
+        await bus.lock_chat_agent("chat1", "business")
+        state_store.save_chat_agent.assert_awaited_with("chat1", "business")
+
+    @pytest.mark.asyncio
+    async def test_get_chat_agent_lock_returns_none_when_agent_unregistered(self):
+        bus = MessageBus()
+        business = _FakeAgent("business")
+        bus.register(business)
+
+        # Lock to business
+        await bus.lock_chat_agent("chat1", "business")
+        assert bus.get_chat_agent_lock("chat1") == "business"
+
+        # Simulate agent being removed (e.g., reconfiguration)
+        del bus._agents["business"]
+        # Lock should return None since agent no longer exists
+        assert bus.get_chat_agent_lock("chat1") is None

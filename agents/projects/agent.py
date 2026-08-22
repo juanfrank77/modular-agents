@@ -108,6 +108,7 @@ NOTE: <one-line summary of the progress, past tense, max 20 words>
 
 class ProjectsAgent(BaseAgent):
     name = "projects"
+    emoji = "🗂️"
     description = (
         "Chief of staff for the project portfolio: logs progress updates, "
         "tracks per-project momentum, flags stale projects, and sends a "

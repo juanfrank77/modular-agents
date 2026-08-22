@@ -87,6 +87,7 @@ _ACTION_INSTRUCTIONS_LEGACY = (
 
 class BusinessAgent(BaseAgent):
     name = "business"
+    emoji = "📊"
     description = (
         "Handles business productivity: calendar, email, task management, "
         "morning briefings, weekly reviews, and project tracking."

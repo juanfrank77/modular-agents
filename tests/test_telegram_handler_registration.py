@@ -59,7 +59,8 @@ class TestRegisterHandlers:
 
         telegram._register_handlers(fake_app)
 
-        assert fake_app.add_handler.call_count == 6
+        # 7 handlers: message, callback, model, planmode, agents, unlock, command
+        assert fake_app.add_handler.call_count == 7
 
         callbacks = {
             getattr(call.args[0], "callback", None)
@@ -69,5 +70,6 @@ class TestRegisterHandlers:
         assert telegram._on_callback in callbacks
         assert telegram._on_model in callbacks
         assert telegram._on_planmode in callbacks
+        assert telegram._on_agents in callbacks
         assert telegram._on_unlock in callbacks
         assert telegram._on_command in callbacks
