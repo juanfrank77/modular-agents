@@ -41,12 +41,12 @@ def _settings(**overrides):
 
 
 class TestProviderPriority:
-    def test_kilo_wins_when_multiple_configured(self, monkeypatch):
+    def test_openrouter_wins_when_multiple_configured(self, monkeypatch):
         monkeypatch.setattr(
             "core.llm.settings",
-            _settings(kilo_api_key="k", anthropic_api_key="a"),
+            _settings(openrouter_api_key="o", anthropic_api_key="a"),
         )
-        assert isinstance(get_llm_provider(), KiloLLM)
+        assert isinstance(get_llm_provider(), OpenRouterLLM)
 
     def test_falls_back_to_openrouter(self, monkeypatch):
         monkeypatch.setattr(

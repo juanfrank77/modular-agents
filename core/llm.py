@@ -419,7 +419,7 @@ _PROVIDER_FACTORIES: dict[str, Any] = {
     ),
 }
 
-_PROVIDER_PRIORITY = ("kilo", "openrouter", "openai", "ollama", "anthropic")
+_PROVIDER_PRIORITY = ("openrouter", "kilo", "anthropic", "openai", "ollama")
 
 
 def get_llm_provider() -> LLMProvider:

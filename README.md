@@ -97,7 +97,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | **OpenAI** | `OPENAI_API_KEY` | OpenAI API access (your own API key) |
 | **Ollama** | `OLLAMA_BASE_URL` | Local/self-hosted models (Qwen, Kimi, Deepseek,  etc.) |
 
-Configure at least one provider. Provider priority: Kilo → OpenRouter → Anthropic → OpenAI → Ollama. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
+Configure at least one provider. Provider priority: OpenRouter → Kilo → Anthropic → OpenAI → Ollama. Set `LLM_PROVIDER=openai` (or any provider name) in `.env` to force a specific provider regardless of priority.
 
 ---
 
