@@ -33,7 +33,7 @@ def _make_agent(check_action_return=True) -> DevOpsAgent:
         safety=MagicMock(),
     )
     agent.safety.check_action = AsyncMock(return_value=check_action_return)
-    agent._tools = DevOpsTools(github=AsyncMock(), railway=AsyncMock())
+    agent._tools = DevOpsTools(github=AsyncMock(), railway=AsyncMock(), local_file=AsyncMock())
     return agent
 
 
@@ -247,3 +247,38 @@ class TestNativeToolCallUnwiredType:
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
         assert "no execution handler wired for restart_service" in follow_up_kwargs["tool_result"].content.lower()
+
+
+class TestReadLocalFileAction:
+    @pytest.mark.asyncio
+    async def test_read_local_file_executes_and_replaces_line(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.local_file.read_file = AsyncMock(
+            return_value={"path": "/logs/app.log", "content": "log data"}
+        )
+        response = "ACTION: READ_LOCAL_FILE | path=logs/app.log"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "log data" in result
+        assert "ACTION:" not in result
+        agent.tools.local_file.read_file.assert_called_once_with("logs/app.log")
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Read local file logs/app.log"
+
+
+class TestWriteLocalFileAction:
+    @pytest.mark.asyncio
+    async def test_write_local_file_executes_and_replaces_line(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.local_file.write_file = AsyncMock(
+            return_value={"path": "/configs/app.json", "bytes_written": 15}
+        )
+        response = 'ACTION: WRITE_LOCAL_FILE | path=configs/app.json content="hello world"'
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Wrote" in result
+        assert "15 bytes" in result
+        assert "ACTION:" not in result
+        agent.tools.local_file.write_file.assert_called_once_with("configs/app.json", "hello world")
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Write local file configs/app.json"

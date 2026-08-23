@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from core.composio_tool import ComposioTool
 from core.config import Settings
+from core.local_file_tool import LocalFileTool
 from core.logger import get_logger
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ class BusinessToolsUnavailable(Exception):
 class BusinessTools:
     gmail: "GmailTool"
     calendar: "CalendarTool"
+    local_file: LocalFileTool
 
 
 def build_tools(settings: Settings) -> BusinessTools:
@@ -50,4 +52,5 @@ def build_tools(settings: Settings) -> BusinessTools:
     return BusinessTools(
         gmail=GmailTool(composio=composio),
         calendar=CalendarTool(composio=composio),
+        local_file=LocalFileTool(allowed_paths=settings.local_file_paths),
     )

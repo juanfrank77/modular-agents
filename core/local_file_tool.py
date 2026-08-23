@@ -122,3 +122,42 @@ class LocalFileTool:
                         "root": str(allowed),
                     })
         return files
+
+    async def write_file(self, path: str, content: str) -> dict[str, Any]:
+        """
+        Write a UTF-8 text file to an allowed path, creating parent directories
+        as needed. Existing files are overwritten.
+
+        Returns a dict with ``path`` and ``bytes_written``, or ``error``.
+        """
+        if not self._allowed_paths:
+            log.warning(
+                "write_file called with no allowed paths configured",
+                event="local_file_no_paths",
+            )
+            return {"path": path, "error": "No local_file_paths configured"}
+
+        try:
+            target = self._resolve(path)
+        except LocalFileAccessError as e:
+            log.warning(
+                "Local file write access denied",
+                event="local_file_write_denied",
+                path=path,
+                error=str(e),
+            )
+            return {"path": path, "error": str(e)}
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        except OSError as e:
+            log.warning(
+                "Local file write failed",
+                event="local_file_write_error",
+                path=str(target),
+                error=str(e),
+            )
+            return {"path": str(target), "error": f"Write failed: {e}"}
+
+        return {"path": str(target), "bytes_written": len(content.encode("utf-8"))}

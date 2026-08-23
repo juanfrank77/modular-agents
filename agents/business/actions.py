@@ -72,6 +72,28 @@ async def _run_draft_reply(tools: "BusinessTools", args: dict[str, str]) -> str:
     return f"✅ Draft reply created for {email_id}"
 
 
+async def _run_read_local_file(tools: "BusinessTools", args: dict[str, str]) -> str:
+    path = args["path"]
+    result = await tools.local_file.read_file(path)
+
+    if "error" in result:
+        return f"❌ Could not read {path}: {result['error']}"
+
+    content = result["content"]
+    truncated = " (truncated)" if result.get("truncated") else ""
+    return f"📄 {result['path']}{truncated}\n\n{content}"
+
+
+async def _run_write_local_file(tools: "BusinessTools", args: dict[str, str]) -> str:
+    path = args["path"]
+    result = await tools.local_file.write_file(path, args["content"])
+
+    if "error" in result:
+        return f"❌ Could not write {path}: {result['error']}"
+
+    return f"✅ Wrote {result['path']} ({result['bytes_written']} bytes)"
+
+
 ACTIONS: dict[str, ActionSpec] = {
     "SEND_EMAIL": ActionSpec(
         required=["to", "subject", "body"],
@@ -108,5 +130,26 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Create a draft reply to an email.",
         describe=lambda a: f"Draft reply to message {a['email_id']}",
         execute=_run_draft_reply,
+    ),
+    "READ_LOCAL_FILE": ActionSpec(
+        required=["path"],
+        defaults={},
+        schema={
+            "path": {"type": "string", "description": "Path to file under a configured local_file_paths root"},
+        },
+        description="Read a text file from a configured local directory.",
+        describe=lambda a: f"Read local file {a['path']}",
+        execute=_run_read_local_file,
+    ),
+    "WRITE_LOCAL_FILE": ActionSpec(
+        required=["path", "content"],
+        defaults={},
+        schema={
+            "path": {"type": "string", "description": "Path to file under a configured local_file_paths root"},
+            "content": {"type": "string", "description": "Text content to write"},
+        },
+        description="Write a text file to a configured local directory.",
+        describe=lambda a: f"Write local file {a['path']}",
+        execute=_run_write_local_file,
     ),
 }

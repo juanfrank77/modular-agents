@@ -18,7 +18,6 @@ import pytest
 from core.config import settings as real_settings
 from core.llm import (
     AnthropicLLM,
-    KiloLLM,
     LLMProviderNotConfiguredError,
     OllamaLLM,
     OpenAILLM,

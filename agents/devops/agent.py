@@ -73,8 +73,8 @@ _ACTION_INSTRUCTIONS_NATIVE = (
 )
 
 _ACTION_INSTRUCTIONS_LEGACY = (
-    "- Before any production deploy, database migration, or resource deletion, you MUST\n"
-    "  describe the action and wait for approval. Format as:\n"
+    "- Before any production deploy, database migration, resource deletion, or local\n"
+    "  file write, you MUST describe the action and wait for approval. Format as:\n"
     "    ACTION: <type> | key=value key2=\"quoted value\" ...\n"
     "  These action types execute for real once approved — use key=value args:\n"
     "    ACTION: MERGE_PR | number=42 repo=org/x method=squash\n"
@@ -85,6 +85,8 @@ _ACTION_INSTRUCTIONS_LEGACY = (
     "    ACTION: DEPLOY_PROD | service=api\n"
     "    ACTION: DEPLOY_STAGING | service=api\n"
     "    ACTION: DB_ROLLBACK | deployment_id=abc123 service=api environment=production\n"
+    "    ACTION: READ_LOCAL_FILE | path=logs/app.log\n"
+    "    ACTION: WRITE_LOCAL_FILE | path=configs/app.json content=\"{\\\"key\\\": \\\"value\\\"}\"\n"
     "  Other action types (DB_MIGRATE, DELETE_RESOURCE, RESTART_SERVICE, RUN_SCRIPT,\n"
     "  CLOSE_ISSUE) still require approval but have no execution handler yet — say so\n"
     "  in your own words after proposing them."
@@ -106,6 +108,8 @@ _ACTION_MAP = {
     "READ": ActionType.READ,
     "SEARCH": ActionType.READ,
     "QUERY": ActionType.READ,
+    "READ_LOCAL_FILE": ActionType.READ,
+    "WRITE_LOCAL_FILE": ActionType.WRITE_LOW,
 }
 
 
@@ -134,7 +138,7 @@ class DevOpsAgent(BaseAgent):
             assert self.memory is not None, (
                 "Memory must be injected before accessing tools"
             )
-            self._tools = build_tools(memory=self.memory)
+            self._tools = build_tools(settings=self.settings, memory=self.memory)
         return self._tools
 
     # ── Main handler ──────────────────────────

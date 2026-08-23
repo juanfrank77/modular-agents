@@ -56,7 +56,7 @@ class TestToolsProperty:
 
     def test_returns_business_tools_when_available(self):
         agent = _make_agent()
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         with patch("agents.business.agent.build_tools", return_value=fake_tools):
             assert agent.tools is fake_tools
 
@@ -65,7 +65,7 @@ class TestWiredActionExecutesOnApproval:
     @pytest.mark.asyncio
     async def test_send_email_executes_and_replaces_line(self):
         agent = _make_agent(check_action_return=True)
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         fake_tools.gmail.send_email = AsyncMock(return_value={"messageId": "msg_1"})
         agent._tools = fake_tools
 
@@ -95,7 +95,7 @@ class TestActionDeniedShowsBlockedMessage:
     @pytest.mark.asyncio
     async def test_denied_action_not_executed(self):
         agent = _make_agent(check_action_return=False)
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         agent._tools = fake_tools
 
         response = 'ACTION: SEND_EMAIL | to=bob@example.com subject=Hi body="Hello there"'
@@ -120,7 +120,7 @@ class TestMalformedArgDoesNotCrash:
     @pytest.mark.asyncio
     async def test_whitespace_only_subject_becomes_failure_message(self):
         agent = _make_agent(check_action_return=True)
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         fake_tools.gmail.send_email = AsyncMock(
             side_effect=ValueError("send_email requires non-empty to, subject, and body")
         )
@@ -151,7 +151,7 @@ class TestNativeToolCallExecutesOnApproval:
     @pytest.mark.asyncio
     async def test_send_email_executes_and_returns_follow_up_text(self):
         agent = _make_agent(check_action_return=True)
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         fake_tools.gmail.send_email = AsyncMock(return_value={"messageId": "msg_1"})
         agent._tools = fake_tools
         agent.llm.complete = AsyncMock(return_value=LLMResult(text="Sent it!"))
@@ -195,7 +195,7 @@ class TestNativeToolCallDenied:
     @pytest.mark.asyncio
     async def test_denied_action_not_executed(self):
         agent = _make_agent(check_action_return=False)
-        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         agent._tools = fake_tools
         agent.llm.complete = AsyncMock(return_value=LLMResult(text="Not sent."))
 
@@ -232,3 +232,44 @@ class TestNativeToolCallUnwiredType:
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
         assert "no execution handler wired for calendar_delete" in follow_up_kwargs["tool_result"].content.lower()
+
+
+class TestReadLocalFileAction:
+    @pytest.mark.asyncio
+    async def test_read_local_file_executes_and_replaces_line(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
+        fake_tools.local_file.read_file = AsyncMock(
+            return_value={"path": "/notes/meeting.md", "content": "Meeting notes"}
+        )
+        agent._tools = fake_tools
+
+        response = "ACTION: READ_LOCAL_FILE | path=notes/meeting.md"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Meeting notes" in result
+        assert "ACTION:" not in result
+        fake_tools.local_file.read_file.assert_called_once_with("notes/meeting.md")
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Read local file notes/meeting.md"
+
+
+class TestWriteLocalFileAction:
+    @pytest.mark.asyncio
+    async def test_write_local_file_executes_and_replaces_line(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
+        fake_tools.local_file.write_file = AsyncMock(
+            return_value={"path": "/notes/meeting.md", "bytes_written": 12}
+        )
+        agent._tools = fake_tools
+
+        response = 'ACTION: WRITE_LOCAL_FILE | path=notes/meeting.md content="Hello world"'
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Wrote" in result
+        assert "12 bytes" in result
+        assert "ACTION:" not in result
+        fake_tools.local_file.write_file.assert_called_once_with("notes/meeting.md", "Hello world")
+        call_kwargs = agent.safety.check_action.call_args.kwargs
+        assert call_kwargs["description"] == "Write local file notes/meeting.md"

@@ -72,14 +72,17 @@ _ACTION_INSTRUCTIONS_NATIVE = (
 )
 
 _ACTION_INSTRUCTIONS_LEGACY = (
-    "- Before sending any email, modifying any calendar event, or making any\n"
-    "  external API write call, you MUST describe the action and wait for approval.\n"
+    "- Before sending any email, modifying any calendar event, making any\n"
+    "  external API write call, or writing local files, you MUST describe the action\n"
+    "  and wait for approval.\n"
     "  Format as:\n"
     "    ACTION: <type> | key=value key2=\"quoted value\" ...\n"
     "  These action types execute for real once approved — use key=value args:\n"
     "    ACTION: SEND_EMAIL | to=alice@example.com subject=\"Re: Thursday\" body=\"Confirmed, see you at 3pm.\"\n"
     "    ACTION: CALENDAR_WRITE | title=\"Team Sync\" start=2026-04-05T10:00:00Z end=2026-04-05T11:00:00Z\n"
     "    ACTION: DRAFT | email_id=msg_123 body=\"Thanks for the update!\"\n"
+    "    ACTION: READ_LOCAL_FILE | path=notes/meeting.md\n"
+    "    ACTION: WRITE_LOCAL_FILE | path=notes/meeting.md content=\"Updated notes\"\n"
     "  Other action types (CALENDAR_DELETE, DELETE, EXECUTE) still require approval\n"
     "  but have no execution handler yet — say so in your own words after proposing them."
 )
@@ -529,6 +532,8 @@ def _parse_action_type(raw: str) -> ActionType:
         "CALENDAR_WRITE": ActionType.WRITE_HIGH,
         "CALENDAR_DELETE": ActionType.DESTRUCTIVE,
         "DRAFT": ActionType.WRITE_LOW,
+        "READ_LOCAL_FILE": ActionType.READ,
+        "WRITE_LOCAL_FILE": ActionType.WRITE_LOW,
         "READ": ActionType.READ,
         "SEARCH": ActionType.READ,
         "DELETE": ActionType.DESTRUCTIVE,

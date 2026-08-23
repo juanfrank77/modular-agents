@@ -19,7 +19,7 @@ from agents.business.tools import BusinessTools
 
 
 def _fake_tools() -> BusinessTools:
-    return BusinessTools(gmail=AsyncMock(), calendar=AsyncMock())
+    return BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
 
 
 class TestResolveArgs:
@@ -120,6 +120,73 @@ class TestDraft:
         result = await spec.execute(tools, resolved)
         tools.gmail.draft_reply.assert_called_once_with(email_id="msg_123", body="Thanks!")
         assert result == "✅ Draft reply created for msg_123"
+
+
+class TestReadLocalFile:
+    def test_describe(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        resolved = resolve_args(spec, {"path": "notes/meeting.md"})
+        assert spec.describe(resolved) == "Read local file notes/meeting.md"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_local_file_read(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.read_file = AsyncMock(
+            return_value={"path": "/notes/meeting.md", "content": "notes"}
+        )
+        resolved = resolve_args(spec, {"path": "notes/meeting.md"})
+        result = await spec.execute(tools, resolved)
+
+        tools.local_file.read_file.assert_called_once_with("notes/meeting.md")
+        assert "notes" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_error(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.read_file = AsyncMock(
+            return_value={"path": "notes/meeting.md", "error": "Access denied"}
+        )
+        resolved = resolve_args(spec, {"path": "notes/meeting.md"})
+        result = await spec.execute(tools, resolved)
+
+        assert "Could not read" in result
+        assert "Access denied" in result
+
+
+class TestWriteLocalFile:
+    def test_describe(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        resolved = resolve_args(spec, {"path": "notes/meeting.md", "content": "hello"})
+        assert spec.describe(resolved) == "Write local file notes/meeting.md"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_local_file_write(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"path": "/notes/meeting.md", "bytes_written": 5}
+        )
+        resolved = resolve_args(spec, {"path": "notes/meeting.md", "content": "hello"})
+        result = await spec.execute(tools, resolved)
+
+        tools.local_file.write_file.assert_called_once_with("notes/meeting.md", "hello")
+        assert "Wrote" in result
+        assert "5 bytes" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_error(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"path": "notes/meeting.md", "error": "Permission denied"}
+        )
+        resolved = resolve_args(spec, {"path": "notes/meeting.md", "content": "hello"})
+        result = await spec.execute(tools, resolved)
+
+        assert "Could not write" in result
+        assert "Permission denied" in result
 
 
 class TestActionSpecHasToolSchema:

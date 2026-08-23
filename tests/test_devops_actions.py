@@ -20,7 +20,7 @@ from agents.devops.tools.cli_runner import ToolError
 
 
 def _fake_tools(**overrides) -> DevOpsTools:
-    tools = DevOpsTools(github=AsyncMock(), railway=AsyncMock())
+    tools = DevOpsTools(github=AsyncMock(), railway=AsyncMock(), local_file=AsyncMock())
     for attr, value in overrides.items():
         target, method = attr.split(".")
         setattr(getattr(tools, target), method, value)
@@ -202,6 +202,73 @@ class TestDbRollback:
         spec = ACTIONS["DB_ROLLBACK"]
         with pytest.raises(MissingRequiredArg):
             resolve_args(spec, {"service": "api"})
+
+
+class TestReadLocalFile:
+    def test_describe(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        resolved = resolve_args(spec, {"path": "logs/app.log"})
+        assert spec.describe(resolved) == "Read local file logs/app.log"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_local_file_read(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.read_file = AsyncMock(
+            return_value={"path": "/logs/app.log", "content": "log data"}
+        )
+        resolved = resolve_args(spec, {"path": "logs/app.log"})
+        result = await spec.execute(tools, resolved)
+
+        tools.local_file.read_file.assert_called_once_with("logs/app.log")
+        assert "log data" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_error(self):
+        spec = ACTIONS["READ_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.read_file = AsyncMock(
+            return_value={"path": "logs/app.log", "error": "Access denied"}
+        )
+        resolved = resolve_args(spec, {"path": "logs/app.log"})
+        result = await spec.execute(tools, resolved)
+
+        assert "Could not read" in result
+        assert "Access denied" in result
+
+
+class TestWriteLocalFile:
+    def test_describe(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        resolved = resolve_args(spec, {"path": "configs/app.json", "content": "{}"})
+        assert spec.describe(resolved) == "Write local file configs/app.json"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_local_file_write(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"path": "/configs/app.json", "bytes_written": 2}
+        )
+        resolved = resolve_args(spec, {"path": "configs/app.json", "content": "{}"})
+        result = await spec.execute(tools, resolved)
+
+        tools.local_file.write_file.assert_called_once_with("configs/app.json", "{}")
+        assert "Wrote" in result
+        assert "2 bytes" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_error(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"path": "configs/app.json", "error": "Permission denied"}
+        )
+        resolved = resolve_args(spec, {"path": "configs/app.json", "content": "{}"})
+        result = await spec.execute(tools, resolved)
+
+        assert "Could not write" in result
+        assert "Permission denied" in result
 
 
 class TestActionSpecHasToolSchema:

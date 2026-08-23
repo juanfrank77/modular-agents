@@ -134,3 +134,59 @@ def test_resolve_raises_on_outside_path():
     tool = LocalFileTool(allowed_paths=[Path("/tmp")])
     with pytest.raises(LocalFileAccessError):
         tool._resolve("/etc/passwd")
+
+
+@pytest.mark.asyncio
+async def test_write_file_creates_file(tmp_paths):
+    allowed, _ = tmp_paths
+    tool = LocalFileTool(allowed_paths=[allowed])
+
+    result = await tool.write_file(str(allowed / "new.txt"), "hello world")
+
+    assert result["path"] == str(allowed / "new.txt")
+    assert result["bytes_written"] == 11
+    assert "error" not in result
+    assert (allowed / "new.txt").read_text() == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_write_file_creates_parent_directories(tmp_paths):
+    allowed, _ = tmp_paths
+    tool = LocalFileTool(allowed_paths=[allowed])
+
+    result = await tool.write_file(str(allowed / "sub" / "dir" / "new.txt"), "nested")
+
+    assert result["path"] == str(allowed / "sub" / "dir" / "new.txt")
+    assert "error" not in result
+    assert (allowed / "sub" / "dir" / "new.txt").read_text() == "nested"
+
+
+@pytest.mark.asyncio
+async def test_write_file_rejects_path_outside_allowed(tmp_paths):
+    allowed, _ = tmp_paths
+    tool = LocalFileTool(allowed_paths=[allowed])
+
+    result = await tool.write_file("/etc/passwd", "evil")
+
+    assert "error" in result
+    assert "Access denied" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_write_file_rejects_traversal(tmp_paths):
+    allowed, _ = tmp_paths
+    tool = LocalFileTool(allowed_paths=[allowed])
+
+    result = await tool.write_file(str(allowed / ".." / "outside.txt"), "evil")
+
+    assert "error" in result
+    assert "Access denied" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_write_file_without_allowed_paths():
+    tool = LocalFileTool(allowed_paths=[])
+    result = await tool.write_file("/any/path", "content")
+
+    assert "error" in result
+    assert "No local_file_paths configured" in result["error"]

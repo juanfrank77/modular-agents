@@ -27,13 +27,15 @@ def _fake_tools(user_id="default"):
 
 
 def _fake_settings(api_key="test_key", user_id="default"):
-    """Return a Settings-like object with composio fields."""
-    from dataclasses import dataclass
+    """Return a Settings-like object with composio and local_file fields."""
+    from dataclasses import dataclass, field
+    from pathlib import Path
 
     @dataclass
     class FakeSettings:
         composio_api_key: str = api_key
         composio_user_id: str = user_id
+        local_file_paths: list[Path] = field(default_factory=list)
 
     return FakeSettings()
 
@@ -63,6 +65,7 @@ class TestBusinessToolsInit:
 
         assert hasattr(tools, "gmail")
         assert hasattr(tools, "calendar")
+        assert hasattr(tools, "local_file")
         assert tools.gmail._composio is captured["composio_instance"]
         assert captured["user_id"] == "default"
 
