@@ -94,7 +94,7 @@ def _truncate_envelope(event: AgentEvent) -> None:
         event.text = event.text.encode("utf-8")[: max(0, max_bytes // 4)].decode(
             "utf-8", errors="replace"
         )
-        truncated = event.text != original_text
+truncated = truncated or (event.text != original_text)
 
     if truncated:
         log.warning(
