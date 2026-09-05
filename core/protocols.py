@@ -37,6 +37,8 @@ class AgentEvent:
     text: str = ""
     data: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    correlation_id: str = ""  # shared id linking a delegation request to its response
+    parent_event_id: str = ""  # optional trace back to the originating event
 
 
 @dataclass
@@ -45,6 +47,7 @@ class AgentResponse:
     agent_name: str
     success: bool = True
     data: dict[str, Any] = field(default_factory=dict)
+    handoff: dict[str, Any] | None = None  # structured results from delegated tasks
 
 
 @dataclass

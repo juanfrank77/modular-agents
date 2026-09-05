@@ -81,7 +81,15 @@ class MessageBus:
         # should update stickiness — autonomous events (scheduled tasks,
         # heartbeats, webhooks, etc.) must not overwrite the user's actual
         # last-conversation-partner used as a routing fallback.
-        if event.chat_id and event.type is EventType.USER_MESSAGE:
+        # Delegated sub-tasks (origin_agent set) keep type=USER_MESSAGE and
+        # the original chat_id, but they must not overwrite the user's
+        # conversation partner. Interface-originated user messages always
+        # have origin_agent == "", so normal routing is unaffected.
+        if (
+            event.chat_id
+            and event.type is EventType.USER_MESSAGE
+            and not event.origin_agent
+        ):
             self._chat_agent_map[event.chat_id] = agent.name
             if self._state_store:
                 await self._state_store.save_chat_agent(event.chat_id, agent.name)
