@@ -45,22 +45,29 @@ class TestAgentEventEnvelopeBounds:
     def test_oversized_text_truncated(self):
         big_text = "x" * (_MAX_ENVELOPE_BYTES // 2 + 1)
         event = _make_event(text=big_text)
-        assert len(event.text.encode("utf-8")) <= _MAX_ENVELOPE_BYTES // 2
+        assert len(event.text.encode("utf-8")) <= int(_MAX_ENVELOPE_BYTES * 0.5)
 
     def test_oversized_data_value_truncated(self):
         big_value = "y" * (_MAX_ENVELOPE_BYTES // 4 + 1)
         event = _make_event(data={"payload": big_value})
-        assert len(event.data["payload"].encode("utf-8")) <= _MAX_ENVELOPE_BYTES // 4
+        assert len(event.data["payload"].encode("utf-8")) <= int(_MAX_ENVELOPE_BYTES * 0.25)
 
     def test_non_string_data_value_truncated(self):
         big_list = ["x" * 100] * 1000
         event = _make_event(data={"payload": big_list})
-        assert len(str(event.data["payload"]).encode("utf-8")) <= _MAX_ENVELOPE_BYTES // 4
+        assert len(str(event.data["payload"]).encode("utf-8")) <= int(_MAX_ENVELOPE_BYTES * 0.25)
 
     def test_multibyte_text_truncated_in_bytes(self):
         big_text = "é" * (_MAX_ENVELOPE_BYTES // 2 + 1)
         event = _make_event(text=big_text)
         assert len(event.text.encode("utf-8")) <= _MAX_ENVELOPE_BYTES // 2
+
+    def test_total_size_stays_under_max(self):
+        big_text = "x" * (_MAX_ENVELOPE_BYTES // 2 + 1)
+        big_value = "y" * (_MAX_ENVELOPE_BYTES // 4 + 1)
+        event = _make_event(text=big_text, data={"a": big_value, "b": big_value})
+        from core.protocols import _estimate_event_bytes
+        assert _estimate_event_bytes(event) <= _MAX_ENVELOPE_BYTES
 
     def test_too_many_data_keys_capped(self):
         data = {f"key{i}": f"value{i}" for i in range(100)}

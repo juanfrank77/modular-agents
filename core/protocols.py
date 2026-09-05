@@ -60,8 +60,8 @@ class AgentEvent:
 
 def _truncate_envelope(event: AgentEvent) -> None:
     max_bytes = _MAX_ENVELOPE_BYTES
-    text_cap = max_bytes // 2
-    data_value_cap = max_bytes // 4
+    text_cap = int(max_bytes * _TEXT_CAP_RATIO)
+    data_value_cap = int(max_bytes * _DATA_VALUE_CAP_RATIO)
     data_key_cap = _DATA_KEY_CAP
 
     truncated = False
@@ -89,6 +89,12 @@ def _truncate_envelope(event: AgentEvent) -> None:
                 )
                 truncated = True
 
+    if _estimate_event_bytes(event) > max_bytes:
+        event.text = event.text.encode("utf-8")[: max(0, max_bytes // 4)].decode(
+            "utf-8", errors="replace"
+        )
+        truncated = True
+
     if truncated:
         log.warning(
             "AgentEvent envelope truncated",
@@ -96,6 +102,10 @@ def _truncate_envelope(event: AgentEvent) -> None:
             agent=event.agent_name,
             max_bytes=max_bytes,
         )
+
+
+def _estimate_event_bytes(event: AgentEvent) -> int:
+    return len(event.text.encode("utf-8")) + len(str(event.data).encode("utf-8"))
 
 
 @dataclass
