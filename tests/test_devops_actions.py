@@ -204,6 +204,142 @@ class TestDbRollback:
             resolve_args(spec, {"service": "api"})
 
 
+class TestGetStatus:
+    def test_describe_with_service(self):
+        spec = ACTIONS["GET_STATUS"]
+        resolved = resolve_args(spec, {"service": "api", "environment": "production"})
+        assert spec.describe(resolved) == "Get Railway status for api (production)"
+
+    def test_describe_without_service(self):
+        spec = ACTIONS["GET_STATUS"]
+        resolved = resolve_args(spec, {})
+        assert spec.describe(resolved) == "Get Railway status for default service (default environment)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_railway_get_status(self):
+        spec = ACTIONS["GET_STATUS"]
+        tools = _fake_tools()
+        tools.railway.get_status = AsyncMock(return_value={"status": "ACTIVE", "service": "api", "environment": "production"})
+        resolved = resolve_args(spec, {"service": "api", "environment": "production"})
+        result = await spec.execute(tools, resolved)
+        tools.railway.get_status.assert_called_once_with(service="api", environment="production")
+        assert result == "✅ Railway status: ACTIVE (api / production)"
+
+    @pytest.mark.asyncio
+    async def test_execute_propagates_tool_error(self):
+        spec = ACTIONS["GET_STATUS"]
+        tools = _fake_tools()
+        tools.railway.get_status = AsyncMock(side_effect=ToolError("railway", ["railway", "status"], "not authenticated", 1))
+        with pytest.raises(ToolError):
+            await spec.execute(tools, {"service": "api", "environment": "production"})
+
+
+class TestFetchLogs:
+    def test_describe(self):
+        spec = ACTIONS["FETCH_LOGS"]
+        resolved = resolve_args(spec, {"service": "api", "lines": "50"})
+        assert spec.describe(resolved) == "Fetch 50 logs for api (default environment)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_railway_get_logs(self):
+        spec = ACTIONS["FETCH_LOGS"]
+        tools = _fake_tools()
+        tools.railway.get_logs = AsyncMock(return_value="log line 1\nlog line 2")
+        resolved = resolve_args(spec, {"service": "api", "environment": "production", "lines": "50"})
+        result = await spec.execute(tools, resolved)
+        tools.railway.get_logs.assert_called_once_with(service="api", environment="production", lines=50)
+        assert result == "log line 1\nlog line 2"
+
+    @pytest.mark.asyncio
+    async def test_execute_propagates_tool_error(self):
+        spec = ACTIONS["FETCH_LOGS"]
+        tools = _fake_tools()
+        tools.railway.get_logs = AsyncMock(side_effect=ToolError("railway", ["railway", "logs"], "service not found", 1))
+        with pytest.raises(ToolError):
+            await spec.execute(tools, {"service": "api", "environment": "production"})
+
+
+class TestFetchErrorLogs:
+    def test_describe(self):
+        spec = ACTIONS["FETCH_ERROR_LOGS"]
+        resolved = resolve_args(spec, {"service": "api", "lines": "25"})
+        assert spec.describe(resolved) == "Fetch 25 error logs for api (default environment)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_railway_get_error_logs(self):
+        spec = ACTIONS["FETCH_ERROR_LOGS"]
+        tools = _fake_tools()
+        tools.railway.get_error_logs = AsyncMock(return_value="ERROR something failed\nTraceback ...")
+        resolved = resolve_args(spec, {"service": "api", "environment": "production", "lines": "25"})
+        result = await spec.execute(tools, resolved)
+        tools.railway.get_error_logs.assert_called_once_with(service="api", environment="production", lines=25)
+        assert result == "ERROR something failed\nTraceback ..."
+
+    @pytest.mark.asyncio
+    async def test_execute_propagates_tool_error(self):
+        spec = ACTIONS["FETCH_ERROR_LOGS"]
+        tools = _fake_tools()
+        tools.railway.get_error_logs = AsyncMock(side_effect=ToolError("railway", ["railway", "logs"], "service not found", 1))
+        with pytest.raises(ToolError):
+            await spec.execute(tools, {"service": "api", "environment": "production"})
+
+
+class TestListDeployments:
+    def test_describe(self):
+        spec = ACTIONS["LIST_DEPLOYMENTS"]
+        resolved = resolve_args(spec, {"service": "api", "limit": "5"})
+        assert spec.describe(resolved) == "List deployments for api (default environment)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_railway_list_deployments(self):
+        spec = ACTIONS["LIST_DEPLOYMENTS"]
+        tools = _fake_tools()
+        tools.railway.list_deployments = AsyncMock(return_value=[
+            {"id": "dep-1", "status": "SUCCESS", "created_at": "2026-01-01 12:00"},
+            {"id": "dep-2", "status": "FAILED", "created_at": "2026-01-01 12:05"},
+        ])
+        resolved = resolve_args(spec, {"service": "api", "environment": "production", "limit": "5"})
+        result = await spec.execute(tools, resolved)
+        tools.railway.list_deployments.assert_called_once_with(service="api", environment="production", limit=5)
+        assert "dep-1" in result
+        assert "dep-2" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_handles_error_dict(self):
+        spec = ACTIONS["LIST_DEPLOYMENTS"]
+        tools = _fake_tools()
+        tools.railway.list_deployments = AsyncMock(return_value=[{"error": "CLI not installed"}])
+        resolved = resolve_args(spec, {"service": "api", "environment": "production"})
+        result = await spec.execute(tools, resolved)
+        assert "Could not list deployments" in result
+        assert "CLI not installed" in result
+
+
+class TestListEnvVars:
+    def test_describe(self):
+        spec = ACTIONS["LIST_ENV_VARS"]
+        resolved = resolve_args(spec, {"service": "api", "environment": "production"})
+        assert spec.describe(resolved) == "List env vars for api (production)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_railway_list_env_vars(self):
+        spec = ACTIONS["LIST_ENV_VARS"]
+        tools = _fake_tools()
+        tools.railway.list_env_vars = AsyncMock(return_value={"DATABASE_URL": "[set]", "API_KEY": "[set]"})
+        resolved = resolve_args(spec, {"service": "api", "environment": "production"})
+        result = await spec.execute(tools, resolved)
+        tools.railway.list_env_vars.assert_called_once_with(service="api", environment="production")
+        assert result == "✅ Environment variables (2 keys): DATABASE_URL, API_KEY"
+
+    @pytest.mark.asyncio
+    async def test_execute_propagates_tool_error(self):
+        spec = ACTIONS["LIST_ENV_VARS"]
+        tools = _fake_tools()
+        tools.railway.list_env_vars = AsyncMock(side_effect=ToolError("railway", ["railway", "variables"], "not authenticated", 1))
+        with pytest.raises(ToolError):
+            await spec.execute(tools, {"service": "api", "environment": "production"})
+
+
 class TestReadLocalFile:
     def test_describe(self):
         spec = ACTIONS["READ_LOCAL_FILE"]

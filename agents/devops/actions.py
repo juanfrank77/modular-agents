@@ -86,6 +86,49 @@ async def _run_list_issues(tools: "DevOpsTools", args: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+async def _run_get_status(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    service = args.get("service") or None
+    environment = args.get("environment") or None
+    result = await tools.railway.get_status(service=service, environment=environment)
+    status = result.get("status", "unknown")
+    return f"✅ Railway status: {status} ({result.get('service', '')} / {result.get('environment', '')})"
+
+
+async def _run_get_logs(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    service = args.get("service") or None
+    environment = args.get("environment") or None
+    lines = int(args.get("lines", "100"))
+    return await tools.railway.get_logs(service=service, environment=environment, lines=lines)
+
+
+async def _run_get_error_logs(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    service = args.get("service") or None
+    environment = args.get("environment") or None
+    lines = int(args.get("lines", "50"))
+    return await tools.railway.get_error_logs(service=service, environment=environment, lines=lines)
+
+
+async def _run_list_deployments(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    service = args.get("service") or None
+    environment = args.get("environment") or None
+    limit = int(args.get("limit", "10"))
+    result = await tools.railway.list_deployments(service=service, environment=environment, limit=limit)
+    if result and isinstance(result, list) and result[0].get("error"):
+        return f"❌ Could not list deployments: {result[0]['error']}"
+    lines = [f"Recent deployments (limit {limit}):"]
+    for dep in result:
+        lines.append(f"- {dep.get('id', 'unknown')}: {dep.get('status', 'unknown')} ({dep.get('created_at', 'unknown')})")
+    return "\n".join(lines)
+
+
+async def _run_list_env_vars(tools: "DevOpsTools", args: dict[str, str]) -> str:
+    service = args.get("service") or None
+    environment = args.get("environment") or None
+    result = await tools.railway.list_env_vars(service=service, environment=environment)
+    keys = list(result.keys())
+    return f"✅ Environment variables ({len(keys)} keys): {', '.join(keys)}"
+
+
 async def _run_deploy(tools: "DevOpsTools", args: dict[str, str]) -> str:
     service = args.get("service") or None
     environment = args["environment"]
@@ -201,6 +244,64 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Roll back a Railway deployment.",
         describe=lambda a: f"Roll back {_label(a, 'service')} to {a['deployment_id']}",
         execute=_run_rollback,
+    ),
+    "GET_STATUS": ActionSpec(
+        required=[],
+        defaults={"service": "", "environment": ""},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+        },
+        description="Get Railway deployment status for a service.",
+        describe=lambda a: f"Get Railway status for {_label(a, 'service')} ({a.get('environment') or 'default environment'})",
+        execute=_run_get_status,
+    ),
+    "FETCH_LOGS": ActionSpec(
+        required=[],
+        defaults={"service": "", "environment": "", "lines": "100"},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+            "lines": {"type": "integer", "description": "Number of log lines to fetch"},
+        },
+        description="Fetch recent logs for a Railway service.",
+        describe=lambda a: f"Fetch {a.get('lines', '100')} logs for {_label(a, 'service')} ({a.get('environment') or 'default environment'})",
+        execute=_run_get_logs,
+    ),
+    "FETCH_ERROR_LOGS": ActionSpec(
+        required=[],
+        defaults={"service": "", "environment": "", "lines": "50"},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+            "lines": {"type": "integer", "description": "Number of error log lines to fetch"},
+        },
+        description="Fetch error/exception logs for a Railway service.",
+        describe=lambda a: f"Fetch {a.get('lines', '50')} error logs for {_label(a, 'service')} ({a.get('environment') or 'default environment'})",
+        execute=_run_get_error_logs,
+    ),
+    "LIST_DEPLOYMENTS": ActionSpec(
+        required=[],
+        defaults={"service": "", "environment": "", "limit": "10"},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+            "limit": {"type": "integer", "description": "Maximum number of deployments to list"},
+        },
+        description="List recent Railway deployments for a service.",
+        describe=lambda a: f"List deployments for {_label(a, 'service')} ({a.get('environment') or 'default environment'})",
+        execute=_run_list_deployments,
+    ),
+    "LIST_ENV_VARS": ActionSpec(
+        required=[],
+        defaults={"service": "", "environment": ""},
+        schema={
+            "service": {"type": "string", "description": "Service name (empty for default service)"},
+            "environment": {"type": "string", "description": "Environment name"},
+        },
+        description="List environment variable keys for a Railway service.",
+        describe=lambda a: f"List env vars for {_label(a, 'service')} ({a.get('environment') or 'default environment'})",
+        execute=_run_list_env_vars,
     ),
     "READ_LOCAL_FILE": ActionSpec(
         required=["path"],
