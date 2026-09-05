@@ -53,6 +53,17 @@ async def _run_send_email(tools: "BusinessTools", args: dict[str, str]) -> str:
     return f"✅ Email sent to {to}"
 
 
+async def _run_block_time(tools: "BusinessTools", args: dict[str, str]) -> str:
+    title = args["title"]
+    result = await tools.calendar.block_time(
+        title=title,
+        start=args["start"],
+        end=args["end"],
+    )
+    _check_error(result)
+    return f"✅ Time blocked: {title}"
+
+
 async def _run_create_event(tools: "BusinessTools", args: dict[str, str]) -> str:
     title = args["title"]
     result = await tools.calendar.create_event(
@@ -119,6 +130,18 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Create a calendar event.",
         describe=lambda a: f"Create calendar event '{a['title']}' ({a['start']} → {a['end']})",
         execute=_run_create_event,
+    ),
+    "BLOCK_TIME": ActionSpec(
+        required=["title", "start", "end"],
+        defaults={},
+        schema={
+            "title": {"type": "string", "description": "Description of the time block"},
+            "start": {"type": "string", "description": "ISO 8601 start datetime"},
+            "end": {"type": "string", "description": "ISO 8601 end datetime"},
+        },
+        description="Block off time on the calendar.",
+        describe=lambda a: f"Block time for '{a['title']}' ({a['start']} → {a['end']})",
+        execute=_run_block_time,
     ),
     "DRAFT": ActionSpec(
         required=["email_id", "body"],

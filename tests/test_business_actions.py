@@ -105,6 +105,42 @@ class TestCalendarWrite:
             await spec.execute(tools, resolved)
 
 
+class TestBlockTime:
+    def test_describe(self):
+        spec = ACTIONS["BLOCK_TIME"]
+        resolved = resolve_args(
+            spec, {"title": "Deep Work", "start": "2026-04-05T14:00:00Z", "end": "2026-04-05T16:00:00Z"}
+        )
+        assert spec.describe(resolved) == "Block time for 'Deep Work' (2026-04-05T14:00:00Z → 2026-04-05T16:00:00Z)"
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_calendar_block_time(self):
+        spec = ACTIONS["BLOCK_TIME"]
+        tools = _fake_tools()
+        tools.calendar.block_time = AsyncMock(return_value={"id": "evt_block"})
+        resolved = resolve_args(
+            spec, {"title": "Deep Work", "start": "2026-04-05T14:00:00Z", "end": "2026-04-05T16:00:00Z"}
+        )
+        result = await spec.execute(tools, resolved)
+        tools.calendar.block_time.assert_called_once_with(
+            title="Deep Work",
+            start="2026-04-05T14:00:00Z",
+            end="2026-04-05T16:00:00Z",
+        )
+        assert result == "✅ Time blocked: Deep Work"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_business_tool_error_on_composio_error(self):
+        spec = ACTIONS["BLOCK_TIME"]
+        tools = _fake_tools()
+        tools.calendar.block_time = AsyncMock(return_value={"error": "conflict"})
+        resolved = resolve_args(
+            spec, {"title": "Focus", "start": "2026-04-05T14:00:00Z", "end": "2026-04-05T16:00:00Z"}
+        )
+        with pytest.raises(BusinessToolError, match="conflict"):
+            await spec.execute(tools, resolved)
+
+
 class TestDraft:
     def test_describe(self):
         spec = ACTIONS["DRAFT"]
