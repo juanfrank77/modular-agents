@@ -145,6 +145,9 @@ class Settings:
     # Skill matching
     skill_min_score: float = 0.05  # relevance threshold for find_relevant()
 
+    # Multi-agent envelopes
+    agent_envelope_max_bytes: int = 65536  # per-event cap applied to AgentEvent.data + text
+
     # Local file access
     local_file_paths: list[Path] = field(default_factory=list)
 
@@ -321,6 +324,7 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         pairing_max_failed_attempts=int(_optional("PAIRING_MAX_FAILED_ATTEMPTS", "5")),
         approval_default_timeout=float(_optional("APPROVAL_DEFAULT_TIMEOUT", "300")),
         skill_min_score=float(_optional("SKILL_MIN_SCORE", "0.05")),
+        agent_envelope_max_bytes=int(_optional("AGENT_ENVELOPE_MAX_BYTES", "65536")),
         user_timezone=_optional("USER_TIMEZONE", "UTC"),
     )
 

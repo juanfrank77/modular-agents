@@ -10,9 +10,22 @@ only these protocols.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from core.logger import get_logger
 from datetime import datetime, timezone
 from enum import Enum, auto
 from typing import Any, Protocol, runtime_checkable
+
+
+log = get_logger("protocols")
+
+# ──────────────────────────────────────────────
+# Shared envelope bounds
+# ──────────────────────────────────────────────
+
+_MAX_ENVELOPE_BYTES = 65536  # 64 KB per inter-agent event
+_TEXT_CAP_RATIO = 0.5
+_DATA_VALUE_CAP_RATIO = 0.25
+_DATA_KEY_CAP = 50
 
 
 # ──────────────────────────────────────────────
@@ -33,12 +46,56 @@ class AgentEvent:
     type: EventType
     agent_name: str  # which agent should handle this
     chat_id: str  # telegram chat_id to reply to
-    origin_agent: str = "" # which agent originated the call
+    origin_agent: str = ""  # which agent originated the call
     text: str = ""
     data: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     correlation_id: str = ""  # shared id linking a delegation request to its response
     parent_event_id: str = ""  # optional trace back to the originating event
+    priority: int = 0  # higher = more urgent; used by preemption (10.9)
+
+    def __post_init__(self) -> None:
+        _truncate_envelope(self)
+
+
+def _truncate_envelope(event: AgentEvent) -> None:
+    max_bytes = _MAX_ENVELOPE_BYTES
+    text_cap = max_bytes // 2
+    data_value_cap = max_bytes // 4
+    data_key_cap = _DATA_KEY_CAP
+
+    truncated = False
+
+    if len(event.text.encode("utf-8")) > text_cap:
+        event.text = event.text.encode("utf-8")[:text_cap].decode("utf-8", errors="replace")
+        truncated = True
+
+    if len(event.data) > data_key_cap:
+        event.data = dict(list(event.data.items())[:data_key_cap])
+        truncated = True
+
+    for key, value in list(event.data.items()):
+        if isinstance(value, str):
+            if len(value.encode("utf-8")) > data_value_cap:
+                event.data[key] = value.encode("utf-8")[:data_value_cap].decode(
+                    "utf-8", errors="replace"
+                )
+                truncated = True
+        else:
+            serialized = str(value)
+            if len(serialized.encode("utf-8")) > data_value_cap:
+                event.data[key] = serialized.encode("utf-8")[:data_value_cap].decode(
+                    "utf-8", errors="replace"
+                )
+                truncated = True
+
+    if truncated:
+        log.warning(
+            "AgentEvent envelope truncated",
+            event="envelope_truncated",
+            agent=event.agent_name,
+            max_bytes=max_bytes,
+        )
 
 
 @dataclass

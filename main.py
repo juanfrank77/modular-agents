@@ -64,6 +64,10 @@ async def bootstrap():
     )
     log.info("Framework starting", event="startup")
 
+    from core.protocols import _MAX_ENVELOPE_BYTES as _DEFAULT_MAX_ENVELOPE_BYTES
+    import core.protocols as _protocols
+    _protocols._MAX_ENVELOPE_BYTES = settings.agent_envelope_max_bytes or _DEFAULT_MAX_ENVELOPE_BYTES
+
     if not settings.db_encryption_key:
         log.warning(
             "Database encryption is disabled (DB_ENCRYPTION_KEY unset) — "
