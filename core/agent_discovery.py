@@ -102,7 +102,7 @@ def _load_agent_class(module_path: Path, class_name: str):
     return getattr(module, class_name, None)
 
 
-def discover_agents(
+async def discover_agents(
     settings: "Settings",
     bus: "MessageBus",
     storage,
@@ -111,6 +111,7 @@ def discover_agents(
     memory,
     safety,
     skill_loader,
+    state_store=None,
 ) -> tuple[list, list[tuple[str, str]]]:
     """
     Discover and instantiate all agents found under agents/*.
@@ -118,6 +119,10 @@ def discover_agents(
     Agents with routable=False (like EchoAgent) are only instantiated if
     DEBUG_ECHO_AGENT is True. This prevents the echo agent from being
     available in production builds while keeping it useful for dev.
+    
+    ``state_store`` is used to persist each agent's profile. When it is
+    ``None`` (the default) agents are still instantiated and their
+    profiles are seeded in memory, but nothing is persisted to disk.
     
     Returns:
         (agents, failed) where agents is a list of instantiated BaseAgent subclasses
@@ -163,9 +168,19 @@ def discover_agents(
                     safety=safety,
                     skill_loader=skill_loader,
                     bus=bus,
+                    state_store=state_store,
                 )
                 discovered_agents.append(instance)
                 log.info("Agent discovered and instantiated", event="discovery_success", agent=instance.name)
+                try:
+                    await instance.ensure_profile()
+                except Exception as e:
+                    log.error(
+                        "Failed to ensure agent profile",
+                        event="profile_error",
+                        agent=instance.name,
+                        error=str(e),
+                    )
             except Exception as e:
                 log.error("Failed to instantiate agent", event="discovery_error", agent=module_name, error=str(e))
                 failed_agents.add(module_name)

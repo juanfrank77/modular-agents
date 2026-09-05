@@ -72,6 +72,17 @@ class StateStore:
                     chat_id  TEXT PRIMARY KEY,
                     model    TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_profiles (
+                    name            TEXT PRIMARY KEY,
+                    description     TEXT NOT NULL,
+                    emoji           TEXT NOT NULL DEFAULT '🤖',
+                    autonomy_level  TEXT NOT NULL DEFAULT 'supervised',
+                    routable        INTEGER NOT NULL DEFAULT 1,
+                    enabled         INTEGER NOT NULL DEFAULT 1,
+                    created_at      TEXT NOT NULL,
+                    updated_at      TEXT NOT NULL
+                );
             """)
             await db.commit()
         log.info("StateStore initialised", event="state_store_init", path=self._db_path_str)
@@ -253,3 +264,84 @@ class StateStore:
             cursor = await db.execute("SELECT chat_id, model FROM chat_model_map")
             rows = await cursor.fetchall()
         return {row[0]: row[1] for row in rows}
+
+    # ── agent_profiles ───────────────────────────
+
+    async def save_agent_profile(self, profile) -> None:
+        """Insert or replace an agent profile."""
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            await db.execute(
+                "INSERT OR REPLACE INTO agent_profiles "
+                "(name, description, emoji, autonomy_level, routable, enabled, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ?), ?)",
+                (
+                    profile.name,
+                    profile.description,
+                    profile.emoji,
+                    profile.autonomy_level,
+                    1 if profile.routable else 0,
+                    1 if profile.enabled else 0,
+                    profile.created_at or now,
+                    profile.created_at or now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def load_agent_profile(self, name: str):
+        """Load a single agent profile by name, or None."""
+        from core.protocols import AgentProfile
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            cursor = await db.execute(
+                "SELECT name, description, emoji, autonomy_level, routable, enabled, created_at, updated_at "
+                "FROM agent_profiles WHERE name = ?",
+                (name,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return AgentProfile(
+            name=row[0],
+            description=row[1],
+            emoji=row[2],
+            autonomy_level=row[3],
+            routable=bool(row[4]),
+            enabled=bool(row[5]),
+            created_at=row[6],
+            updated_at=row[7],
+        )
+
+    async def load_all_agent_profiles(self) -> list:
+        """Load all agent profiles."""
+        from core.protocols import AgentProfile
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            cursor = await db.execute(
+                "SELECT name, description, emoji, autonomy_level, routable, enabled, created_at, updated_at "
+                "FROM agent_profiles"
+            )
+            rows = await cursor.fetchall()
+        return [
+            AgentProfile(
+                name=row[0],
+                description=row[1],
+                emoji=row[2],
+                autonomy_level=row[3],
+                routable=bool(row[4]),
+                enabled=bool(row[5]),
+                created_at=row[6],
+                updated_at=row[7],
+            )
+            for row in rows
+        ]
+
+    async def delete_agent_profile(self, name: str) -> None:
+        """Delete an agent profile by name."""
+        async with aiosqlite.connect(self._db_path_str) as db:
+            await apply_encryption_key(db, self._encryption_key)
+            await db.execute("DELETE FROM agent_profiles WHERE name = ?", (name,))
+            await db.commit()

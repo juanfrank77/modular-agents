@@ -92,7 +92,7 @@ class TestLoadAgentClass:
             import sys
             sys.modules.pop("agents.broken_import.agent", None)
 
-    def test_no_base_agent_subclass_logs_warning_without_raising(self, tmp_path: Path, caplog):
+    async def test_no_base_agent_subclass_logs_warning_without_raising(self, tmp_path: Path, caplog):
         """discover_agents should skip files with no BaseAgent subclass by
         logging a warning, not crash with a KeyError from `module=` in
         `extra=`."""
@@ -117,7 +117,7 @@ class TestLoadAgentClass:
             skill_loader = MagicMock()
 
             with caplog.at_level("WARNING"):
-                agents, failed = discover_agents(
+                agents, failed = await discover_agents(
                     settings=settings,
                     bus=bus,
                     storage=storage,
@@ -139,7 +139,7 @@ class TestLoadAgentClass:
 
 
 class TestDiscoverAgents:
-    def test_discovers_existing_agents_successfully(self):
+    async def test_discovers_existing_agents_successfully(self):
         """Integration test: discover_agents should load all existing agents."""
         settings = MagicMock()
         settings.debug_echo_agent = False
@@ -167,7 +167,7 @@ class TestDiscoverAgents:
         skill_loader = MagicMock()
         
         from core.agent_discovery import discover_agents
-        agents, failed = discover_agents(
+        agents, failed = await discover_agents(
             settings=settings,
             bus=bus,
             storage=storage,
@@ -186,7 +186,7 @@ class TestDiscoverAgents:
         assert "wellbeing" in agent_names
         assert "echo" not in agent_names  # Skipped due to routable=False and debug_echo_agent=False
 
-    def test_includes_echo_when_debug_enabled(self):
+    async def test_includes_echo_when_debug_enabled(self):
         """EchoAgent should be discovered when DEBUG_ECHO_AGENT is True."""
         settings = MagicMock()
         settings.debug_echo_agent = True  # Enable echo agent
@@ -204,7 +204,7 @@ class TestDiscoverAgents:
         skill_loader = MagicMock()
         
         from core.agent_discovery import discover_agents
-        agents, failed = discover_agents(
+        agents, failed = await discover_agents(
             settings=settings,
             bus=bus,
             storage=storage,
