@@ -48,6 +48,25 @@ class AgentResponse:
 
 
 @dataclass
+class AgentProfile:
+    """Durable identity record for an agent.
+
+    Class attributes on ``BaseAgent`` subclasses are the declared defaults.
+    This record persists them so the system can query and update agent
+    identity without editing code.
+    """
+
+    name: str
+    description: str
+    emoji: str = "🤖"
+    autonomy_level: str = "supervised"
+    routable: bool = True
+    enabled: bool = True
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
 class Message:
     role: str  # 'user' | 'assistant' | 'system'
     content: str

@@ -22,6 +22,7 @@ from core.logger import get_logger
 from datetime import datetime
 from core.protocols import (
     AgentEvent,
+    AgentProfile,
     AgentResponse,
     EventType,
     MemoryStore,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from core.protocols import Notifier
     from core.safety import Safety
     from core.skill_loader import SkillLoader
+    from core.state_store import StateStore
     from core.storage import Storage
 
 log = get_logger("base")
@@ -65,6 +67,7 @@ class BaseAgent(ABC):
         safety: "Safety | None" = None,
         skill_loader: "SkillLoader | None" = None,
         bus: "MessageBus | None" = None,
+        state_store: "StateStore | None" = None,
     ) -> None:
         self.settings = settings
         self.model: str = getattr(settings, f"{self.name}_agent_model", "")
@@ -75,6 +78,8 @@ class BaseAgent(ABC):
         self.safety = safety
         self.skill_loader = skill_loader
         self.bus = bus
+        self._state_store = state_store
+        self._profile: "AgentProfile | None" = None
         # Per-chat set so toggling plan mode for one user doesn't affect others.
         self._plan_mode_chats: set[str] = set()
 
@@ -337,3 +342,45 @@ class BaseAgent(ABC):
         """
         from core.quiet_hours import should_notify
         return should_notify(self.settings, tag=tag, is_emergency=is_emergency, now=_now)
+
+    # ── Structured agent profile ─────────────
+
+    async def get_profile(self) -> AgentProfile:
+        """Return this agent's profile, loading from the state store or
+        seeding from class defaults if no persisted record exists yet."""
+        if self._profile is not None:
+            return self._profile
+        await self.ensure_profile()
+        assert self._profile is not None
+        return self._profile
+
+    async def ensure_profile(self) -> AgentProfile:
+        """Load profile from DB, or seed from class/instance attributes and
+        persist it. Safe to call multiple times."""
+        if self._profile is not None:
+            return self._profile
+        if self._state_store is not None:
+            loaded = await self._state_store.load_agent_profile(self.name)
+            if loaded is not None:
+                self._profile = loaded
+                return loaded
+        self._profile = AgentProfile(
+            name=self.name,
+            description=getattr(self, "description", ""),
+            emoji=getattr(self, "emoji", "🤖"),
+            autonomy_level=getattr(self, "autonomy_level", "supervised"),
+            routable=getattr(self, "routable", True),
+            enabled=True,
+        )
+        if self._state_store is not None:
+            await self._state_store.save_agent_profile(self._profile)
+            reloaded = await self._state_store.load_agent_profile(self.name)
+            if reloaded is not None:
+                self._profile = reloaded
+        return self._profile
+
+    async def save_profile(self) -> None:
+        """Persist the current profile to the state store."""
+        profile = await self.get_profile()
+        if self._state_store is not None:
+            await self._state_store.save_agent_profile(profile)

@@ -145,7 +145,7 @@ async def bootstrap():
 
     # Auto-discover agents instead of manual registration
     from core.agent_discovery import discover_agents
-    discovered_agents, failed = discover_agents(**agent_kwargs)
+    discovered_agents, failed = await discover_agents(**agent_kwargs)
 
     # Register discovered agents
     for agent in discovered_agents:
