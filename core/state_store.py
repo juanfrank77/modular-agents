@@ -276,7 +276,7 @@ class StateStore:
             await db.execute(
                 "INSERT OR REPLACE INTO agent_profiles "
                 "(name, description, emoji, autonomy_level, routable, enabled, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ?), ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     profile.name,
                     profile.description,
@@ -284,7 +284,6 @@ class StateStore:
                     profile.autonomy_level,
                     1 if profile.routable else 0,
                     1 if profile.enabled else 0,
-                    profile.created_at or now,
                     profile.created_at or now,
                     now,
                 ),
