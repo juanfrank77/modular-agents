@@ -47,6 +47,12 @@ You run a Telegram bot that connects to one or more AI agents. Each agent handle
 - Monday kickoff message with stale-project nudges and the week's top 3 priorities
 - Progress log is appended to `memory/context/projects.md`, so history stays human-readable
 
+**Orchestrator Agent** — your mission coordinator
+- Give it a high-level goal in plain language (or `@orchestrator ...`) and it decomposes the goal into milestones assigned to worker agents
+- Delegates milestones one at a time to the right agent and tracks progress
+- Writes the plan to `memory/context/mission-state.md` — a plain Markdown file you can read or edit mid-mission
+- Collects structured handoffs from each worker and runs validation contracts before reporting back
+
 Each agent has its own skills (defined in plain Markdown files), its own memory, and its own autonomy level — the Business Agent asks before sending anything, the DevOps Agent acts autonomously on safe operations and asks only for destructive ones.
 
 ---
@@ -67,6 +73,8 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
 - **Safety** is built in — supervised agents ask for approval before consequential actions
 - **Reliability** includes LLM retry logic and typing indicators during processing
+- **Delegation** lets agents hand sub-tasks to each other through the message bus — traceable via correlation IDs, with timeouts
+- **Validation contracts** — optional `- [ ]` checklists in skill files that agents must satisfy before declaring work complete
 
 ---
 
@@ -276,6 +284,8 @@ Your active projects and the repos/services associated with them. The DevOps age
 ### `reader_profile.md`
 Drives the `email-digest` skill. Defines your current focus, active projects to match against, a "Watching for" keyword list (used as a subject-line pre-filter), and an "Ignore" list. Update at least weekly — a stale profile produces a stale digest. See `agents/business/skills/email-digest.md` and `memory/context/reader_profile.md.template`.
 
+One file in `memory/context/` is runtime-generated rather than templated: `mission-state.md` is written and updated by the Orchestrator Agent while it runs a mission. You don't create it from a template, but you can open and edit it mid-mission like any other context file.
+
 ---
 
 ## Customizing agent behaviour
@@ -365,9 +375,7 @@ file_tool = FileTool(allowed_paths=[Path("/home/user/projects/drafts")])
 # pass file_tool to your agent's __init__
 ```
 
-`FileTool` exposes `list_files(folder, pattern)`, `read_file(path)`, and `write_file(path, content)`. All paths are validated against `allowed_paths` — attempts to access files outside the allowed roots raise `PermissionError`.
-
-### Giving agents web access
+`FileTool` exposes `list_files(folder, pattern)`, `read_file(path)`, and `write_file(path, content)`. All paths are validated against `allowed_paths` — attempts to access files outside the allowed roots raise `PermissionError`.### Giving agents web access
 
 `WebTool` provides web search (via Tavily) and page scraping.
 
@@ -404,6 +412,39 @@ APPROVAL_TIMEOUTS=WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600
 | `DESTRUCTIVE` | 600s | Delete, DB migrate, force deploy |
 
 If you don't set `APPROVAL_TIMEOUTS`, the defaults above apply. Any action type not listed falls back to 300s.
+
+---
+
+## Multi-agent coordination
+
+Agents don't just work side by side — they can hand sub-tasks to each other, persist structured summaries of their work, and prove they're done before reporting back. The Orchestrator Agent builds on these primitives to coordinate multi-agent missions.
+
+### Delegation
+
+Any agent can delegate a sub-task to another agent over the message bus via `BaseAgent.delegate()`. Each delegated event carries correlation IDs that trace parent → child, so you can follow a task through the chain of agents.
+
+- Delegated tasks never hijack your chat routing — the bus keeps your messages going where you sent them
+- A delegation times out after 120 seconds by default
+- A timeout means "result unknown": the worker may have already performed some side effects, and those are not rolled back
+
+### Structured handoffs
+
+When a worker finishes a delegated task, it persists a structured handoff as YAML under `memory/solutions/<agent>/handoffs/`, alongside a human-readable `INDEX.md` that summarizes past handoffs. `Memory.get_recent_handoffs()` lets the next agent in the chain (or the Orchestrator) read its predecessor's summary before starting its own work.
+
+### Validation contracts
+
+A skill file can carry an optional `## Validation Contract` section with `- [ ]` assertion lines:
+
+```markdown
+## Validation Contract
+Assertions this task must satisfy before it is considered complete:
+- [ ] All new endpoints return 200 on smoke test
+- [ ] `pytest` passes with zero failures
+- [ ] `ruff check` reports no errors
+- [ ] No secrets or API keys appear in committed code
+```
+
+Before declaring work complete, the agent runs `_run_validation_contract()`: the LLM evaluates each assertion, and the contract only passes when every assertion is verified. Example skills shipped with the Business and DevOps agents (`agents/business/skills/validation-contract.md`, `agents/devops/skills/validation-contract.md`).
 
 ---
 
@@ -542,6 +583,9 @@ modular-agents/
 │   │   └── skills/              ← Markdown skill files
 │   ├── wellbeing/               ← wellbeing agent
 │   │   └── agent.py             ← scheduled nudges (morning, evening, bedtime)
+│   ├── orchestrator/            ← coordinates multi-agent missions
+│   │   ├── agent.py
+│   │   └── skills/
 │   └── devops/                  ← infrastructure agent
 │       ├── agent.py
 │       ├── skills/
@@ -561,7 +605,9 @@ modular-agents/
 │   └── web_tool.py              ← web search (Tavily) and page scraping
 ├── memory/
 │   ├── context/                 ← your preferences, personal context, projects
+│   │   └── mission-state.md     ← Orchestrator's mission plan (runtime-generated)
 │   └── solutions/               ← agent-learned patterns (auto-generated)
+│       └── <agent>/handoffs/    ← structured delegation handoffs (YAML + INDEX.md)
 ├── main.py                      ← entry point
 ├── setup.sh                     ← one-shot setup script
 ├── ARCHITECTURE.md              ← full design document

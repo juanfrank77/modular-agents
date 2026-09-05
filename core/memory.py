@@ -27,14 +27,23 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.logger import get_logger
 from core.protocols import MemoryStore, Message
 from core.text_match import tokenize
+
+yaml: Any = None
+try:
+    import yaml as _yaml
+    yaml = _yaml
+    _HAS_YAML = True
+except ImportError:
+    _HAS_YAML = False
 
 if TYPE_CHECKING:
     from core.config import Settings
@@ -226,6 +235,10 @@ class Memory(MemoryStore):
         except OSError:
             return None
 
+        # Index files are browse aids, never solutions — don't inject them.
+        if solution_file.name == "INDEX.md":
+            return None
+
         cached = self._solution_cache.get(solution_file)
         if cached is not None and cached[0] == mtime:
             return cached[1], cached[2]
@@ -256,6 +269,8 @@ class Memory(MemoryStore):
         def _scan() -> list[str]:
             matched: list[str] = []
             for solution_file in self._solutions_dir.rglob("*.md"):
+                if solution_file.name == "INDEX.md":
+                    continue
                 # Match on filename tokens
                 file_words = tokenize(solution_file.stem.replace("_", " "))
                 if not (task_words & file_words):
@@ -330,6 +345,8 @@ class Memory(MemoryStore):
         # Index solution files
         if self._solutions_dir.exists():
             for sol_file in sorted(self._solutions_dir.rglob("*.md")):
+                if sol_file.name == "INDEX.md":
+                    continue
                 content = sol_file.read_text(encoding="utf-8").strip()
                 if content:
                     # Build relative key: solutions/agent/topic
@@ -493,6 +510,111 @@ class Memory(MemoryStore):
 
         index_path.write_text(content, encoding="utf-8")
 
+    # ── Handoff persistence ─────────────
+
+    async def save_handoff(self, agent: str, handoff: dict[str, Any]) -> None:
+        """Append a structured handoff to the agent's handoffs directory."""
+        handoffs_dir = self._solutions_dir / agent / "handoffs"
+        handoffs_dir.mkdir(parents=True, exist_ok=True)
+
+        topic_raw = handoff.get("topic")
+        if topic_raw:
+            topic = _slugify_topic(str(topic_raw)) or "handoff"
+        else:
+            task = handoff.get("task", "handoff")
+            topic = _slugify_topic(str(task)) or "handoff"
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%f")
+        filename = f"{timestamp}_{topic}.yaml"
+        path = handoffs_dir / filename
+
+        try:
+            if _HAS_YAML:
+                content = _yaml.safe_dump(handoff, default_flow_style=False, allow_unicode=True)
+            else:
+                content = json.dumps(handoff, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            log.warning(
+                "Failed to serialize handoff",
+                event="handoff_serialize_error",
+                agent=agent,
+                error=str(exc),
+            )
+            content = json.dumps(handoff, indent=2, ensure_ascii=False)
+
+        def _write_file() -> None:
+            path.write_text(content, encoding="utf-8")
+
+        await asyncio.to_thread(_write_file)
+
+        log.info(
+            "Handoff saved",
+            event="handoff_saved",
+            agent=agent,
+            path=str(path),
+            topic=topic,
+        )
+
+        # Mirror into a per-agent INDEX.md (inside handoffs/ so the
+        # consolidation glob, solution indexing, and relevance scans never
+        # touch it) so humans/agents can browse recent handoffs without
+        # scanning the handoffs/ directory.
+        index_path = self._solutions_dir / agent / "handoffs" / "INDEX.md"
+        summary = str(handoff.get("task") or handoff.get("topic") or topic)[:150]
+        index_line = f"- {timestamp}_{topic}: {summary}"
+
+        def _append_index() -> None:
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            if index_path.exists():
+                existing = index_path.read_text(encoding="utf-8")
+                if "_Last updated:" in existing:
+                    existing = re.sub(
+                        r"_Last updated:.*_",
+                        f"_Last updated: {_now()}_",
+                        existing,
+                    )
+                else:
+                    existing = (
+                        existing.rstrip()
+                        + f"\n_Last updated: {_now()}_\n"
+                    )
+                if index_line not in existing:
+                    existing = existing.rstrip() + f"\n{index_line}\n"
+                index_path.write_text(existing, encoding="utf-8")
+            else:
+                header = (
+                    f"# Handoffs for {agent}\n"
+                    f"_Last updated: {_now()}_\n"
+                    f"_Files written to handoffs/ directory._\n\n"
+                )
+                index_path.write_text(header + index_line + "\n", encoding="utf-8")
+
+        await asyncio.to_thread(_append_index)
+
+    async def get_recent_handoffs(self, agent: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Read recent handoff files for an agent, ordered by filename (time desc)."""
+        handoffs_dir = self._solutions_dir / agent / "handoffs"
+        if not handoffs_dir.exists():
+            return []
+
+        def _scan() -> list[Path]:
+            files: list[Path] = []
+            for ext in ("*.yaml", "*.yml", "*.json"):
+                files.extend(handoffs_dir.glob(ext))
+            return sorted(files, reverse=True)
+
+        files = await asyncio.to_thread(_scan)
+
+        results: list[dict[str, Any]] = []
+        for path in files:
+            if len(results) >= limit:
+                break
+            data = await asyncio.to_thread(_read_handoff_file, path)
+            if data is None:
+                continue
+            results.append(data)
+        return results
+
     # ── Session context with auto-compaction ──
 
     async def get_session_context(
@@ -594,6 +716,45 @@ class Memory(MemoryStore):
 
 
 # ── Helpers ───────────────────────────────────
+
+def _slugify_topic(value: str) -> str:
+    """Convert arbitrary text into a filesystem-safe slug."""
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug[:80]
+
+
+def _read_handoff_file(path: Path) -> dict[str, Any] | None:
+    """Parse a single handoff file (yaml or json). Returns None on failure."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.warning(
+            "Could not read handoff file",
+            event="handoff_read_error",
+            path=str(path),
+            error=str(exc),
+        )
+        return None
+    try:
+        if path.suffix in (".yaml", ".yml"):
+            if not _HAS_YAML:
+                return None
+            data = _yaml.safe_load(raw)
+        else:
+            data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        return None
+    except Exception as exc:
+        log.warning(
+            "Failed to parse handoff file",
+            event="handoff_parse_error",
+            path=str(path),
+            error=str(exc),
+        )
+        return None
+
 
 def _extract_summary(content: str) -> str:
     """

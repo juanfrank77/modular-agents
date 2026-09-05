@@ -15,6 +15,10 @@ To add a new agent:
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import re
+import uuid
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -281,6 +285,83 @@ class BaseAgent(ABC):
         await self.notifier.send(event.chat_id, formatted)
         return AgentResponse(text=text, agent_name=self.name)
 
+    async def delegate(
+        self,
+        event: AgentEvent,
+        target_agent_name: str,
+        timeout_seconds: float = 120.0,
+    ) -> AgentResponse:
+        """Publish a sub-task to another agent and return its response.
+
+        Timeout cancels the sub-task; side effects the worker already
+        performed (messages sent, memory writes) are not rolled back —
+        treat a timeout as 'result unknown', not 'worker did nothing'.
+        """
+        if self.bus is None:
+            return AgentResponse(
+                text="No message bus available for delegation.",
+                agent_name=target_agent_name,
+                success=False,
+            )
+
+        correlation_id = uuid.uuid4().hex
+        parent_event_id = (
+            event.correlation_id
+            if event.correlation_id
+            else (
+                event.parent_event_id
+                if event.parent_event_id
+                else str(event.timestamp.timestamp())
+            )
+        )
+
+        cloned_event = dataclasses.replace(
+            event,
+            agent_name=target_agent_name,
+            origin_agent=self.name,
+            correlation_id=correlation_id,
+            parent_event_id=parent_event_id,
+        )
+
+        publish_task = asyncio.create_task(self.bus.publish(cloned_event))
+        try:
+            response = await asyncio.wait_for(publish_task, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            log.warning(
+                "Delegation timed out",
+                event="delegate_timeout",
+                agent=self.name,
+                target=target_agent_name,
+                timeout_seconds=timeout_seconds,
+            )
+            return AgentResponse(
+                text=f"Delegation timed out after {timeout_seconds}s — the sub-task was cancelled mid-flight and may have partially completed.",
+                agent_name=target_agent_name,
+                success=False,
+            )
+        except Exception as exc:
+            log.error(
+                "Delegation failed",
+                event="delegate_error",
+                agent=self.name,
+                target=target_agent_name,
+                error=str(exc),
+                exc_info=True,
+            )
+            return AgentResponse(
+                text=f"Delegation failed: {exc}",
+                agent_name=target_agent_name,
+                success=False,
+            )
+
+        if response is None:
+            return AgentResponse(
+                text="Target agent not found or failed to respond.",
+                agent_name=target_agent_name,
+                success=False,
+            )
+        return response
+
     async def send_scheduled(
         self,
         chat_id: str,
@@ -384,3 +465,92 @@ class BaseAgent(ABC):
         profile = await self.get_profile()
         if self._state_store is not None:
             await self._state_store.save_agent_profile(profile)
+
+    async def _run_validation_contract(
+        self,
+        event: AgentEvent,
+        contract_text: str,
+    ) -> AgentResponse:
+        """Run a validation contract against an LLM and return a pass/fail report.
+
+        Parses - [ ] assertions from contract_text, sends them to the
+        LLM for evaluation, and returns an :class:`AgentResponse` whose
+        success flag reflects whether every assertion passed.
+        """
+        if self.llm is None:
+            return AgentResponse(
+                text="LLM not available for validation.",
+                agent_name=self.name,
+                success=False,
+            )
+
+        assertions = [
+            line.removeprefix("- [ ]").strip()
+            for line in contract_text.splitlines()
+            if line.strip().startswith("- [ ]")
+        ]
+
+        if not assertions:
+            return AgentResponse(
+                text="No validation assertions found in contract.",
+                agent_name=self.name,
+                success=False,
+            )
+
+        numbered_assertions = "\n".join(
+            f"{i + 1}. {assertion}" for i, assertion in enumerate(assertions)
+        )
+
+        system_prompt = (
+            "You are a validation assistant. For each assertion below, evaluate "
+            "whether the implementation satisfies it. Return a numbered list with "
+            "PASS or FAIL and a one-line reason for each. Do not execute any tools."
+        )
+
+        user_message = (
+            "Evaluate the following assertions against the implementation and "
+            "return a numbered list with PASS or FAIL and a one-line reason "
+            "for each:\n\n" + numbered_assertions
+        )
+
+        try:
+            llm_result = await self.llm.complete(
+                messages=[Message(role="user", content=user_message)],
+                system=system_prompt,
+                model=self.resolve_model(event.chat_id),
+            )
+        except Exception as exc:
+            log.error(
+                "Validation LLM call failed",
+                event="validation_llm_error",
+                agent=self.name,
+                error=str(exc),
+            )
+            return AgentResponse(
+                text=f"Validation failed: {exc}",
+                agent_name=self.name,
+                success=False,
+            )
+
+        lines = llm_result.text.splitlines()
+        results: list[str] = []
+        for line in lines:
+            m = re.match(r"^\s*\d+\.\s*(PASS|FAIL)", line)
+            if m:
+                results.append(line.strip())
+
+        all_pass = bool(results) and len(results) == len(assertions) and all(
+            re.match(r"^\s*\d+\.\s*PASS\b", r) for r in results
+        )
+
+        if not results:
+            validation_report = llm_result.text.strip()
+        else:
+            validation_report = "\n".join(results)
+
+        return AgentResponse(
+            text=validation_report,
+            agent_name=self.name,
+            success=all_pass,
+            data={"assertions_count": len(assertions), "passed": all_pass},
+        )

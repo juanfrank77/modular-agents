@@ -61,10 +61,10 @@ The system has four layers. Each layer has a single responsibility and communica
 │   Agents subscribe — no direct coupling                      │
 └──────────────┬──────────────────────────┬───────────────────┘
                │                          │
-┌──────────────▼──────────┐  ┌────────────▼────────────┐  ┌──────────────┐
-│     Business Agent      │  │      DevOps Agent        │  │  Future...   │
-│     (supervised)        │  │      (autonomous)        │  │              │
-└──────────────┬──────────┘  └────────────┬────────────┘  └──────────────┘
+┌──────────────▼──────────┐  ┌────────────▼────────────┐  ┌──────────────▼────────────┐  ┌──────────────┐
+│     Business Agent      │  │      DevOps Agent        │  │    Orchestrator Agent     │  │  Future...   │
+│     (supervised)        │  │      (autonomous)        │  │       (supervised)        │  │              │
+└──────────────┬──────────┘  └────────────┬────────────┘  └──────────────┬────────────┘  └──────────────┘
                └──────────────────────────┘
                               │
 ┌─────────────────────────────▼───────────────────────────────┐
@@ -91,11 +91,11 @@ The core layer is built once and never reimplemented per agent. It exposes clean
 | `llm.py` | Single shared LLM client. Wraps Kilo/OpenRouter/OpenAI/Ollama/Anthropic SDKs behind a Protocol. Configurable per-agent (model, temperature, max tokens). Swap providers in one place. |
 | `notifier.py` | Telegram send/receive abstraction. Agents never import `python-telegram-bot` directly. Future channels (Slack, Discord) implement the same `Notifier` Protocol. |
 | `storage.py` | SQLite wrapper for session history. Async interface. Handles all DB connection management. Agents call `save_message()` and `search_history()` only. |
-| `memory.py` | Two-layer memory. Layer 1: SQLite sessions (queryable history). Layer 2: Markdown files (preferences, personal context, projects). Agents call `get_context()` and `save_solution()`. |
+| `memory.py` | Two-layer memory. Layer 1: SQLite sessions (queryable history). Layer 2: Markdown files (preferences, personal context, projects). Agents call `get_context()` and `save_solution()`. Also persists structured delegation handoffs: `save_handoff()` / `get_recent_handoffs()` write YAML files (with an `INDEX.md` per agent) under `solutions/<agent>/handoffs/`. |
 | `scheduler.py` | Wraps APScheduler. Agents declare their cron jobs at startup via `register_schedule()`. Includes heartbeat tick events every N minutes. |
 | `safety.py` | Approval gates per agent. Dangerous command blocklist. `.env` permission checks. Three modes: `read_only`, `supervised`, `autonomous`. Configured per agent in `.env`. |
 | `skill_loader.py` | Discovers relevant `SKILL.md` files for a given task. Injects their content into the LLM prompt context. |
-| `bus.py` | Message bus and typed event definitions. Handles agent registration and event dispatch. |
+| `bus.py` | Message bus and typed event definitions. Handles agent registration and event dispatch. Delegated events (those with `origin_agent` set) are excluded from per-chat stickiness updates, so delegating a user message to a worker never re-routes the user's future messages. |
 | `logger.py` | Structured JSON logging. Consistent format across all agents. Includes agent name, event type, and duration on every entry. |
 
 ### 3.2 Protocol Definitions
@@ -188,6 +188,36 @@ Every message from the user goes through the same pipeline inside each agent:
 10. Notifier.send(chat_id, response)
 ```
 
+### 4.3 Delegation & Correlated Events
+
+Agents hand sub-tasks to each other through the message bus rather than calling each other directly:
+
+```python
+async def delegate(
+    self,
+    event: AgentEvent,
+    target_agent_name: str,
+    timeout_seconds: float = 120.0,
+) -> AgentResponse: ...
+```
+
+`delegate()` clones the incoming event with `agent_name` set to the target and `origin_agent` set to the delegating agent, then publishes it on the bus and awaits the response. Each cloned event carries a fresh `correlation_id` and a `parent_event_id` pointing at the parent, so a chain of delegated work is traceable end to end.
+
+Timeout semantics: if the worker does not respond within the timeout, the sub-task is cancelled mid-flight and the delegator receives a failed `AgentResponse`. The timeout means **"result unknown"** — side effects the worker already performed are *not* rolled back.
+
+The bus skips its per-chat stickiness update for events with `origin_agent` set. This means delegating a user message to a worker never re-routes the user's future messages to that worker.
+
+### 4.4 Orchestrator Agent
+
+The Orchestrator (`agents/orchestrator/`) is auto-discovered like every other agent — no special registration. It runs in `supervised` autonomy mode and coordinates multi-agent missions:
+
+- **Mission state file** — `memory/context/mission-state.md` (path from `settings.memory_context_dir`, overridable via `MEMORY_CONTEXT_DIR`) is the single source of truth. On a user message, the Orchestrator builds a system prompt with mission state plus relevant skills, calls the LLM, and when the reply contains a ` ```markdown ` (or ` ```md `) fenced block, writes it to the mission state file. Because it's plain Markdown, the user can read or edit it mid-mission.
+- **Milestone parsing** — milestone lines are shaped `1. [ ] Do X — assigned to @devops`.
+- **Serial delegation** — the Orchestrator executes milestones in order, one worker at a time, calling `delegate()`. Milestones assigned to itself or to agents not on the bus are skipped and marked "unavailable". On success, the milestone's `[ ]` is flipped to `[x]` in the mission state file.
+- **Handoff persistence** — each worker result is saved as a structured handoff via `Memory.save_handoff()`.
+- **Validation contract** — if the mission block contains a `## Validation Contract` section, `_run_validation_contract()` runs and its pass/fail verdict is included.
+- **Report** — the reply ends with a `## Mission Execution` section: ✅/❌ per milestone plus the 🧪 validation verdict.
+
 ---
 
 ## 5. Skills System (`SKILL.md`)
@@ -276,6 +306,21 @@ class SkillLoader:
         ...
 ```
 
+### 5.5 Validation Contracts
+
+A skill file may declare an optional `## Validation Contract` section with `- [ ]` assertion lines:
+
+```markdown
+## Validation Contract
+Assertions this task must satisfy before it is considered complete:
+- [ ] All new endpoints return 200 on smoke test
+- [ ] `pytest` passes with zero failures
+- [ ] `ruff check` reports no errors
+- [ ] No secrets or API keys appear in committed code
+```
+
+`BaseAgent._run_validation_contract(event, contract_text)` parses the assertions, has the LLM evaluate each one, and returns a PASS/FAIL report. Success is True only when **every** assertion is covered and passes — unparseable or partial LLM output counts as a fail. Example skills ship with the Business and DevOps agents: `agents/business/skills/validation-contract.md` and `agents/devops/skills/validation-contract.md`.
+
 ---
 
 ## 6. Memory System
@@ -307,7 +352,9 @@ Best for semi-structured info you want to read and edit directly:
 | `preferences.md` | Timezone, name, tone, notification preferences |
 | `personal.md` | Background context always injected into prompts |
 | `projects.md` | Ongoing work, current status, priorities |
+| `mission-state.md` | The Orchestrator's current mission plan (lives in `memory/context/`, runtime-generated, user-editable mid-mission) |
 | `solutions/<agent>/` | Agent-learned patterns from past executions |
+| `solutions/<agent>/handoffs/` | Structured per-task handoffs (YAML + `INDEX.md`) written by the delegation flow |
 
 > The key advantage: you can open `preferences.md` and edit it directly. No UI, no database client. The agent reads it fresh on every relevant call.
 
@@ -411,13 +458,20 @@ framework/
   │       ├── __init__.py
   │       ├── agent.py        ← ProjectsAgent implementation
   │       └── skills/         ← SKILL.md files
+  │   └── orchestrator/
+  │       ├── __init__.py
+  │       ├── agent.py        ← OrchestratorAgent implementation (mission loop)
+  │       └── skills/         ← SKILL.md files (mission planning, handoff review)
   ├── memory/
   │   ├── sessions.db         ← SQLite (auto-created on first run)
   │   ├── context/
   │   │   ├── preferences.md
   │   │   ├── personal.md
   │   │   └── projects.md
+  │   │   └── mission-state.md ← Orchestrator mission plan (runtime-generated)
   │   └── solutions/
+  │       └── <agent>/
+  │           └── handoffs/   ← structured delegation handoffs (YAML + INDEX.md)
   ├── main.py                 ← startup, wires everything together
   ├── .env                    ← secrets (chmod 600)
   └── requirements.txt
@@ -440,6 +494,7 @@ framework/
 | Execution Approval Gates | IronClaw | Business Agent needs human-in-the-loop for sensitive actions. |
 | Dangerous Command Blocklist | PicoClaw / NanoBot | Baseline safety, no configuration required. |
 | Heartbeat System | OpenClaw / PicoClaw | Proactive agent behavior, not just reactive. |
+| Agent Team Collaboration | TinyClaw / frontier multi-agent patterns | Delegation, structured handoffs, validation contracts, and an orchestrator agent; revisit negotiation/shared-resource locking at scale. Design in `docs/multi-agent-patterns.md`. |
 
 ### 9.2 Deferred Patterns
 
@@ -447,7 +502,6 @@ framework/
 |---|---|---|
 | WASM Sandbox | IronClaw | Overkill for personal productivity. Adds build complexity. |
 | Docker Isolation | Agent Zero | WSL2 provides sufficient isolation for this use case. |
-| Agent Team Collaboration | TinyClaw | Unnecessary for 2-agent setup. Revisit at 4+ agents. |
 | Voice Wake Word | OpenClaw | Telegram voice messages cover this use case sufficiently. |
 | Multi-Provider AI Failover | IronClaw | Implemented — Kilo/OpenRouter/OpenAI/Ollama/Anthropic providers with automatic fallback. |
 | Local LLM (Ollama) | Multiple | Implemented — supports self-hosted models like Llama and No-Lama. |
@@ -507,6 +561,16 @@ Recommended build order. Each phase produces working, testable output before the
 > ```
 > Repos resolved from `memory/context/projects.md` at runtime — no restart needed to add a repo.
 > Railway project/service/environment also resolved from `projects.md`.
+
+### Phase 5 — Multi-Agent Coordination
+> **Deliverable:** Agents that delegate sub-tasks to each other, persist structured handoffs, and prove completion via validation contracts — coordinated by the Orchestrator Agent. (Design: `docs/multi-agent-patterns.md`.)
+
+- [x] Event correlation fields (`correlation_id`, `parent_event_id` on `AgentEvent`)
+- [x] `BaseAgent.delegate()` — bus-based sub-task delegation with timeouts
+- [x] Structured handoffs (`Memory.save_handoff()` / `get_recent_handoffs()` + per-agent `INDEX.md`)
+- [x] Validation-contract skill format + `_run_validation_contract()` runner
+- [x] Orchestrator agent with mission state (`memory/context/mission-state.md`)
+- [ ] Negotiation over shared resources (per the design doc's non-goals)
 
 ---
 
