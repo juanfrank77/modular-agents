@@ -8,7 +8,12 @@ and runs long-polling. No agents or core components are constructed here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import asyncio
+import os
+import shutil
+import subprocess
+import tempfile
+from typing import TYPE_CHECKING, Optional
 
 from telegram import Update
 from telegram.ext import (
@@ -23,6 +28,7 @@ from telegram.ext import (
 from core.logger import get_logger
 from core.protocols import AgentEvent, EventType
 from core.routing import parse_agent_tag
+from core.transcription import TranscriptionError, transcribe
 
 if TYPE_CHECKING:
     from core.bus import MessageBus
@@ -55,6 +61,12 @@ class TelegramInterface:
                 self._on_message,
             )
         )
+        app.add_handler(
+            MessageHandler(
+                filters.VOICE,
+                self._on_voice,
+            )
+        )
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(CommandHandler("model", self._on_model))
         app.add_handler(CommandHandler("planmode", self._on_planmode))
@@ -66,6 +78,13 @@ class TelegramInterface:
 
     async def run(self) -> None:
         import asyncio
+
+        if shutil.which("ffmpeg") is None:
+            log.warning(
+                "ffmpeg not found on PATH — voice messages will fail until it "
+                "is installed (e.g. `apt install ffmpeg`)",
+                event="ffmpeg_missing",
+            )
 
         app = ApplicationBuilder().token(self._settings.telegram_token).build()
 
@@ -148,6 +167,116 @@ class TelegramInterface:
                 event="response_error",
                 agent=response.agent_name,
             )
+
+    async def _on_voice(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Voice notes: transcribe locally (faster-whisper) and inject the
+        transcript into the bus as `[voice] <text>`. Spoken transcripts are
+        plain text, never commands (spec: docs/specs/voice-transcription.md)."""
+        if not update.message or not update.message.voice:
+            return
+
+        chat_id = str(update.message.chat_id)
+
+        # Same pairing gate as text messages.
+        if not self._safety.pairing.is_paired(chat_id):
+            if self._safety.pairing.is_locked(chat_id):
+                await self._bus.send_notification(
+                    chat_id,
+                    "🔒 Too many failed pairing attempts. This chat is locked — "
+                    "contact the bot administrator to reset it.",
+                )
+                return
+            await self._bus.send_notification(
+                chat_id,
+                "🔒 Send the pairing token shown in the server console to get started.",
+            )
+            return
+
+        # Same rate-limit bucket as text: one voice note = one message.
+        rate_limit_msg = self._safety.rate_limiter.check(chat_id)
+        if rate_limit_msg:
+            await self._bus.send_notification(chat_id, f"⏳ {rate_limit_msg}")
+            return
+
+        try:
+            text = await self._transcribe_voice_message(update.message.voice)
+        except (TranscriptionError, FileNotFoundError) as exc:
+            log.warning(
+                "Voice transcription failed",
+                event="voice_error",
+                chat_id=chat_id,
+                error=str(exc),
+            )
+            await self._bus.send_notification(
+                chat_id,
+                "⚠️ Sorry, I couldn't transcribe that voice message.",
+            )
+            return
+
+        if not text:
+            await self._bus.send_notification(
+                chat_id,
+                "⚠️ That voice message came back empty — try again?",
+            )
+            return
+
+        text = f"[voice] {text}"
+        log.info(
+            "Inbound voice message", event="inbound_voice", chat_id=chat_id,
+            length=len(text),
+        )
+
+        agent_name, text = parse_agent_tag(text, self._bus.registered_agents)
+
+        event = AgentEvent(
+            type=EventType.USER_MESSAGE,
+            agent_name=agent_name,
+            chat_id=chat_id,
+            text=text,
+        )
+
+        thinking_id = await self._bus.send_thinking(chat_id)
+        response = await self._bus.publish(event)
+        if thinking_id:
+            await self._bus.clear_thinking(chat_id, thinking_id)
+
+    async def _transcribe_voice_message(self, voice) -> str:
+        """Download the .ogg from Telegram, convert to 16 kHz wav with
+        ffmpeg, transcribe off the event loop. Temp files are cleaned up
+        in all paths."""
+        ogg_path: Optional[str] = None
+        wav_path: Optional[str] = None
+        try:
+            with tempfile.TemporaryDirectory(prefix="voice_") as tmpdir:
+                telegram_file = await voice.get_file()
+                ogg_path = os.path.join(tmpdir, "voice.ogg")
+                await telegram_file.download_to_drive(ogg_path)
+
+                wav_path = os.path.join(tmpdir, "voice.wav")
+                proc = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-i", ogg_path or "",
+                            "-ar", "16000", "-ac", "1", wav_path or "",
+                        ],
+                        capture_output=True,
+                    ),
+                )
+                if proc.returncode != 0:
+                    raise TranscriptionError(
+                        f"ffmpeg conversion failed (rc={proc.returncode})"
+                    )
+
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, transcribe, wav_path
+                )
+        finally:
+            # TemporaryDirectory handles cleanup; named vars kept for clarity
+            # in tracebacks/debugging only.
+            ogg_path = wav_path = None
 
     async def _on_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE

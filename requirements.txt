@@ -12,6 +12,9 @@ uvicorn[standard]==0.34.3
 # Telegram
 python-telegram-bot==22.7
 
+# Local voice transcription (faster-whisper / CTranslate2, CPU)
+faster-whisper==1.1.0
+
 # Anthropic SDK
 anthropic==0.109.2
 

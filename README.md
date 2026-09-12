@@ -93,6 +93,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 | LLM inference | Any provider API key | See LLM Provider Options table below |
 | DevOps agent | `gh` CLI, `railway` CLI | `gh auth login` and `railway login` |
 | Web search | `TAVILY_API_KEY` (optional) | Get key from [tavily.com](https://tavily.com) |
+| Voice messages | `ffmpeg` installed on host | `apt install ffmpeg` (Debian/Ubuntu) — needed to convert Telegram voice notes before transcription |
 | External apps (Gmail, Calendar Notion, etc.) | `COMPOSIO_API_KEY` + OAuth | `composio login` and `composio link <service>` |
 
 ### LLM Provider Options
