@@ -51,6 +51,29 @@ _PLAN_PROMPT = (
     "intend to perform. Do not execute anything yet."
 )
 
+# Reasoning models occasionally leak chain-of-thought delimiters into the
+# final text (e.g. minimax-m3 emitting a bare closing </mm:think> or an
+# unterminated think block). Stripped defensively in BaseAgent.reply so
+# neither the user nor session history ever sees them.
+_THINK_BLOCK_RE = re.compile(r"<think\b.*?</think>|<think[^>]*>.*$", re.DOTALL)
+_LEADING_CLOSE_TAG_RE = re.compile(r"^\s*</[a-z:_-]*think[a-z:_-]*>\s*")
+
+
+def _strip_thinking_tags(text: str) -> str:
+    """Remove leaked reasoning markers from an LLM response.
+
+    Two patterns, deliberately narrow so literal mentions of the tags in
+    normal prose survive:
+      1. Complete think blocks anywhere (non-greedy, multiline) or an
+         unterminated block (open tag with no close) to the end of text.
+      2. A bare closing tag at the very start of the text - the observed
+         failure mode: the opening tag was consumed upstream, leaving
+         only the closing marker in the final text.
+    """
+    text = _THINK_BLOCK_RE.sub("", text)
+    text = _LEADING_CLOSE_TAG_RE.sub("", text)
+    return text.lstrip("\n")
+
 
 class BaseAgent(ABC):
     # Every subclass must declare these at class level
@@ -280,7 +303,11 @@ class BaseAgent(ABC):
         
         Format: **🤖 Agent Name**\n\nresponse text
         The agent name is bolded with an emoji for prominent identification.
+        Reasoning models sometimes leak chain-of-thought markers such as
+        `<mm:think>` into their final text; those are stripped here so
+        they never reach the user or session history.
         """
+        text = _strip_thinking_tags(text)
         formatted = f"**{self.emoji} {self.name}**\n\n{text}"
         await self.notifier.send(event.chat_id, formatted)
         return AgentResponse(text=text, agent_name=self.name)

@@ -100,6 +100,45 @@ class TestReadLocalFile:
         assert "Access denied" in result
 
 
+class TestWriteLocalFile:
+    def test_describe(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        resolved = resolve_args(spec, {"path": "notes/x.md", "content": "hello"})
+        assert spec.describe(resolved) == "Write local file notes/x.md"
+
+    def test_missing_content_raises(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        with pytest.raises(MissingRequiredArg) as exc_info:
+            resolve_args(spec, {"path": "notes/x.md"})
+        assert "content" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_execute_calls_local_file_write(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"path": "notes/x.md", "bytes_written": 5}
+        )
+        resolved = resolve_args(spec, {"path": "notes/x.md", "content": "hello"})
+        result = await spec.execute(tools, resolved)
+
+        tools.local_file.write_file.assert_called_once_with("notes/x.md", "hello")
+        assert "Wrote notes/x.md" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_error(self):
+        spec = ACTIONS["WRITE_LOCAL_FILE"]
+        tools = _fake_tools()
+        tools.local_file.write_file = AsyncMock(
+            return_value={"error": "Access denied"}
+        )
+        resolved = resolve_args(spec, {"path": "notes/x.md", "content": "hello"})
+        result = await spec.execute(tools, resolved)
+
+        assert "Could not write" in result
+        assert "Access denied" in result
+
+
 class TestActionSpecHasToolSchema:
     def test_every_action_has_schema_and_description(self):
         for name, spec in ACTIONS.items():

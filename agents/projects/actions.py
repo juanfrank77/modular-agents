@@ -2,7 +2,7 @@
 agents/projects/actions.py
 --------------------------
 ActionSpec registry mapping approved Projects ACTION: types to real
-ProjectsTools calls (web search and local file access).
+ProjectsTools calls (web search, local file read/write).
 """
 
 from __future__ import annotations
@@ -66,6 +66,16 @@ async def _run_read_local_file(tools: "ProjectsTools", args: dict[str, str]) -> 
     return f"📄 {result['path']}{truncated}\n\n{content}"
 
 
+async def _run_write_local_file(tools: "ProjectsTools", args: dict[str, str]) -> str:
+    path = args["path"]
+    result = await tools.local_file.write_file(path, args["content"])
+
+    if "error" in result:
+        return f"❌ Could not write {path}: {result['error']}"
+
+    return f"✅ Wrote {result['path']} ({result['bytes_written']} bytes)"
+
+
 ACTIONS: dict[str, ActionSpec] = {
     "WEB_SEARCH": ActionSpec(
         required=["query"],
@@ -87,5 +97,16 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Read a text file from a configured local directory.",
         describe=lambda a: f"Read local file {a['path']}",
         execute=_run_read_local_file,
+    ),
+    "WRITE_LOCAL_FILE": ActionSpec(
+        required=["path", "content"],
+        defaults={},
+        schema={
+            "path": {"type": "string", "description": "Path to file under a configured local_file_paths root"},
+            "content": {"type": "string", "description": "Text content to write"},
+        },
+        description="Write a text file to a configured local directory.",
+        describe=lambda a: f"Write local file {a['path']}",
+        execute=_run_write_local_file,
     ),
 }
