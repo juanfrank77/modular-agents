@@ -12,13 +12,14 @@ Run:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agents.devops.agent import DevOpsAgent
 from agents.devops.tools import DevOpsTools
 from agents.devops.tools.cli_runner import ToolError
+from core.completion import VerificationResult
 from core.protocols import LLMResult, Message, ToolCall
 
 def _make_agent(check_action_return=True) -> DevOpsAgent:
@@ -44,8 +45,12 @@ class TestWiredActionExecutesOnApproval:
         agent.tools.github.merge_pr = AsyncMock(
             return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
         )
-        response = "Sure, here's the plan.\nACTION: MERGE_PR | number=42 repo=org/x\nDone."
-        result = await agent._handle_action_proposal("chat1", response)
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_pr_exists",
+            new=AsyncMock(return_value=VerificationResult(ok=True, evidence="PR #42 in org/x")),
+        ):
+            response = "Sure, here's the plan.\nACTION: MERGE_PR | number=42 repo=org/x\nDone."
+            result = await agent._handle_action_proposal("chat1", response)
 
         assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in result
         assert "ACTION:" not in result
@@ -178,8 +183,11 @@ class TestNativeToolCallExecutesOnApproval:
             return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
         )
         agent.llm.complete = AsyncMock(return_value=LLMResult(text="Merged it!"))
-
-        result = await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_pr_exists",
+            new=AsyncMock(return_value=VerificationResult(ok=True, evidence="PR #42 in org/x")),
+        ):
+            result = await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
 
         assert result == "Merged it!"
         agent.tools.github.merge_pr.assert_called_once_with(number=42, repo="org/x", method="rebase")
@@ -282,3 +290,82 @@ class TestWriteLocalFileAction:
         agent.tools.local_file.write_file.assert_called_once_with("configs/app.json", "hello world")
         call_kwargs = agent.safety.check_action.call_args.kwargs
         assert call_kwargs["description"] == "Write local file configs/app.json"
+
+
+class TestValidatedCompletion:
+    @pytest.mark.asyncio
+    async def test_merge_pr_success_verified_keeps_result(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.merge_pr = AsyncMock(
+            return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
+        )
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_pr_exists",
+            new=AsyncMock(return_value=VerificationResult(ok=True, evidence="PR #42 in org/x")),
+        ) as mock_verify:
+            result = await agent._handle_action_proposal(
+                "chat1", "ACTION: MERGE_PR | number=42 repo=org/x"
+            )
+
+        assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in result
+        assert "Verification failed" not in result
+        mock_verify.assert_awaited_once_with(repo="org/x", number=42)
+
+    @pytest.mark.asyncio
+    async def test_merge_pr_verification_failure_appends_error(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.merge_pr = AsyncMock(
+            return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
+        )
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_pr_exists",
+            new=AsyncMock(
+                return_value=VerificationResult(ok=False, error="PR #42 not found")
+            ),
+        ):
+            result = await agent._handle_action_proposal(
+                "chat1", "ACTION: MERGE_PR | number=42 repo=org/x"
+            )
+
+        assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in result
+        assert "Verification failed" in result
+        assert "PR #42 not found" in result
+
+    @pytest.mark.asyncio
+    async def test_create_issue_success_verified_keeps_result(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.create_issue = AsyncMock(
+            return_value={"repo": "org/x", "title": "Bug", "url": "https://github.com/org/x/issues/7"}
+        )
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_issue_exists",
+            new=AsyncMock(
+                return_value=VerificationResult(ok=True, evidence="issue #7 in org/x")
+            ),
+        ) as mock_verify:
+            result = await agent._handle_action_proposal(
+                "chat1", "ACTION: CREATE_ISSUE | repo=org/x title=Bug"
+            )
+
+        assert "https://github.com/org/x/issues/7" in result
+        assert "Verification failed" not in result
+        mock_verify.assert_awaited_once_with(
+            repo="org/x", url="✅ Created issue in org/x: Bug → https://github.com/org/x/issues/7"
+        )
+
+    @pytest.mark.asyncio
+    async def test_native_tool_call_merge_pr_verifies(self):
+        agent = _make_agent(check_action_return=True)
+        agent.tools.github.merge_pr = AsyncMock(
+            return_value={"repo": "org/x", "number": 42, "merged": True, "output": ""}
+        )
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Merged and verified."))
+        with patch(
+            "agents.devops.agent.CompletionVerifier.verify_pr_exists",
+            new=AsyncMock(return_value=VerificationResult(ok=True, evidence="PR #42 in org/x")),
+        ) as mock_verify:
+            await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
+
+        mock_verify.assert_awaited_once_with(repo="org/x", number=42)
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "Verification failed" not in follow_up_kwargs["tool_result"].content

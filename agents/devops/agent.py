@@ -35,6 +35,7 @@ from agents.devops.actions import ACTIONS, MissingRequiredArg, resolve_args
 from agents.devops.tools import DevOpsTools, build_tools
 from agents.devops.tools.cli_runner import ToolError
 from core.action_parsing import parse_action_line
+from core.completion import CompletionVerifier
 from core.tool_schema import build_tool_defs
 
 if TYPE_CHECKING:
@@ -289,6 +290,9 @@ class DevOpsAgent(BaseAgent):
                         event="action_executed",
                         action=action_type_str,
                     )
+                    result_text = await self._verify_action_result(
+                        action_type_str, resolved_args, result_text
+                    )
                 response_text = response_text.replace(action_line, result_text)
                 continue
 
@@ -327,6 +331,61 @@ class DevOpsAgent(BaseAgent):
                 )
 
         return response_text
+
+    # ── Validated completion ──────────────────
+
+    async def _verify_action_result(
+        self,
+        action_name: str,
+        args: dict[str, Any],
+        result_text: str,
+    ) -> str:
+        """
+        Spot-check a completed action's claimed identifier against its source
+        of truth. Day-one scope: GitHub PR/issue existence via `gh` CLI.
+
+        Verification failure appends an error to the result text so the agent
+        (native tool path) or the user (legacy path) sees the discrepancy.
+        Verification success logs the evidence and leaves the result unchanged.
+        """
+        verifier = CompletionVerifier()
+
+        try:
+            if action_name == "MERGE_PR":
+                verification = await verifier.verify_pr_exists(
+                    repo=args["repo"], number=int(args["number"])
+                )
+            elif action_name == "CREATE_ISSUE":
+                verification = await verifier.verify_issue_exists(
+                    repo=args["repo"], url=result_text
+                )
+            else:
+                return result_text
+        except Exception as exc:
+            log.warning(
+                "Completion verifier raised an exception",
+                event="completion_verifier_error",
+                action=action_name,
+                error=str(exc),
+            )
+            return f"{result_text}\n\n⚠️ Verification failed: {exc}"
+
+        if verification.ok:
+            log.info(
+                "Completion verified",
+                event="completion_verified",
+                action=action_name,
+                evidence=verification.evidence,
+            )
+            return result_text
+
+        log.warning(
+            "Completion verification failed",
+            event="completion_verification_failed",
+            action=action_name,
+            error=verification.error,
+        )
+        return f"{result_text}\n\n⚠️ Verification failed: {verification.error}"
 
     # ── Native tool-call handling ─────────────
 
@@ -412,6 +471,9 @@ class DevOpsAgent(BaseAgent):
                             "Action executed",
                             event="action_executed",
                             action=tool_call.name,
+                        )
+                        tool_result_text = await self._verify_action_result(
+                            tool_call.name, resolved_args, tool_result_text
                         )
 
         follow_up = await self.llm.complete(

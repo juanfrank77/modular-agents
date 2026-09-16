@@ -218,6 +218,22 @@ The Orchestrator (`agents/orchestrator/`) is auto-discovered like every other ag
 - **Validation contract** — if the mission block contains a `## Validation Contract` section, `_run_validation_contract()` runs and its pass/fail verdict is included.
 - **Report** — the reply ends with a `## Mission Execution` section: ✅/❌ per milestone plus the 🧪 validation verdict.
 
+### 4.5 Validated Completion
+
+Task-shaped actions that produce a claim (e.g. "merged PR #42", "created issue https://github.com/org/repo/issues/7") are spot-checked against their source of truth before the agent reports success. Day-one scope is the DevOps agent's `MERGE_PR` and `CREATE_ISSUE` actions, verified against GitHub via the `gh` CLI in `core/completion.py`.
+
+```python
+# After executing the action, DevOpsAgent calls:
+verification = await CompletionVerifier().verify_pr_exists(repo, number)
+# or
+verification = await CompletionVerifier().verify_issue_exists(repo, issue_url)
+```
+
+- Verification **success** is logged with the evidence and the result is returned normally.
+- Verification **failure** appends a `⚠️ Verification failed: ...` note to the result. In the native tool path this flows back to the LLM as the tool result, so the agent can retry or report failure honestly instead of accepting a fabricated "done".
+
+This is intentionally narrow — one verifier for one agent's PR/issue claims. Generalize only after the pattern proves out.
+
 ---
 
 ## 5. Skills System (`SKILL.md`)
@@ -506,6 +522,7 @@ framework/
 | Session Auto-Compaction | NanoClaw | Essential for long-running business conversations. |
 | Retry Ladder + Fail-Loud Compaction | Stirrup | Summarizer retries transient/empty failures; falls back to un-compacted history so context is never silently lost. |
 | Tool-Aware Summarization | Stirrup | The compaction summarizer receives the agent's active tool definitions, so tool outputs in long sessions are weighed and interpreted correctly. |
+| Validated Completion | Stirrup | DevOps PR/issue claims are spot-checked against GitHub via `gh` CLI before the agent reports success; failures are bounced back instead of accepted as done. |
 | Two-Layer Memory | NanoBot / PicoClaw | SQLite for queries, Markdown for human-editable context. |
 | Execution Approval Gates | IronClaw | Business Agent needs human-in-the-loop for sensitive actions. |
 | Dangerous Command Blocklist | PicoClaw / NanoBot | Baseline safety, no configuration required. |
