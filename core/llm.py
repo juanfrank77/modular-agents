@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import httpx
 from typing import Any
@@ -62,6 +63,10 @@ _llm_retry = retry(
     before_sleep=_log_retry,
     reraise=True,
 )
+
+
+class SummaryFailedError(Exception):
+    """Raised when the compaction summarizer cannot produce a usable summary."""
 
 
 def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
@@ -137,8 +142,39 @@ class _SummarizeMixin:
             "Be concise but retain important details the user mentioned."
         )
         model = settings.summarize_model or settings.classifier_model
-        result = await self.complete(messages, system=system, max_tokens=512, model=model)
-        return result.text
+
+        last_error: Exception | None = None
+        for attempt in range(1, 4):  # initial attempt + 2 retries
+            try:
+                result = await self.complete(
+                    messages, system=system, max_tokens=512, model=model
+                )
+            except Exception as exc:
+                last_error = exc
+                if not _is_retryable(exc):
+                    break
+                log.warning(
+                    "Summarizer attempt failed",
+                    event="summarize_attempt_failed",
+                    attempt=attempt,
+                    error=str(exc),
+                )
+            else:
+                text = result.text.strip()
+                if text:
+                    return text
+                log.warning(
+                    "Summarizer returned empty text",
+                    event="summarize_empty",
+                    attempt=attempt,
+                )
+
+            if attempt < 3:
+                await asyncio.sleep(0.2 * attempt)
+
+        raise SummaryFailedError(
+            "Could not produce a session summary after retries"
+        ) from last_error
 
 
 class _OpenAICompatibleLLM(_SummarizeMixin):

@@ -69,10 +69,10 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 
 - **Agents** are Python classes that each handle a domain
 - **Skills** are Markdown files that define how agents approach tasks — edit them without touching code
-- **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences & context, with learned patterns
+- **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences & context, with learned patterns and resilient auto-compaction
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
 - **Safety** is built in — supervised agents ask for approval before consequential actions
-- **Reliability** includes LLM retry logic and typing indicators during processing
+- **Reliability** includes LLM retry logic, session-compaction retry ladder with fail-loud fallback, and typing indicators during processing
 - **Delegation** lets agents hand sub-tasks to each other through the message bus — traceable via correlation IDs, with timeouts
 - **Validation contracts** — optional `- [ ]` checklists in skill files that agents must satisfy before declaring work complete
 

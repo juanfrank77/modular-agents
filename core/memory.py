@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from core.llm import SummaryFailedError
 from core.logger import get_logger
 from core.protocols import MemoryStore, Message
 from core.text_match import tokenize
@@ -668,7 +669,17 @@ class Memory(MemoryStore):
                 estimated_tokens=estimated_tokens,
             )
 
-            summary = await self._llm.summarize(old_messages)
+            try:
+                summary = await self._llm.summarize(old_messages)
+            except SummaryFailedError as exc:
+                log.warning(
+                    "Session compaction failed",
+                    event="session_compact_failed",
+                    session_id=session_id,
+                    error=repr(exc),
+                )
+                # Degrade to no compaction rather than no history or a crash.
+                return messages
 
             # Return summary as a system-ish user message + recent history
             summary_msg = Message(

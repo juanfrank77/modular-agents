@@ -23,6 +23,7 @@ from core.llm import (
     KiloLLM,
     OllamaLLM,
     OpenRouterLLM,
+    SummaryFailedError,
     _OpenAICompatibleLLM,
 )
 from core.protocols import Message
@@ -79,3 +80,25 @@ class TestSummarizeDedup:
         result = await llm.summarize([Message(role="user", content="hi")])
         assert result == "summary"
         await llm.close()
+
+    @pytest.mark.asyncio
+    async def test_summarize_retries_on_empty_text(self, monkeypatch):
+        monkeypatch.setattr("core.llm.asyncio.sleep", AsyncMock())
+        llm = KiloLLM(api_key="key")
+        llm.complete = AsyncMock(side_effect=[
+            SimpleNamespace(text=""),
+            SimpleNamespace(text=""),
+            SimpleNamespace(text="summary"),
+        ])
+        result = await llm.summarize([Message(role="user", content="hi")])
+        assert result == "summary"
+        assert llm.complete.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_summarize_fails_loud_after_empty_retries(self, monkeypatch):
+        monkeypatch.setattr("core.llm.asyncio.sleep", AsyncMock())
+        llm = KiloLLM(api_key="key")
+        llm.complete = AsyncMock(return_value=SimpleNamespace(text=""))
+        with pytest.raises(SummaryFailedError):
+            await llm.summarize([Message(role="user", content="hi")])
+        assert llm.complete.await_count == 3

@@ -5,10 +5,11 @@ path); it should behave exactly like get_relevant_context("")."""
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.llm import SummaryFailedError
 from core.memory import Memory
 from core.storage import Storage
 
@@ -64,3 +65,22 @@ class TestBuildContextEmptyTask:
         markdown_context, _ = await memory.build_context(session_id, "business", task="")
 
         assert "Project data here." not in markdown_context
+
+    async def test_compaction_failure_returns_full_history(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("core.memory._COMPACTION_THRESHOLD", 10)
+
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "business")
+
+        for i in range(25):
+            await storage.save_message(session_id, "user", f"message {i} " * 10, "business")
+
+        llm = MagicMock()
+        llm.summarize = AsyncMock(side_effect=SummaryFailedError("model down"))
+        memory = Memory(storage=storage, llm=llm, settings=_make_settings(tmp_path))
+
+        history = await memory.get_session_context(session_id, "business")
+
+        assert len(history) == 25
+        llm.summarize.assert_awaited_once()
