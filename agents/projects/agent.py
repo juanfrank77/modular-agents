@@ -233,7 +233,9 @@ class ProjectsAgent(BaseAgent):
 
         system = await self._build_system_prompt(event.text)
         momentum = self._momentum_summary(await self.memory.get_context("projects"))
-        _, history = await self.memory.build_context(session_id, self.name, task=event.text)
+        _, history = await self.memory.build_context(
+            session_id, self.name, task=event.text, tools=self.tool_defs
+        )
 
         messages = history + [Message(
             role="user",
@@ -509,7 +511,7 @@ class ProjectsAgent(BaseAgent):
         if self.memory:
             # Force the projects topic into context regardless of task keywords
             markdown_context, _ = await self.memory.build_context(
-                "_unused_", self.name, task=f"project status {task}"
+                "_unused_", self.name, task=f"project status {task}", tools=self.tool_defs
             )
 
         supports_tools = bool(getattr(self.llm, "supports_tools", False))

@@ -162,7 +162,7 @@ class BusinessAgent(BaseAgent):
 
         # Get compacted history
         _, history = await self.memory.build_context(
-            session_id, self.name, task=event.text
+            session_id, self.name, task=event.text, tools=self.tool_defs
         )
 
         # Append current message to history for the LLM call
@@ -495,7 +495,7 @@ class BusinessAgent(BaseAgent):
 
         # Load markdown context
         markdown_context, _ = await self.memory.build_context(
-            "_unused_", self.name, task=task
+            "_unused_", self.name, task=task, tools=self.tool_defs
         )
 
         supports_tools = bool(self.llm and getattr(self.llm, "supports_tools", False))

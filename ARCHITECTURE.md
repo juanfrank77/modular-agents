@@ -91,7 +91,7 @@ The core layer is built once and never reimplemented per agent. It exposes clean
 | `llm.py` | Single shared LLM client. Wraps Kilo/OpenRouter/OpenAI/Ollama/Anthropic SDKs behind a Protocol. Configurable per-agent (model, temperature, max tokens). Swap providers in one place. |
 | `notifier.py` | Telegram send/receive abstraction. Agents never import `python-telegram-bot` directly. Future channels (Slack, Discord) implement the same `Notifier` Protocol. |
 | `storage.py` | SQLite wrapper for session history. Async interface. Handles all DB connection management. Agents call `save_message()` and `search_history()` only. |
-| `memory.py` | Two-layer memory. Layer 1: SQLite sessions (queryable history). Layer 2: Markdown files (preferences, personal context, projects). Agents call `get_context()` and `save_solution()`. Also persists structured delegation handoffs: `save_handoff()` / `get_recent_handoffs()` write YAML files (with an `INDEX.md` per agent) under `solutions/<agent>/handoffs/`. Session auto-compaction retries transient summarizer failures and degrades to the full un-compacted history rather than crashing or silently dropping context. |
+| `memory.py` | Two-layer memory. Layer 1: SQLite sessions (queryable history). Layer 2: Markdown files (preferences, personal context, projects). Agents call `get_context()` and `save_solution()`. Also persists structured delegation handoffs: `save_handoff()` / `get_recent_handoffs()` write YAML files (with an `INDEX.md` per agent) under `solutions/<agent>/handoffs/`. Session auto-compaction is tool-aware: the summarizer receives the agent's tool definitions so it interprets tool names and results correctly, retries transient/empty failures, and degrades to the full un-compacted history rather than crashing or silently dropping context. |
 | `scheduler.py` | Wraps APScheduler. Agents declare their cron jobs at startup via `register_schedule()`. Includes heartbeat tick events every N minutes. |
 | `safety.py` | Approval gates per agent. Dangerous command blocklist. `.env` permission checks. Three modes: `read_only`, `supervised`, `autonomous`. Configured per agent in `.env`. |
 | `skill_loader.py` | Discovers relevant `SKILL.md` files for a given task. Injects their content into the LLM prompt context. |
@@ -362,17 +362,23 @@ Best for semi-structured info you want to read and edit directly:
 
 Inspired by NanoClaw. When a session exceeds a configurable token threshold, the memory layer automatically summarizes the oldest portion. The agent never hits context limits on long-running conversations.
 
+The summarizer is **tool-aware**: `Memory.get_session_context` accepts the agent's `ToolDef` list and forwards it to `LLMProvider.summarize`. The summarizer prompt includes each tool's name and description, so tool-heavy sessions are summarized with the meaning of tool results preserved (e.g. "PR #52 review returned changes requested") rather than collapsing into opaque noise (e.g. "list_campaigns → 3 results").
+
 The summarizer uses a retry ladder (initial attempt plus two retries) for transient LLM errors or empty responses. If summarization still fails, the layer logs a `session_compact_failed` event and degrades gracefully by returning the full un-compacted history — preserving working context instead of crashing or silently dropping it.
+
+_Tool-aware summarizer and retry ladder inspired by Stirrup_
 
 ```python
 COMPACTION_THRESHOLD = 8000  # tokens
 
-async def get_session_context(session_id: str) -> list[Message]:
+async def get_session_context(
+    session_id: str, agent: str, tools: list[ToolDef] | None = None
+) -> list[Message]:
     messages = await fetch_all(session_id)
     if token_count(messages) > COMPACTION_THRESHOLD:
         old = messages[:-20]           # keep last 20 messages intact
         try:
-            summary = await llm.summarize(old)  # retries on transient/empty
+            summary = await llm.summarize(old, tools=tools)  # retries on transient/empty
         except SummaryFailedError:
             log.warning(
                 "Session compaction failed",
@@ -499,6 +505,7 @@ framework/
 | Solution Memory | Agent Zero | Agents compound knowledge over time automatically. |
 | Session Auto-Compaction | NanoClaw | Essential for long-running business conversations. |
 | Retry Ladder + Fail-Loud Compaction | Stirrup | Summarizer retries transient/empty failures; falls back to un-compacted history so context is never silently lost. |
+| Tool-Aware Summarization | Stirrup | The compaction summarizer receives the agent's active tool definitions, so tool outputs in long sessions are weighed and interpreted correctly. |
 | Two-Layer Memory | NanoBot / PicoClaw | SQLite for queries, Markdown for human-editable context. |
 | Execution Approval Gates | IronClaw | Business Agent needs human-in-the-loop for sensitive actions. |
 | Dangerous Command Blocklist | PicoClaw / NanoBot | Baseline safety, no configuration required. |

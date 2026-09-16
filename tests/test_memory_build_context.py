@@ -11,6 +11,7 @@ import pytest
 
 from core.llm import SummaryFailedError
 from core.memory import Memory
+from core.protocols import ToolDef
 from core.storage import Storage
 
 
@@ -84,3 +85,34 @@ class TestBuildContextEmptyTask:
 
         assert len(history) == 25
         llm.summarize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+class TestToolAwareSummarization:
+    async def test_build_context_passes_tools_to_summarize(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("core.memory._COMPACTION_THRESHOLD", 10)
+
+        storage = Storage(tmp_path / "test.db")
+        await storage.init()
+        session_id = await storage.get_or_create_session("chat_1", "devops")
+
+        for i in range(25):
+            await storage.save_message(session_id, "user", f"message {i} " * 10, "devops")
+
+        tools = [
+            ToolDef(
+                name="LIST_ISSUES",
+                description="List GitHub issues.",
+                parameters={},
+            )
+        ]
+
+        llm = MagicMock()
+        llm.summarize = AsyncMock(return_value="a summary")
+        memory = Memory(storage=storage, llm=llm, settings=_make_settings(tmp_path))
+
+        await memory.build_context(session_id, "devops", task="check issues", tools=tools)
+
+        llm.summarize.assert_awaited_once()
+        _, kwargs = llm.summarize.call_args
+        assert kwargs["tools"] == tools

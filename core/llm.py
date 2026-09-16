@@ -135,12 +135,24 @@ class _SummarizeMixin:
     ) -> LLMResult:
         raise NotImplementedError
 
-    async def summarize(self, messages: list[Message]) -> str:
+    async def summarize(
+        self, messages: list[Message], tools: list[ToolDef] | None = None
+    ) -> str:
         system = (
             "You are a conversation summarizer. Condense the following conversation "
             "into a brief summary that preserves key facts, decisions, and context. "
             "Be concise but retain important details the user mentioned."
         )
+        if tools:
+            tool_lines = "\n".join(
+                f"- {tool.name}: {tool.description}" for tool in tools
+            )
+            system += (
+                "\n\nThe agent that had this conversation has access to these tools:\n"
+                f"{tool_lines}\n"
+                "Use these descriptions to interpret tool names and results correctly "
+                "when summarizing."
+            )
         model = settings.summarize_model or settings.classifier_model
 
         last_error: Exception | None = None

@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.llm import SummaryFailedError
 from core.logger import get_logger
-from core.protocols import MemoryStore, Message
+from core.protocols import MemoryStore, Message, ToolDef
 from core.text_match import tokenize
 
 yaml: Any = None
@@ -619,7 +619,10 @@ class Memory(MemoryStore):
     # ── Session context with auto-compaction ──
 
     async def get_session_context(
-        self, session_id: str, agent: str
+        self,
+        session_id: str,
+        agent: str,
+        tools: list[ToolDef] | None = None,
     ) -> list[Message]:
         """
         Get session messages with auto-compaction.
@@ -670,7 +673,7 @@ class Memory(MemoryStore):
             )
 
             try:
-                summary = await self._llm.summarize(old_messages)
+                summary = await self._llm.summarize(old_messages, tools=tools)
             except SummaryFailedError as exc:
                 log.warning(
                     "Session compaction failed",
@@ -694,7 +697,11 @@ class Memory(MemoryStore):
     # ── Main entry point for agents ──
 
     async def build_context(
-        self, session_id: str, agent: str, task: str = ""
+        self,
+        session_id: str,
+        agent: str,
+        task: str = "",
+        tools: list[ToolDef] | None = None,
     ) -> tuple[str, list[Message]]:
         """
         Main context builder. Returns (markdown_context, compacted_history).
@@ -707,7 +714,7 @@ class Memory(MemoryStore):
         markdown_context = await self.get_relevant_context(task)
 
         # Get compacted history
-        history = await self.get_session_context(session_id, agent)
+        history = await self.get_session_context(session_id, agent, tools=tools)
         return markdown_context, history
 
     # ── Fire-and-forget consolidation helper ──

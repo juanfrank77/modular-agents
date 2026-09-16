@@ -175,7 +175,7 @@ class DevOpsAgent(BaseAgent):
 
         system_prompt = await self._build_system_prompt(event.text)
         _, history = await self.memory.build_context(
-            session_id, self.name, task=event.text
+            session_id, self.name, task=event.text, tools=self.tool_defs
         )
         messages = history + [Message(role="user", content=event.text)]
 
@@ -660,7 +660,7 @@ class DevOpsAgent(BaseAgent):
                 skill_content = "## Relevant Skills\n\n" + "\n\n---\n\n".join(skills)
 
         markdown_context, _ = await self.memory.build_context(
-            "_unused_", self.name, task=task
+            "_unused_", self.name, task=task, tools=self.tool_defs
         )
 
         supports_tools = bool(self.llm and getattr(self.llm, "supports_tools", False))

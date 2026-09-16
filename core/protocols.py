@@ -216,7 +216,9 @@ class LLMProvider(Protocol):
         raw_assistant: Any = None,
     ) -> LLMResult: ...
 
-    async def summarize(self, messages: list[Message]) -> str: ...
+    async def summarize(
+        self, messages: list[Message], tools: list[ToolDef] | None = None
+    ) -> str: ...
 
 
 @runtime_checkable
@@ -278,13 +280,20 @@ class MemoryStore(Protocol):
     # ── Session context with auto-compaction ──
 
     async def get_session_context(
-        self, session_id: str, agent: str
+        self,
+        session_id: str,
+        agent: str,
+        tools: list[ToolDef] | None = None,
     ) -> list[Message]: ...
 
     # ── Main entry point for agents ──
 
     async def build_context(
-        self, session_id: str, agent: str, task: str = ""
+        self,
+        session_id: str,
+        agent: str,
+        task: str = "",
+        tools: list[ToolDef] | None = None,
     ) -> tuple[str, list[Message]]: ...
 
     # ── Consolidation ──

@@ -26,7 +26,7 @@ from core.llm import (
     SummaryFailedError,
     _OpenAICompatibleLLM,
 )
-from core.protocols import Message
+from core.protocols import Message, ToolDef
 
 
 class TestSharedBase:
@@ -102,3 +102,30 @@ class TestSummarizeDedup:
         with pytest.raises(SummaryFailedError):
             await llm.summarize([Message(role="user", content="hi")])
         assert llm.complete.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_summarize_includes_tool_descriptions_in_system_prompt(self):
+        llm = KiloLLM(api_key="key")
+        llm.complete = AsyncMock(return_value=SimpleNamespace(text="summary"))
+        tools = [
+            ToolDef(
+                name="LIST_ISSUES",
+                description="List GitHub issues for a repository.",
+                parameters={},
+            ),
+            ToolDef(
+                name="GET_STATUS",
+                description="Check Railway deployment status.",
+                parameters={},
+            ),
+        ]
+        result = await llm.summarize(
+            [Message(role="user", content="hi")], tools=tools
+        )
+        assert result == "summary"
+        llm.complete.assert_awaited_once()
+        _, kwargs = llm.complete.call_args
+        assert "LIST_ISSUES" in kwargs["system"]
+        assert "GET_STATUS" in kwargs["system"]
+        assert "GitHub issues" in kwargs["system"]
+        assert "Railway deployment status" in kwargs["system"]
