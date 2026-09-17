@@ -234,6 +234,40 @@ class TestOrchestratorHealthCheck:
         agent._mission_state_path = tmp_path / "mission-state.md"
         assert await agent.health_check() is True
 
+    async def test_health_check_emits_diagnostic_when_text_empty(self, caplog):
+        """Diagnostic line tagged [orch-health-a4f2] must be emitted when
+        health_check returns False because the LLM responded with empty
+        text. This is the live boot failure (Sep 17 2026) and the diagnostic
+        is the only way to learn whether text is '', whitespace, or None
+        without grepping journal entries by hand. Tag is unique so the line
+        can be stripped when the orchestrator's health semantics are
+        revisited.
+        """
+        agent = _make_agent()
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text=""))
+        with caplog.at_level("WARNING", logger="orchestrator"):
+            result = await agent.health_check()
+        assert result is False
+        assert any(
+            "[orch-health-a4f2]" in record.message
+            for record in caplog.records
+        ), f"expected diagnostic tag in logs, got: {[r.message for r in caplog.records]}"
+
+    async def test_health_check_emits_diagnostic_when_parent_missing(self, caplog, tmp_path):
+        """Diagnostic line tagged [orch-health-a4f2] must also fire when
+        the mission-state parent directory is absent — symmetric coverage
+        so we always know the reason health returned False.
+        """
+        agent = _make_agent()
+        agent._mission_state_path = tmp_path / "no_such_dir" / "mission-state.md"
+        with caplog.at_level("WARNING", logger="orchestrator"):
+            result = await agent.health_check()
+        assert result is False
+        assert any(
+            "[orch-health-a4f2]" in record.message
+            for record in caplog.records
+        )
+
 
 # ── Mission execution ─────────────────────────────────────────────────────────
 

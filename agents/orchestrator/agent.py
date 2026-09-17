@@ -271,6 +271,13 @@ class OrchestratorAgent(BaseAgent):
     async def health_check(self) -> bool:
         try:
             if not self._mission_state_path.parent.exists():
+                # [orch-health-a4f2] diagnostic — strip when revisiting health semantics.
+                log.warning(
+                    "[orch-health-a4f2] Health check returning False: mission-state parent dir missing",
+                    event="health_check_diagnostic",
+                    reason="mission_state_parent_missing",
+                    path=str(self._mission_state_path),
+                )
                 return False
             if self.llm is not None:
                 result = await self._call_llm(
@@ -284,6 +291,13 @@ class OrchestratorAgent(BaseAgent):
                     max_tokens=4,
                 )
                 if not result.text:
+                    # [orch-health-a4f2] diagnostic — strip when revisiting health semantics.
+                    log.warning(
+                        "[orch-health-a4f2] Health check returning False: LLM responded with empty text",
+                        event="health_check_diagnostic",
+                        reason="llm_empty_text",
+                        text_repr=repr(result.text),
+                    )
                     return False
             return True
         except Exception as exc:
