@@ -130,6 +130,25 @@ class TestClarificationGateAsk:
 
         assert answer == "no"
 
+    async def test_text_returns_default_immediately_without_awaiting(self, fixed_uuid):
+        notifier = _make_notifier()
+        # A very short timeout proves the answer is not obtained by waiting.
+        gate = ClarificationGate(notifier, default_timeout=0.01)
+
+        answer = await gate.ask(
+            chat_id="chat1",
+            question="Any notes?",
+            question_type="text",
+            default="none",
+        )
+
+        assert answer == "none"
+        notifier.send.assert_awaited_once_with("chat1", "Any notes?")
+        notifier.send_with_buttons.assert_not_awaited()
+        # No pending entry should survive a text clarification.
+        assert gate._pending == {}
+        assert gate._results == {}
+
 
 @pytest.mark.asyncio
 class TestClarificationGateResolve:

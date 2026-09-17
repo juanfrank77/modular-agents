@@ -605,6 +605,12 @@ class ClarificationGate:
             self._cleanup(clarification_id)
             return default
 
+        # text questions have no interactive input path — return the default
+        # immediately instead of waiting for an answer that can never arrive.
+        if question_type == "text":
+            self._cleanup(clarification_id)
+            return default
+
         try:
             _, _choices, _event = self._pending[clarification_id]
             await asyncio.wait_for(event.wait(), timeout=timeout)

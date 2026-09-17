@@ -9,7 +9,8 @@ Run:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -106,3 +107,25 @@ class TestVerifyIssueExists:
 
         assert result.ok is False
         assert "Could not resolve to an Issue" in result.error
+
+    async def test_gh_timeout_treated_as_verification_failure(self):
+        verifier = CompletionVerifier()
+        proc = AsyncMock()
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock(return_value=0)
+
+        async def _communicate():
+            raise asyncio.TimeoutError()
+
+        proc.communicate = _communicate
+
+        with patch(
+            "core.completion.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            result = await verifier.verify_pr_exists("org/repo", 42)
+
+        assert result.ok is False
+        assert "timed out" in result.error
+        proc.kill.assert_called_once()
