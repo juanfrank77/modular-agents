@@ -113,6 +113,7 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Write a text file to a configured local directory.",
         describe=lambda a: f"Write local file {a['path']}",
         execute=_run_write_local_file,
+    ),
     "ASK_USER": ActionSpec(
         required=["question", "question_type"],
         defaults={"choices": "", "default": ""},

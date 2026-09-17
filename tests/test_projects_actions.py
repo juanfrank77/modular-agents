@@ -146,3 +146,41 @@ class TestActionSpecHasToolSchema:
             assert isinstance(spec.schema, dict), f"{name} missing schema dict"
             for key in spec.required:
                 assert key in spec.schema, f"{name} required key '{key}' missing from schema"
+
+
+class TestAskUser:
+    """Covers ASK_USER (added in 38b6fc1). Also acts as a structural
+    regression for the registry parse — if the Actions dict is malformed
+    the import in this module raises SyntaxError and these tests cannot
+    even be collected."""
+
+    def test_action_is_registered(self):
+        assert "ASK_USER" in ACTIONS, (
+            "ASK_USER must be registered; missing entry would mean the "
+            "mid-run clarification skill is silently unavailable"
+        )
+
+    def test_describe(self):
+        spec = ACTIONS["ASK_USER"]
+        resolved = resolve_args(
+            spec,
+            {"question": "Proceed?", "question_type": "confirm"},
+        )
+        assert spec.describe(resolved) == "Ask user: Proceed?"
+
+    def test_required_keys_are_question_and_question_type(self):
+        spec = ACTIONS["ASK_USER"]
+        assert "question" in spec.required
+        assert "question_type" in spec.required
+
+    def test_missing_question_raises(self):
+        spec = ACTIONS["ASK_USER"]
+        with pytest.raises(MissingRequiredArg) as exc_info:
+            resolve_args(spec, {"question_type": "text"})
+        assert "question" in str(exc_info.value)
+
+    def test_missing_question_type_raises(self):
+        spec = ACTIONS["ASK_USER"]
+        with pytest.raises(MissingRequiredArg) as exc_info:
+            resolve_args(spec, {"question": "Proceed?"})
+        assert "question_type" in str(exc_info.value)
