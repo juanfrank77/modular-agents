@@ -268,6 +268,50 @@ sudo systemctl reset-failed modular-agents
 sudo systemctl start modular-agents
 ```
 
+### Service fails to start — `address already in use` on port 8080
+
+If the journal shows:
+```
+ERROR: [Errno 98] error while attempting to bind on address ('127.0.0.1', 8080): address already in use
+```
+the most likely cause is a **stray `python main.py` process from a previous manual launch** still holding the HTTP port. systemd's `Restart=on-failure` will then immediately re-fail on the same bind error and hit the 5-in-2-min cap, putting the unit into the `failed` state.
+
+Fix:
+```bash
+# 1. Find the stray process (look for python NOT owned by systemd)
+ps -ef | grep "main.py" | grep -v grep
+
+# 2. Kill it (substitute the real PID)
+kill <PID>
+
+# 3. Confirm port 8080 is free
+ss -ltnp | grep ":8080"
+
+# 4. Reset and start the service
+sudo systemctl reset-failed modular-agents
+sudo systemctl start modular-agents
+```
+
+For this kind of restart — where you specifically want to investigate each startup failure rather than be throttled by the 5/2min cap — you can temporarily disable the throttle:
+
+```bash
+# Before starting: edit the unit and reload
+sudo sed -i 's/^StartLimitInterval=.*/StartLimitInterval=0/' \
+  ~/.config/systemd/user/modular-agents.service
+sudo sed -i 's/^StartLimitBurst=.*/StartLimitBurst=0/' \
+  ~/.config/systemd/user/modular-agents.service
+systemctl --user daemon-reload
+
+# After confirming it stays up, restore the original limits
+sudo sed -i 's/^StartLimitInterval=0/StartLimitInterval=120/' \
+  ~/.config/systemd/user/modular-agents.service
+sudo sed -i 's/^StartLimitBurst=0/StartLimitBurst=5/' \
+  ~/.config/systemd/user/modular-agents.service
+systemctl --user daemon-reload
+```
+
+**Never run `python main.py` manually while the systemd service is enabled.** Use the service for backgrounded operation; run manually only for debugging (foreground, Ctrl+C to stop).
+
 ### GitHub tool errors
 
 ```bash
