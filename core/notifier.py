@@ -303,12 +303,10 @@ class HTTPNotifier:
         """Mark chat_id as SSE-mode: send()/notify_done() route to _queues.
 
         Call before creating the queue-consumer task; pair with end_stream()
-        in a finally block on the *caller's* generator frame. Cleanup can't
-        live inside stream_queue()'s own finally: when a client disconnects,
-        ASGI closes the endpoint generator via GeneratorExit, and `async for`
-        does not propagate that close into the inner generator it's
-        iterating — stream_queue() would be left suspended, its finally
-        never run, leaking both _streaming and _queues (#30).
+        in a finally block on the *caller's* generator frame for safety.
+        stream_queue() also self-cleans via end_stream() in its own finally,
+        so a client disconnect (GeneratorExit, cancellation) drops the
+        _streaming/_queues entries even if the caller's finally never runs.
         """
         self._streaming.add(chat_id)
         self._get_queue(chat_id)
@@ -395,17 +393,24 @@ class HTTPNotifier:
         """Yield (event_type, text) tuples from the queue until done_event is set
         and the queue is drained. Used by the SSE endpoint.
 
-        Callers must have already called start_stream(chat_id), and must
-        call end_stream(chat_id) in a finally block of their own — see
-        start_stream()'s docstring for why cleanup can't live here.
+        Self-cleans via end_stream(chat_id) in a finally block: if the consumer
+        disappears (client disconnect, task cancellation, GeneratorExit), the
+        generator closes and this finally drops the queue/streaming entries,
+        so stream_queue() never leaks state or spins on its poll timeout
+        regardless of what the caller does. The endpoint's end_stream() in
+        its own finally remains as a secondary safety net — end_stream() is
+        idempotent so double cleanup is safe.
         """
         queue = self._get_queue(chat_id)
-        while not done_event.is_set() or not queue.empty():
-            try:
-                msg_type, text = await asyncio.wait_for(queue.get(), timeout=0.5)
-                yield msg_type, text
-            except asyncio.TimeoutError:
-                continue
+        try:
+            while not done_event.is_set() or not queue.empty():
+                try:
+                    msg_type, text = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    yield msg_type, text
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            self.end_stream(chat_id)
 
     async def get_and_clear(self, chat_id: str) -> str:
         """Return all buffered messages joined by double newline, then clear.

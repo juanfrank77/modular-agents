@@ -226,8 +226,9 @@ class TestSSEEndpointDisconnectCleanup:
         before the loop, end_stream() in a finally around it. A disconnect
         interrupts the wrapper coroutine mid-`async for` (Starlette does
         this via GeneratorExit; a cancelled task hits the same finally) —
-        verifies the outer try/finally cleans up even though stream_queue()
-        itself has no finally of its own to rely on."""
+        verifies the outer try/finally cleans up, and stream_queue()
+        self-cleans too via its own finally.
+        """
         notifier = HTTPNotifier()
         entered = asyncio.Event()
 
@@ -251,6 +252,39 @@ class TestSSEEndpointDisconnectCleanup:
         task = asyncio.create_task(drive())
         await entered.wait()
         await asyncio.sleep(0.01)
+        assert "chat1" in notifier._queues
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert "chat1" not in notifier._queues
+        assert "chat1" not in notifier._streaming
+
+    @pytest.mark.asyncio
+    async def test_stream_queue_self_cleans_on_cancel(self):
+        """stream_queue() self-cleans when its consumer is cancelled,
+        WITHOUT the endpoint calling end_stream() — the safety net
+        if the caller's finally never runs (cancellation before
+        finally, event-loop crash, etc.).
+
+        This deliberately does NOT call end_stream() anywhere — the
+        only cleanup must come from stream_queue()'s own finally.
+        """
+        notifier = HTTPNotifier()
+        notifier.start_stream("chat1")
+        assert "chat1" in notifier._queues
+        assert "chat1" in notifier._streaming
+
+        gen = notifier.stream_queue("chat1", asyncio.Event())
+
+        async def run():
+            async for _item in gen:
+                pass
+
+        task = asyncio.create_task(run())
+        await asyncio.sleep(0.01)  # let stream_queue() enter and suspend
+        assert not task.done()
         assert "chat1" in notifier._queues
 
         task.cancel()
