@@ -493,6 +493,44 @@ class BaseAgent(ABC):
         if self._state_store is not None:
             await self._state_store.save_agent_profile(profile)
 
+    async def _ask_user(self, chat_id: str, args: dict[str, str]) -> str:
+        """
+        Mid-run user clarification for supervised agents.
+
+        Sends a question via the notifier and waits for an answer. confirm/choice
+        use inline buttons; text questions are sent as plain messages and return
+        the default immediately because there is no interactive text-input button.
+
+        Quiet-hours aware: if the user is in a quiet-hours window that does not
+        allow clarifications, the agent proceeds with the default and notes that
+        it asked.
+        """
+        assert self.safety is not None, "safety required"
+
+        question = args.get("question", "")
+        question_type = args.get("question_type", "text")
+        choices = [
+            c.strip()
+            for c in args.get("choices", "").split(",")
+            if c.strip()
+        ]
+        default = args.get("default", "")
+
+        if not self.should_notify("clarification", is_emergency=False):
+            return (
+                f"[Quiet hours — question not delivered] {question}\n"
+                f"Proceeding with default: {default}"
+            )
+
+        answer = await self.safety.clarification_gate.ask(
+            chat_id=chat_id,
+            question=question,
+            question_type=question_type,
+            choices=choices,
+            default=default,
+        )
+        return f"User answer: {answer}"
+
     async def _run_validation_contract(
         self,
         event: AgentEvent,

@@ -238,7 +238,7 @@ class TelegramInterface:
         )
 
         thinking_id = await self._bus.send_thinking(chat_id)
-        response = await self._bus.publish(event)
+        await self._bus.publish(event)
         if thinking_id:
             await self._bus.clear_thinking(chat_id, thinking_id)
 
@@ -342,6 +342,29 @@ class TelegramInterface:
                 )
             else:
                 await query.edit_message_text(invalid_text)
+            return
+
+        if data.startswith("clarify:"):
+            invalid_clarification = "This clarification request is not valid or has expired."
+            try:
+                _, clarification_id, raw_answer = data.split(":", 2)
+            except ValueError:
+                await query.edit_message_text(invalid_clarification)
+                return
+            if self._safety.clarification_gate.resolve(
+                clarification_id, chat_id, raw_answer
+            ):
+                await query.edit_message_text(f"Answer recorded: {raw_answer}")
+                log.info(
+                    "Clarification answered",
+                    event="clarification_answered",
+                    clarification_id=clarification_id,
+                    chat_id=chat_id,
+                    answer=raw_answer,
+                )
+            else:
+                await query.edit_message_text(invalid_clarification)
+            return
 
     async def _require_paired(self, chat_id: str) -> bool:
         """Send the pairing prompt and return False if chat_id isn't paired yet."""

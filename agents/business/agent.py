@@ -246,7 +246,10 @@ class BusinessAgent(BaseAgent):
                     continue
 
                 try:
-                    result_text = await spec.execute(self.tools, resolved_args)
+                    if action_type_str == "ASK_USER":
+                        result_text = await self._ask_user(chat_id, resolved_args)
+                    else:
+                        result_text = await spec.execute(self.tools, resolved_args)
                 except BusinessToolsUnavailable as e:
                     result_text = f"❌ Action failed: Google account not connected — {e}"
                 except BusinessToolError as e:
@@ -364,7 +367,10 @@ class BusinessAgent(BaseAgent):
                     )
                 else:
                     try:
-                        tool_result_text = await spec.execute(self.tools, resolved_args)
+                        if tool_call.name == "ASK_USER":
+                            tool_result_text = await self._ask_user(chat_id, resolved_args)
+                        else:
+                            tool_result_text = await spec.execute(self.tools, resolved_args)
                     except BusinessToolsUnavailable as e:
                         tool_result_text = f"❌ Action failed: Google account not connected — {e}"
                     except BusinessToolError as e:
@@ -538,5 +544,6 @@ def _parse_action_type(raw: str) -> ActionType:
         "SEARCH": ActionType.READ,
         "DELETE": ActionType.DESTRUCTIVE,
         "EXECUTE": ActionType.EXECUTE,
+        "ASK_USER": ActionType.READ,
     }
     return mapping.get(raw, ActionType.WRITE_HIGH)  # default to high for unknown types

@@ -13,6 +13,7 @@ Endpoints:
   POST /message          — send a message to an agent (returns JSON response)
   POST /message/stream   — stream agent responses via Server-Sent Events
   POST /approve          — resolve an approval request (requires session token)
+  POST /clarify          — answer a mid-run clarification question (requires session token)
   GET  /agents           — list registered agents
   GET  /health           — system health (no auth required)
   GET  /model            — current per-chat model override and global default
@@ -80,6 +81,11 @@ class MessageRequest(BaseModel):
 class ApproveRequest(BaseModel):
     approval_id: str
     approved: bool
+
+
+class ClarifyRequest(BaseModel):
+    clarification_id: str
+    answer: str
 
 
 class ModelRequest(BaseModel):
@@ -613,6 +619,37 @@ class HTTPInterface:
             return {
                 "status": "approved" if req.approved else "denied",
                 "approval_id": req.approval_id,
+            }
+
+        @app.post("/clarify")
+        async def clarify(
+            req: ClarifyRequest,
+            chat_id: str = Depends(_get_chat_id),
+        ):
+            """Resolve a clarification request that was sent to this session.
+
+            Supervised agents can ask the user a question mid-task. The agent
+            waits until this endpoint is called with the `clarification_id`
+            shown in the question message and the chosen `answer`.
+            """
+            if not self._safety.clarification_gate.resolve(
+                req.clarification_id, chat_id, req.answer
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Clarification request not found, expired, or not owned by this session.",
+                )
+            log.info(
+                "HTTP clarification resolved",
+                event="http_clarification_resolved",
+                chat_id=chat_id,
+                clarification_id=req.clarification_id,
+                answer=req.answer,
+            )
+            return {
+                "status": "answered",
+                "clarification_id": req.clarification_id,
+                "answer": req.answer,
             }
 
         @app.get("/agents")

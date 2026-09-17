@@ -313,7 +313,10 @@ class ProjectsAgent(BaseAgent):
                     continue
 
                 try:
-                    result_text = await spec.execute(self.tools, resolved_args)
+                    if action_type_str == "ASK_USER":
+                        result_text = await self._ask_user(chat_id, resolved_args)
+                    else:
+                        result_text = await spec.execute(self.tools, resolved_args)
                 except Exception as e:
                     result_text = f"❌ Action failed: {e}"
                     log.error(
@@ -425,7 +428,10 @@ class ProjectsAgent(BaseAgent):
                     )
                 else:
                     try:
-                        tool_result_text = await spec.execute(self.tools, resolved_args)
+                        if tool_call.name == "ASK_USER":
+                            tool_result_text = await self._ask_user(chat_id, resolved_args)
+                        else:
+                            tool_result_text = await spec.execute(self.tools, resolved_args)
                     except Exception as e:
                         tool_result_text = f"❌ Action failed: {e}"
                         log.error(

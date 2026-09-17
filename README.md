@@ -71,7 +71,7 @@ You (Telegram) → Message Bus → Agent → LLM → Response
 - **Skills** are Markdown files that define how agents approach tasks — edit them without touching code
 - **Memory** is enhanced two-layer: SQLite for conversation history, Markdown files for your preferences & context, with learned patterns and resilient auto-compaction. The summarizer is tool-aware — it receives each agent's available tool definitions so tool outputs in long sessions are summarized accurately instead of becoming noise
 - **Tools** are thin wrappers around CLI tools you already have installed and authenticated
-- **Safety** is built in — supervised agents ask for approval before consequential actions
+- **Safety** is built in — supervised agents ask for approval before consequential actions; mid-run clarification lets them ask choice/confirm questions mid-task and fall back to a default on timeout instead of guessing or blocking forever
 - **Reliability** includes LLM retry logic, session-compaction retry ladder with fail-loud fallback, tool-aware summarization, validated completion for task-shaped work, and typing indicators during processing
 - **Delegation** lets agents hand sub-tasks to each other through the message bus — traceable via correlation IDs, with timeouts
 - **Validation contracts** — optional `- [ ]` checklists in skill files that agents must satisfy before declaring work complete

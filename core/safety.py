@@ -531,6 +531,164 @@ class ApprovalGate:
 
 
 # ──────────────────────────────────────────────
+# Clarification Gate
+# ──────────────────────────────────────────────
+
+
+class ClarificationGate:
+    """
+    Mid-run user clarification for supervised agents.
+
+    The agent can ask the human a question during execution and await the
+    answer. Supported types:
+      - confirm: yes/no inline buttons
+      - choice: one of several inline buttons
+      - text: sent as a plain message; returns the default immediately because
+        there is no interactive text-input button path (the user can still
+        reply in the next turn)
+
+    Timeout always returns the configured default so the agent never blocks
+    forever on a sleeping operator.
+    """
+
+    def __init__(
+        self,
+        notifier: "Notifier",
+        state_store: "StateStore | None" = None,
+        default_timeout: float = _DEFAULT_TIMEOUT,
+    ) -> None:
+        self._notifier = notifier
+        self._state_store = state_store
+        self._default_timeout = default_timeout
+        # clarification_id -> (chat_id, choices, asyncio.Event)
+        self._pending: dict[str, tuple[str, list[str], asyncio.Event]] = {}
+        self._results: dict[str, str] = {}
+
+    async def ask(
+        self,
+        chat_id: str,
+        question: str,
+        question_type: str,
+        choices: list[str] | None = None,
+        default: str = "",
+        timeout: float | None = None,
+    ) -> str:
+        """Send a clarification question and wait for an answer.
+
+        Returns the user's answer, or `default` on timeout/delivery failure.
+        """
+        timeout = timeout or self._default_timeout
+        choices = choices or []
+        clarification_id = str(uuid.uuid4())[:8]
+        event = asyncio.Event()
+        self._pending[clarification_id] = (chat_id, choices, event)
+
+        buttons = self._build_buttons(clarification_id, question_type, choices)
+
+        try:
+            if buttons:
+                await self._notifier.send_with_buttons(
+                    chat_id=chat_id,
+                    text=question,
+                    buttons=buttons,
+                )
+            else:
+                await self._notifier.send(chat_id, question)
+        except NotificationError as e:
+            log.error(
+                "Clarification could not be delivered",
+                event="clarification_delivery_failed",
+                clarification_id=clarification_id,
+                chat_id=chat_id,
+                error=str(e),
+            )
+            self._cleanup(clarification_id)
+            return default
+
+        try:
+            _, _choices, _event = self._pending[clarification_id]
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+            answer = self._results.pop(clarification_id, default)
+        except asyncio.TimeoutError:
+            log.warning(
+                "Clarification timed out",
+                event="clarification_timeout",
+                clarification_id=clarification_id,
+                timeout=timeout,
+            )
+            answer = default
+        finally:
+            self._cleanup(clarification_id)
+
+        return answer
+
+    def _build_buttons(
+        self, clarification_id: str, question_type: str, choices: list[str]
+    ) -> list[tuple[str, str]]:
+        if question_type == "confirm":
+            return [
+                ("Yes", f"clarify:{clarification_id}:yes"),
+                ("No", f"clarify:{clarification_id}:no"),
+            ]
+        if question_type == "choice" and choices:
+            return [
+                (choice, f"clarify:{clarification_id}:{index}")
+                for index, choice in enumerate(choices)
+            ]
+        return []
+
+    def _cleanup(self, clarification_id: str) -> None:
+        self._pending.pop(clarification_id, None)
+        self._results.pop(clarification_id, None)
+
+    def resolve(self, clarification_id: str, chat_id: str, raw_answer: str) -> bool:
+        """Resolve a clarification from a button callback.
+
+        `raw_answer` is "yes"/"no" for confirm, or a numeric index for choice.
+        Returns True if the clarification existed and was owned by chat_id.
+        """
+        entry = self._pending.get(clarification_id)
+        if entry is None:
+            log.warning(
+                "Clarification resolve for unknown or expired id",
+                event="clarification_resolve_unknown",
+                clarification_id=clarification_id,
+                chat_id=chat_id,
+            )
+            return False
+
+        expected_chat_id, choices, event = entry
+        if chat_id != expected_chat_id:
+            log.warning(
+                "Clarification resolve from wrong chat",
+                event="clarification_resolve_unauthorized",
+                clarification_id=clarification_id,
+                expected_chat_id=expected_chat_id,
+                chat_id=chat_id,
+            )
+            return False
+
+        if raw_answer.isdigit() and choices:
+            try:
+                answer = choices[int(raw_answer)]
+            except (IndexError, ValueError):
+                answer = raw_answer
+        else:
+            answer = raw_answer
+
+        self._results[clarification_id] = answer
+        event.set()
+        log.info(
+            "Clarification resolved",
+            event="clarification_resolved",
+            clarification_id=clarification_id,
+            chat_id=chat_id,
+            answer=answer,
+        )
+        return True
+
+
+# ──────────────────────────────────────────────
 # Safety Coordinator
 # ──────────────────────────────────────────────
 
@@ -557,6 +715,11 @@ class Safety:
         self.gate = ApprovalGate(
             notifier,
             timeouts=approval_timeouts,
+            state_store=state_store,
+            default_timeout=approval_default_timeout,
+        )
+        self.clarification_gate = ClarificationGate(
+            notifier,
             state_store=state_store,
             default_timeout=approval_default_timeout,
         )

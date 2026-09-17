@@ -41,6 +41,11 @@ def resolve_args(spec: ActionSpec, parsed_args: dict[str, Any]) -> dict[str, Any
     return resolved
 
 
+async def _run_ask_user(_tools: "BusinessTools", _args: dict[str, str]) -> str:
+    """Placeholder — ASK_USER is handled directly by the agent."""
+    raise BusinessToolError("ASK_USER must be handled by the agent")
+
+
 def _check_error(result: dict) -> None:
     if "error" in result:
         raise BusinessToolError(result["error"])
@@ -174,5 +179,25 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Write a text file to a configured local directory.",
         describe=lambda a: f"Write local file {a['path']}",
         execute=_run_write_local_file,
+    ),
+    "ASK_USER": ActionSpec(
+        required=["question", "question_type"],
+        defaults={"choices": "", "default": ""},
+        schema={
+            "question": {"type": "string", "description": "The clarification question to ask the user"},
+            "question_type": {
+                "type": "string",
+                "enum": ["text", "choice", "confirm"],
+                "description": "Question type: confirm (yes/no), choice (pick one), or text (returns default)",
+            },
+            "choices": {"type": "string", "description": "Comma-separated choices when question_type=choice"},
+            "default": {"type": "string", "description": "Default answer if the user does not respond in time"},
+        },
+        description=(
+            "Ask the user a clarifying question mid-task. "
+            "Use confirm for yes/no, choice for a list of options, text when the default is acceptable."
+        ),
+        describe=lambda a: f"Ask user: {a['question']}",
+        execute=_run_ask_user,
     ),
 }

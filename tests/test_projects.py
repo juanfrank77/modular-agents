@@ -313,3 +313,20 @@ class TestProjectsActions:
         result = await agent._handle_action_proposal("chat1", response)
 
         assert "no execution handler wired for DELETE_PROJECT yet" in result
+
+
+class TestAskUserAction:
+    async def test_ask_user_routes_to_clarification_gate(self, tmp_path):
+        agent = _make_agent(ProjectsAgent, tmp_path)
+        agent.safety.clarification_gate.ask = AsyncMock(return_value="staging")
+        response = "ACTION: ASK_USER | question='Deploy where?' question_type=choice choices='staging, production' default=staging"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "User answer: staging" in result
+        agent.safety.clarification_gate.ask.assert_awaited_once_with(
+            chat_id="chat1",
+            question="Deploy where?",
+            question_type="choice",
+            choices=["staging", "production"],
+            default="staging",
+        )

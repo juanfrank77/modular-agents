@@ -273,3 +273,63 @@ class TestWriteLocalFileAction:
         fake_tools.local_file.write_file.assert_called_once_with("notes/meeting.md", "Hello world")
         call_kwargs = agent.safety.check_action.call_args.kwargs
         assert call_kwargs["description"] == "Write local file notes/meeting.md"
+
+
+class TestAskUserAction:
+    @pytest.mark.asyncio
+    async def test_ask_user_confirm_legacy_path(self):
+        agent = _make_agent(check_action_return=True)
+        agent.safety.clarification_gate.ask = AsyncMock(return_value="yes")
+        response = "ACTION: ASK_USER | question='Delete the branch?' question_type=confirm default=no"
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "User answer: yes" in result
+        assert "ACTION:" not in result
+        agent.safety.clarification_gate.ask.assert_awaited_once_with(
+            chat_id="chat1",
+            question="Delete the branch?",
+            question_type="confirm",
+            choices=[],
+            default="no",
+        )
+
+    @pytest.mark.asyncio
+    async def test_ask_user_choice_native_path(self):
+        agent = _make_agent(check_action_return=True)
+        agent.safety.clarification_gate.ask = AsyncMock(return_value="production")
+        agent.llm.complete = AsyncMock(return_value=LLMResult(text="Deploying to production."))
+
+        result = await _tool_result(
+            agent,
+            "chat1",
+            "ASK_USER",
+            {
+                "question": "Deploy where?",
+                "question_type": "choice",
+                "choices": "staging, production",
+                "default": "staging",
+            },
+        )
+
+        assert result == "Deploying to production."
+        agent.safety.clarification_gate.ask.assert_awaited_once_with(
+            chat_id="chat1",
+            question="Deploy where?",
+            question_type="choice",
+            choices=["staging", "production"],
+            default="staging",
+        )
+        follow_up_kwargs = agent.llm.complete.call_args.kwargs
+        assert "User answer: production" in follow_up_kwargs["tool_result"].content
+
+    @pytest.mark.asyncio
+    async def test_ask_user_during_quiet_hours_returns_default(self):
+        agent = _make_agent(check_action_return=True)
+        agent.safety.clarification_gate.ask = AsyncMock()
+        with patch.object(agent, "should_notify", return_value=False):
+            response = "ACTION: ASK_USER | question='Delete the branch?' question_type=confirm default=no"
+            result = await agent._handle_action_proposal("chat1", response)
+
+        assert "Quiet hours" in result
+        assert "Proceeding with default: no" in result
+        agent.safety.clarification_gate.ask.assert_not_awaited()

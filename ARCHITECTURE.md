@@ -234,6 +234,28 @@ verification = await CompletionVerifier().verify_issue_exists(repo, issue_url)
 
 This is intentionally narrow — one verifier for one agent's PR/issue claims. Generalize only after the pattern proves out.
 
+### 4.6 Mid-Run Clarification
+
+Supervised agents (Business, Projects) can pause execution to ask the user a clarifying question instead of guessing. The `ASK_USER` action is wired into `core/safety.ClarificationGate`:
+
+- **confirm** sends inline Yes/No buttons
+- **choice** sends one button per option
+- **text** sends a plain message and returns the configured default immediately (there is no interactive text-input button)
+
+```python
+answer = await self.safety.clarification_gate.ask(
+    chat_id=chat_id,
+    question="Deploy to production or staging?",
+    question_type="choice",
+    choices=["staging", "production"],
+    default="staging",
+)
+```
+
+The gate waits for a button callback (`clarify:{id}:{answer}`) or an HTTP `POST /clarify` call. On timeout it returns `default`, so the agent never blocks forever on a sleeping operator. Clarifications are quiet-hours aware: if the user is in a window that does not allow the `clarification` tag, the question is not delivered and the agent proceeds with the default.
+
+Autonomous agents (DevOps, Wellbeing) do not register `ASK_USER` — they must never block on user input.
+
 ---
 
 ## 5. Skills System (`SKILL.md`)
@@ -523,6 +545,7 @@ framework/
 | Retry Ladder + Fail-Loud Compaction | Stirrup | Summarizer retries transient/empty failures; falls back to un-compacted history so context is never silently lost. |
 | Tool-Aware Summarization | Stirrup | The compaction summarizer receives the agent's active tool definitions, so tool outputs in long sessions are weighed and interpreted correctly. |
 | Validated Completion | Stirrup | DevOps PR/issue claims are spot-checked against GitHub via `gh` CLI before the agent reports success; failures are bounced back instead of accepted as done. |
+| Mid-Run Clarification | Stirrup | Supervised agents can ask the user a choice/confirm question mid-task and fall back to a default on timeout instead of guessing or blocking forever. |
 | Two-Layer Memory | NanoBot / PicoClaw | SQLite for queries, Markdown for human-editable context. |
 | Execution Approval Gates | IronClaw | Business Agent needs human-in-the-loop for sensitive actions. |
 | Dangerous Command Blocklist | PicoClaw / NanoBot | Baseline safety, no configuration required. |
