@@ -217,10 +217,16 @@ async def _verify_llm(llm) -> None:
 
 
 async def _run_http_safe(interface: HTTPInterface) -> None:
-    """Run the HTTP interface, logging failures without crashing other interfaces."""
+    """Run the HTTP interface, logging failures without crashing other interfaces.
+
+    Catches SystemExit too: uvicorn calls sys.exit(1) on bind failure and
+    SystemExit is a BaseException, so except-Exception lets it escape and
+    take down the whole gather (live incident 2026-10-23). CancelledError is
+    deliberately NOT caught — it is the shutdown signal.
+    """
     try:
         await interface.run()
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         log.warning(
             "HTTP interface failed to start or crashed",
             event="http_error",

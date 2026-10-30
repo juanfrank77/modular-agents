@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
@@ -664,17 +665,57 @@ class HTTPInterface:
         return app
 
     async def run(self) -> None:
+        host = self._settings.http_host
+        port = self._settings.http_port
+        if not _port_is_free(host, port):
+            log.warning(
+                "HTTP interface not started: port already in use — system continues degraded (Telegram/CLI unaffected)",
+                event="http_port_busy",
+                host=host,
+                port=port,
+            )
+            return
         config = uvicorn.Config(
             self.app,
-            host=self._settings.http_host,
-            port=self._settings.http_port,
+            host=host,
+            port=port,
             log_level="warning",
         )
         server = uvicorn.Server(config)
         log.info(
             "HTTP interface starting",
             event="http_start",
-            host=self._settings.http_host,
-            port=self._settings.http_port,
+            host=host,
+            port=port,
         )
-        await server.serve()
+        try:
+            await server.serve()
+        except SystemExit:
+            # uvicorn calls sys.exit(1) on bind/startup failure. SystemExit is
+            # a BaseException, so it would escape _run_http_safe's
+            # except-Exception in main.py and kill the whole system (seen live
+            # 2026-10-23: an Errno 98 port conflict exited main() with code 1).
+            # Degrade instead of die.
+            log.warning(
+                "HTTP interface exited during startup (likely bind failure) — system continues degraded",
+                event="http_error",
+                error="uvicorn exited via SystemExit",
+            )
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    """Probe-bind host:port to detect a port conflict before uvicorn does.
+
+    Mirrors uvicorn's own SO_REUSEADDR socket setup so the probe's verdict
+    matches what uvicorn's bind would encounter. Probe-then-release has a
+    small TOCTOU window (another process could claim the port in between);
+    that's acceptable — the backstop is _run_http_safe in main.py catching
+    the SystemExit uvicorn raises on bind failure.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((host, port))
+        except OSError:
+            return False
+    return True
