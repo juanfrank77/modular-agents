@@ -170,3 +170,56 @@ class TestSetTimezone:
         s.add_cron_job(cron="0 7 * * *", event=event)
         job = s._scheduler.get_job("wellbeing_morning_nudge_0 7 * * *")
         assert job.trigger.timezone == ZoneInfo("America/Denver")
+
+
+def _scheduled_event(agent_name: str, task: str) -> AgentEvent:
+    return AgentEvent(
+        type=EventType.SCHEDULED_TASK,
+        agent_name=agent_name,
+        chat_id="123",
+        data={"task": task},
+    )
+
+
+class TestStartPrunesStaleJobs:
+    """Jobs persist in scheduler.db across restarts, and their IDs include the
+    cron expression. A job the current boot didn't register (schedule changed,
+    task or agent removed) must be dropped on start, or it fires forever."""
+
+    @pytest.mark.asyncio
+    async def test_job_from_previous_boot_with_changed_cron_is_removed(self, tmp_path: Path):
+        db = tmp_path / "scheduler.db"
+        previous = Scheduler()
+        previous.configure_jobstore(db)
+        previous.add_cron_job(cron="0 7 * * 1-5", event=_scheduled_event("wellbeing", "wellbeing_morning_weekday"))
+        previous.start()
+        previous.stop()
+
+        current = Scheduler()
+        current.configure_jobstore(db)
+        current.add_cron_job(cron="30 6 * * 1-5", event=_scheduled_event("wellbeing", "wellbeing_morning_weekday"))
+        current.start()
+        try:
+            job_ids = {job.id for job in current._scheduler.get_jobs()}
+        finally:
+            current.stop()
+
+        assert job_ids == {"wellbeing_wellbeing_morning_weekday_30 6 * * 1-5", "heartbeat"}
+
+    @pytest.mark.asyncio
+    async def test_disabled_heartbeat_from_previous_boot_is_removed(self, tmp_path: Path):
+        db = tmp_path / "scheduler.db"
+        previous = Scheduler(heartbeat_minutes=30)
+        previous.configure_jobstore(db)
+        previous.start()
+        previous.stop()
+
+        current = Scheduler(heartbeat_minutes=0)
+        current.configure_jobstore(db)
+        current.start()
+        try:
+            job_ids = {job.id for job in current._scheduler.get_jobs()}
+        finally:
+            current.stop()
+
+        assert job_ids == set()

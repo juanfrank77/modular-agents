@@ -97,6 +97,9 @@ class Scheduler:
         self._bus: "MessageBus | None" = None
         # Default to UTC; main.py calls set_timezone() once settings are loaded.
         self._timezone = load_timezone(None)
+        # IDs registered during this boot. start() drops every other job the
+        # persistent jobstore still holds — see _prune_unregistered().
+        self._registered_ids: set[str] = set()
 
     def set_bus(self, bus: "MessageBus") -> None:
         """Set after construction to break the circular dependency with the bus."""
@@ -149,6 +152,7 @@ class Scheduler:
         # use the same cron expression
         job_id = f"{agent_name}_schedule_{cron_expr}"
         self._scheduler.add_job(callback, trigger, id=job_id, replace_existing=True)
+        self._registered_ids.add(job_id)
         log.info(
             "Schedule registered",
             event="schedule_add",
@@ -189,6 +193,7 @@ class Scheduler:
             args=[event.agent_name, event.chat_id, task],
             misfire_grace_time=3600,
         )
+        self._registered_ids.add(job_id)
         log.info(
             "Cron job registered",
             event="cron_add",
@@ -208,12 +213,29 @@ class Scheduler:
                 id="heartbeat",
                 replace_existing=True,
             )
+            self._registered_ids.add("heartbeat")
         self._scheduler.start()
+        self._prune_unregistered()
         log.info(
             "Scheduler started",
             event="scheduler_start",
             heartbeat_minutes=self._heartbeat_minutes,
         )
+
+    def _prune_unregistered(self) -> None:
+        """Remove persisted jobs this boot did not register.
+
+        Job IDs embed the cron expression, so changing a schedule (e.g.
+        WELLBEING_WAKE_TIME) registers a new job while the old one survives
+        in scheduler.db and keeps firing. The same goes for removed tasks,
+        removed agents, and a heartbeat that has since been disabled.
+        Runs right after start() loads the jobstore and before the event
+        loop gets a chance to fire anything.
+        """
+        for job in self._scheduler.get_jobs():
+            if job.id not in self._registered_ids:
+                self._scheduler.remove_job(job.id)
+                log.info("Stale job removed", event="cron_prune", job_id=job.id)
 
     def stop(self) -> None:
         """Gracefully shut down the scheduler."""
