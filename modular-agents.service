@@ -26,11 +26,18 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 PrivateTmp=true
-# ProtectSystem=strict makes the filesystem read-only outside these paths —
-# the app only ever writes to its own memory/ dir (sessions.db, scheduler.db,
-# context/, solutions/). Logs go to journald (StandardOutput/StandardError
-# above), not to a file, so no log directory is needed here.
-ReadWritePaths=/home/YOUR_USERNAME/modular-agents/memory
+# ProtectSystem=strict makes the filesystem read-only outside these paths.
+# The app writes to:
+#   memory/   sessions.db, scheduler.db, context/, solutions/
+#   agents/   agents/wellbeing/state.json, and new agents created by /newagent
+#   ~/.cache  faster-whisper model download (voice transcription)
+#   ~/.config gh and railway CLI state (DevOps agent)
+# A leading "-" skips a path that doesn't exist instead of failing the unit.
+# Add any LOCAL_FILE_PATHS folders here too, or agent writes to them fail.
+# Logs go to journald (StandardOutput/StandardError above), not to a file,
+# so no log directory is needed here.
+ReadWritePaths=/home/YOUR_USERNAME/modular-agents/memory /home/YOUR_USERNAME/modular-agents/agents
+ReadWritePaths=-/home/YOUR_USERNAME/.cache -/home/YOUR_USERNAME/.config
 # Adjust to your workload — headroom for a Python asyncio bot process.
 MemoryMax=512M
 
