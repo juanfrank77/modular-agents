@@ -82,4 +82,10 @@ memory/context/*.md
 
 ## Agent runtime state — written by the running service, never committed
 agents/*/state.json
+memory/*.db
+memory/*.db-journal
+memory/*.db-wal
+memory/*.db-shm
+memory/solutions/
+backups/
 .kilo/
