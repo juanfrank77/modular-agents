@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.composio_tool import ComposioTool
@@ -9,7 +10,7 @@ from core.local_file_tool import LocalFileTool
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from agents.business.tools.calendar import CalendarTool
+    from agents.business.tools.calendar import LocalCalendarTool
     from agents.business.tools.gmail import GmailTool
 
 log = get_logger("business_tools")
@@ -23,18 +24,21 @@ class BusinessToolsUnavailable(Exception):
 @dataclass
 class BusinessTools:
     gmail: "GmailTool"
-    calendar: "CalendarTool"
+    calendar: "LocalCalendarTool"
     local_file: LocalFileTool
 
 
 def build_tools(settings: Settings) -> BusinessTools:
     """Build and return BusinessTools instance.
 
+    The calendar tool is local SQLite (``memory/calendar.db`` by convention) —
+    it never touches Composio. Composio is still required for Gmail.
+
     Raises:
         BusinessToolsUnavailable: If api_key is missing or ComposioTool raises RuntimeError.
     """
     from agents.business.tools.gmail import GmailTool
-    from agents.business.tools.calendar import CalendarTool
+    from agents.business.tools.calendar import LocalCalendarTool
 
     if not settings.composio_api_key:
         raise BusinessToolsUnavailable(
@@ -48,9 +52,12 @@ def build_tools(settings: Settings) -> BusinessTools:
     except RuntimeError as e:
         raise BusinessToolsUnavailable(str(e)) from e
 
+    # Local calendar DB. getattr fallback keeps lightweight test fakes working.
+    calendar_db_path = getattr(settings, "calendar_db_path", Path("memory/calendar.db"))
+
     log.info("Business tools built", event="business_tools_built")
     return BusinessTools(
         gmail=GmailTool(composio=composio),
-        calendar=CalendarTool(composio=composio),
+        calendar=LocalCalendarTool(db_path=str(calendar_db_path)),
         local_file=LocalFileTool(allowed_paths=settings.local_file_paths),
     )

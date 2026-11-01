@@ -89,3 +89,9 @@ memory/*.db-shm
 memory/solutions/
 backups/
 .kilo/
+
+## Local calendar runtime DB (feature/local-calendar)
+memory/calendar.db
+memory/calendar.db-*
+memory/*.db
+memory/*.db-*
