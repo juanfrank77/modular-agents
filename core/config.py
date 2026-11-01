@@ -55,6 +55,12 @@ class Settings:
     heartbeat_interval_minutes: int = 30
     scheduler_db_path: Path = Path("memory/scheduler.db")
 
+    # Local calendar (feature/local-calendar) — SQLite store replacing the
+    # Composio Google Calendar tool. Outlook events mirror in read-only via
+    # the private ICS feed (scripts/calendar_sync_outlook.py).
+    calendar_db_path: Path = Path("memory/calendar.db")
+    outlook_ics_url: str = ""
+
     # User timezone — used by scheduler and quiet-hours gating so cron firing
     # and notification gating agree on the same wall-clock time.
     user_timezone: str = "UTC"
@@ -273,6 +279,8 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         message_retention_days=int(_optional("MESSAGE_RETENTION_DAYS", "90")),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
         scheduler_db_path=Path(_optional("SCHEDULER_DB_PATH", "memory/scheduler.db")),
+        calendar_db_path=Path(_optional("CALENDAR_DB_PATH", "memory/calendar.db")),
+        outlook_ics_url=_optional("OUTLOOK_ICS_URL", ""),
         business_agent_autonomy=_optional("BUSINESS_AGENT_AUTONOMY", "supervised"),
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),

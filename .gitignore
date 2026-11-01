@@ -83,3 +83,9 @@ memory/context/*.md
 ## Agent runtime state — written by the running service, never committed
 agents/*/state.json
 .kilo/
+
+## Local calendar runtime DB (feature/local-calendar)
+memory/calendar.db
+memory/calendar.db-*
+memory/*.db
+memory/*.db-*
