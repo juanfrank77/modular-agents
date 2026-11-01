@@ -59,8 +59,11 @@ CREATE TABLE IF NOT EXISTS events (
     updated_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_utc);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_outlook_uid
-    ON events(outlook_uid) WHERE outlook_uid IS NOT NULL;
+-- One row per *occurrence*: a recurring series expanded by the ICS sync
+-- shares one outlook_uid across its instances, so the unique key must be
+-- the (uid, start) pair — not the uid alone.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_outlook_occurrence
+    ON events(outlook_uid, start_utc) WHERE outlook_uid IS NOT NULL;
 """
 
 

@@ -197,22 +197,42 @@ async def sync_ics(ics_url: str, db_path: str) -> dict[str, int]:
 
 
 def upsert_events(events: list[dict[str, Any]], db_path: str) -> dict[str, int]:
-    """Upsert parsed events into the local calendar DB, deduping by outlook_uid.
+    """Upsert parsed events into the local calendar DB, deduping on the
+    (outlook_uid, start_utc) pair — one row per occurrence of a series.
 
-    New UIDs are inserted; existing UIDs are updated in place when any field
-    changed, and counted as unchanged otherwise. Returns a summary dict with
-    added / updated / unchanged / total counts.
+    New (uid, start) pairs are inserted; existing pairs are updated in place
+    when any field changed. Occurrences of a UID that is still present in the
+    feed but whose start_utc no longer appears (cancelled instances) are
+    deleted. Returns a summary dict with added / updated / unchanged / total
+    counts.
     """
     now = datetime.now(timezone.utc).isoformat()
 
     conn = connect_sync(db_path)
     added = updated = unchanged = 0
     try:
+        # Phase 1: for UIDs still present in the feed, delete rows whose
+        # start_utc is no longer in the parsed occurrences (cancelled or
+        # rescheduled instances of a recurring series).
+        feed_uids = {ev["outlook_uid"] for ev in events}
+        for uid in feed_uids:
+            valid_starts = {
+                ev["start_utc"]
+                for ev in events
+                if ev["outlook_uid"] == uid
+            }
+            conn.execute(
+                "DELETE FROM events WHERE outlook_uid = ? AND start_utc NOT IN "
+                f"({','.join('?' for _ in valid_starts)})",
+                (uid, *valid_starts),
+            )
+
+        # Phase 2: upsert each occurrence by the (uid, start_utc) pair.
         for ev in events:
             row = conn.execute(
-                "SELECT id, title, start_utc, end_utc, description "
-                "FROM events WHERE outlook_uid = ?",
-                (ev["outlook_uid"],),
+                "SELECT id, title, end_utc, description FROM events "
+                "WHERE outlook_uid = ? AND start_utc = ?",
+                (ev["outlook_uid"], ev["start_utc"]),
             ).fetchone()
             if row is None:
                 conn.execute(
@@ -233,20 +253,19 @@ def upsert_events(events: list[dict[str, Any]], db_path: str) -> dict[str, int]:
                 added += 1
             elif (
                 row["title"] != ev["title"]
-                or row["start_utc"] != ev["start_utc"]
                 or row["end_utc"] != ev["end_utc"]
                 or row["description"] != ev["description"]
             ):
                 conn.execute(
-                    "UPDATE events SET title=?, start_utc=?, end_utc=?, "
-                    "description=?, updated_at=? WHERE outlook_uid=?",
+                    "UPDATE events SET title=?, end_utc=?, description=?, "
+                    "updated_at=? WHERE outlook_uid=? AND start_utc=?",
                     (
                         ev["title"],
-                        ev["start_utc"],
                         ev["end_utc"],
                         ev["description"],
                         now,
                         ev["outlook_uid"],
+                        ev["start_utc"],
                     ),
                 )
                 updated += 1

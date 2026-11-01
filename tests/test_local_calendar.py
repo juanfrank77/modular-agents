@@ -219,22 +219,26 @@ class TestLocalCalendarSchema:
         assert "events" in tables
 
     def test_outlook_uid_unique_index(self, db):
-        """Two outlook rows with the same UID must violate the unique index."""
+        """The unique key is the (outlook_uid, start_utc) pair: a recurring
+        series (same UID, different starts) is legal; an exact pair collision
+        must violate the unique index."""
         conn = connect_sync(db)
-        conn.execute(
+        insert = (
             "INSERT INTO events (title, start_utc, end_utc, description, kind, "
             "priority, source, outlook_uid, created_at, updated_at) "
-            "VALUES ('A', '2026-04-05T10:00:00Z', '2026-04-05T11:00:00Z', '', "
-            "'event', 0, 'outlook', 'uid-1', '2026-04-01', '2026-04-01')"
+            "VALUES (?, ?, ?, ?, 'event', 0, 'outlook', 'uid-1', '2026-04-01', '2026-04-01')"
         )
+        # Same UID, different starts: a recurring series — must be allowed.
+        conn.execute(insert, ("A", "2026-04-05T10:00:00Z", "2026-04-05T11:00:00Z", ""))
+        conn.execute(insert, ("B", "2026-04-06T10:00:00Z", "2026-04-06T11:00:00Z", ""))
         conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM events WHERE outlook_uid = 'uid-1'"
+        ).fetchone()[0]
+        assert count == 2
+        # Exact (uid, start) collision: must violate the unique index.
         with pytest.raises(Exception):
-            conn.execute(
-                "INSERT INTO events (title, start_utc, end_utc, description, kind, "
-                "priority, source, outlook_uid, created_at, updated_at) "
-                "VALUES ('B', '2026-04-06T10:00:00Z', '2026-04-06T11:00:00Z', '', "
-                "'event', 0, 'outlook', 'uid-1', '2026-04-01', '2026-04-01')"
-            )
+            conn.execute(insert, ("C", "2026-04-05T10:00:00Z", "2026-04-05T11:00:00Z", ""))
         conn.close()
 
 
@@ -363,25 +367,56 @@ class TestUpsertEvents:
         conn.close()
         assert count == 1
 
-    def test_changed_event_updates_in_place(self, db):
+    def test_rescheduled_occurrence_is_delete_and_insert(self, db):
+        """With the (uid, start_utc) unique key, a rescheduled event is a new
+        occurrence: the old one is pruned (vanished from the feed) and the
+        new one is inserted."""
         upsert_events([self._event("u1")], db)
         moved = self._event("u1", title="Team Sync (moved)", start="2026-04-11T10:00:00+00:00")
         summary = upsert_events([moved], db)
-        assert summary == {"added": 0, "updated": 1, "unchanged": 0, "total": 1}
+        assert summary == {"added": 1, "updated": 0, "unchanged": 0, "total": 1}
         conn = connect_sync(db)
-        row = conn.execute("SELECT title, start_utc FROM events").fetchone()
+        rows = conn.execute("SELECT title, start_utc FROM events").fetchall()
         conn.close()
-        assert row["title"] == "Team Sync (moved)"
-        assert row["start_utc"] == "2026-04-11T10:00:00+00:00"
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Team Sync (moved)"
+        assert rows[0]["start_utc"] == "2026-04-11T10:00:00+00:00"
 
-    def test_vanished_events_left_untouched(self, db):
-        """Events absent from a later sync must NOT be deleted."""
+    def test_vanished_series_left_untouched(self, db):
+        """A UID that has vanished from the feed entirely is NOT deleted —
+        only occurrences of UIDs still present in the feed are pruned."""
         upsert_events([self._event("u1"), self._event("u2")], db)
         upsert_events([self._event("u1")], db)  # u2 vanished from the feed
         conn = connect_sync(db)
         uids = {row["outlook_uid"] for row in conn.execute("SELECT outlook_uid FROM events")}
         conn.close()
         assert uids == {"u1", "u2"}
+
+    def test_rescheduled_occurrence_old_row_deleted(self, db):
+        """When a recurring series shifts a date, the old occurrence row is
+        deleted and the new one is inserted on the next sync."""
+        old = self._event("u1", start="2026-04-10T10:00:00+00:00")
+        new = self._event("u1", start="2026-04-11T10:00:00+00:00")
+        upsert_events([old], db)
+        summary = upsert_events([new], db)
+        # Old occurrence deleted (phase 1), new one inserted (phase 2).
+        assert summary == {"added": 1, "updated": 0, "unchanged": 0, "total": 1}
+        conn = connect_sync(db)
+        starts = [row["start_utc"] for row in conn.execute("SELECT start_utc FROM events")]
+        conn.close()
+        assert starts == ["2026-04-11T10:00:00+00:00"]
+
+    def test_cancelled_occurrence_pruned_from_series(self, db):
+        """Two occurrences of one series; one is cancelled (drops out of the
+        feed). Only the cancelled instance is removed — the survivor stays."""
+        occ_a = self._event("u1", start="2026-04-10T10:00:00+00:00")
+        occ_b = self._event("u1", title="Second", start="2026-04-17T10:00:00+00:00")
+        upsert_events([occ_a, occ_b], db)
+        upsert_events([occ_b], db)  # occ_a cancelled
+        conn = connect_sync(db)
+        starts = sorted(row["start_utc"] for row in conn.execute("SELECT start_utc FROM events"))
+        conn.close()
+        assert starts == ["2026-04-17T10:00:00+00:00"]
 
     @pytest.mark.asyncio
     async def test_local_events_survive_sync(self, db):
