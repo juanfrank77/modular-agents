@@ -4,6 +4,12 @@ core/composio_tool.py
 Async wrapper around the Composio SDK for external app access (Gmail, Calendar,
 and any other connected app).
 
+Uses the current-generation Composio SDK (``composio`` >= 0.30 with the
+``composio-anthropic`` provider package). The legacy ``ComposioToolSet`` API
+was removed upstream; this wrapper keeps the project's own interface stable:
+``ComposioTool(api_key, user_id)`` with ``execute`` / ``get_tools`` /
+``search_tools``.
+
 Usage:
     from core.composio_tool import ComposioTool
 
@@ -24,37 +30,40 @@ log = get_logger("composio_tool")
 
 # Optional import — Composio may not be installed in every environment.
 try:
-    from composio_anthropic import ComposioToolSet  # type: ignore[import-untyped]
+    from composio import Composio
+    from composio_anthropic import AnthropicProvider
+
     _COMPOSIO_AVAILABLE = True
 except ImportError:
     _COMPOSIO_AVAILABLE = False
-    ComposioToolSet = None  # type: ignore[assignment,misc]
+    Composio = None  # type: ignore[assignment,misc]
+    AnthropicProvider = None  # type: ignore[assignment,misc]
 
 
 class ComposioTool:
     """Async wrapper around the Composio SDK.
 
-    All heavy Composio SDK calls are synchronous under the hood; this class
-    dispatches them to a thread via ``asyncio.to_thread()`` so callers can
-    ``await`` them without blocking the event loop.
+    The current-generation SDK is synchronous; this class dispatches every
+    call to a thread via ``asyncio.to_thread()`` so callers can ``await``
+    them without blocking the event loop.
 
     Args:
-        api_key: Composio API key used to authenticate requests.
-        user_id: Entity / user identifier scoped to the connected accounts.
+        api_key: Composio project API key used to authenticate requests.
+        user_id: User identifier scoped to the connected accounts.
                  Defaults to ``"default"``.
 
     Raises:
-        RuntimeError: If ``composio-anthropic`` is not installed.
+        RuntimeError: If ``composio`` / ``composio-anthropic`` is not installed.
     """
 
     def __init__(self, api_key: str, user_id: str = "default") -> None:
         if not _COMPOSIO_AVAILABLE:
             raise RuntimeError(
-                "composio-anthropic is not installed. "
-                "Run: uv pip install composio-anthropic"
+                "composio / composio-anthropic is not installed. "
+                "Run: uv pip install composio composio-anthropic"
             )
         self._user_id = user_id
-        self._toolset: Any = ComposioToolSet(api_key=api_key, entity_id=user_id)
+        self._sdk: Any = Composio(api_key=api_key, provider=AnthropicProvider())
         log.debug(
             "ComposioTool initialised",
             event="composio_init",
@@ -72,12 +81,12 @@ class ComposioTool:
         not block the event loop.
 
         Args:
-            tool_slug: The Composio action slug (e.g. ``"GMAIL_FETCH_EMAILS"``).
-            **arguments: Keyword arguments forwarded to the action payload.
+            tool_slug: The Composio tool slug (e.g. ``"GMAIL_FETCH_EMAILS"``).
+            **arguments: Keyword arguments forwarded to the tool payload.
 
         Returns:
-            Result dict returned by the Composio SDK.  On error, returns a dict
-            with an ``"error"`` key containing the exception message.
+            The tool's ``data`` dict on success. On failure, returns a dict
+            with an ``"error"`` key containing the failure message.
         """
         log.debug(
             "execute action",
@@ -86,11 +95,17 @@ class ComposioTool:
         )
 
         def _sync_execute() -> dict:
-            return self._toolset.execute_action(
-                action=tool_slug,
-                params=arguments,
-                entity_id=self._user_id,
+            response = self._sdk.tools.execute(
+                tool_slug,
+                dict(arguments),
+                user_id=self._user_id,
             )
+            # ToolExecutionResponse is a TypedDict: {data, error, successful}.
+            if not response.get("successful") or response.get("error"):
+                return {
+                    "error": response.get("error") or "tool execution failed"
+                }
+            return response.get("data") or {}
 
         try:
             result: dict = await asyncio.to_thread(_sync_execute)
@@ -116,11 +131,12 @@ class ComposioTool:
         tool-calling prompt.
 
         Args:
-            toolkits: List of Composio app/toolkit names
+            toolkits: List of Composio toolkit names
                       (e.g. ``["gmail", "googlecalendar"]``).
 
         Returns:
-            List of tool schema dicts, or ``[]`` on error.
+            List of tool schema dicts, or a single-item list with an
+            ``"error"`` key on failure.
         """
         log.debug(
             "get_tools",
@@ -129,7 +145,7 @@ class ComposioTool:
         )
 
         def _sync_get_tools() -> list[dict]:
-            return self._toolset.get_tools(apps=toolkits)
+            return self._sdk.tools.get(self._user_id, toolkits=toolkits)
 
         try:
             schemas: list[dict] = await asyncio.to_thread(_sync_get_tools)
@@ -149,7 +165,7 @@ class ComposioTool:
             return [{"error": str(exc)}]
 
     async def search_tools(self, query: str) -> list[dict]:
-        """Semantic search over all available Composio tools.
+        """Search available Composio tools by natural-language use case.
 
         Useful for dynamically discovering which tool slug to use for a given
         task described in natural language.
@@ -159,7 +175,8 @@ class ComposioTool:
                    (e.g. ``"send an email"``).
 
         Returns:
-            List of matching tool schema dicts, or ``[]`` on error.
+            List of matching tool schema dicts, or a single-item list with an
+            ``"error"`` key on failure.
         """
         if not query or not query.strip():
             log.warning(
@@ -175,7 +192,7 @@ class ComposioTool:
         )
 
         def _sync_search() -> list[dict]:
-            return self._toolset.find_actions_by_use_case(use_case=query)
+            return self._sdk.tools.get(self._user_id, search=query)
 
         try:
             results: list[dict] = await asyncio.to_thread(_sync_search)

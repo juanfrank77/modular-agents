@@ -1,0 +1,75 @@
+"""
+scripts/composio_verify.py
+--------------------------
+One-shot LIVE verification for the migrated Composio SDK (composio>=0.30).
+
+Reads COMPOSIO_API_KEY / COMPOSIO_USER_ID from the environment (.env is
+loaded via core.config) and:
+
+  1. Lists the connected Gmail toolkit's tool slugs — confirms the exact
+     casing GmailTool must call (GMAIL_FETCH_EMAILS vs gmail_fetch_emails).
+  2. Optionally executes a dry fetch of 1 email when --fetch is passed.
+
+NOTE: step 2 talks to the real Gmail account. Run deliberately:
+
+    .venv/bin/python scripts/composio_verify.py           # list slugs only
+    .venv/bin/python scripts/composio_verify.py --fetch   # + fetch 1 email
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import settings  # noqa: E402
+from core.composio_tool import ComposioTool  # noqa: E402
+
+
+async def main(fetch: bool) -> int:
+    if not settings.composio_api_key:
+        print("COMPOSIO_API_KEY is not set — nothing to verify.")
+        return 1
+
+    user_id = settings.composio_user_id or "default"
+    tool = ComposioTool(api_key=settings.composio_api_key, user_id=user_id)
+    print(f"ComposioTool initialised (user_id={user_id!r})")
+
+    schemas = await tool.get_tools(["gmail"])
+    if schemas and isinstance(schemas[0], dict) and "error" in schemas[0]:
+        print(f"get_tools failed: {schemas[0]['error']}")
+        return 1
+
+    slugs = sorted(
+        s.get("name") or s.get("slug") or "?" for s in schemas if isinstance(s, dict)
+    )
+    print(f"\nGmail tool slugs ({len(slugs)}):")
+    for slug in slugs:
+        print(f"  - {slug}")
+
+    expected = ["GMAIL_FETCH_EMAILS", "GMAIL_SEND_EMAIL", "GMAIL_CREATE_EMAIL_DRAFT"]
+    missing = [s for s in expected if s not in slugs]
+    if missing:
+        print(f"\n⚠️  Slugs GmailTool expects but did NOT appear: {missing}")
+        print("   → GmailTool's slugs need updating to the casing above.")
+    else:
+        print("\n✅ All slugs GmailTool expects are present as-is.")
+
+    if fetch:
+        print("\nFetching 1 email via GMAIL_FETCH_EMAILS …")
+        result = await tool.execute("GMAIL_FETCH_EMAILS", max_results=1)
+        if "error" in result:
+            print(f"execute failed: {result['error']}")
+            return 1
+        print(f"execute OK — keys: {sorted(result.keys())}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fetch", action="store_true", help="also fetch 1 email")
+    raise SystemExit(asyncio.run(main(parser.parse_args().fetch)))

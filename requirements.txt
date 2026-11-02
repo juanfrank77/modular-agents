@@ -18,8 +18,10 @@ faster-whisper==1.1.0
 # Anthropic SDK
 anthropic==0.109.2
 
-# Composio (Gmail/Calendar/Slack integrations)
-composio-anthropic==0.18.0
+# Composio (Gmail integrations) — current-generation SDK; BOTH packages must
+# move together (the adapter imports symbols from the core SDK).
+composio==0.30.0
+composio-anthropic==0.30.0
 
 # Scheduler
 apscheduler==3.11.3
@@ -27,8 +29,8 @@ apscheduler==3.11.3
 # Scheduler persistence (SQLAlchemyJobStore)
 sqlalchemy==2.0.36
 
-# OpenAI Compatible
-openai==2.30.0
+# OpenAI Compatible (>=2.48 required by composio 0.30; kept on the v2 line)
+openai==2.54.0
 
 # Retry / backoff
 tenacity==9.2.1
