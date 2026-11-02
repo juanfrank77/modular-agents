@@ -3,6 +3,7 @@
 stemming/stopwords and mtime-keyed content caching."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -80,6 +81,13 @@ class TestGetRelevantSolutions:
 
         # Overwrite the file: the cached entry must be invalidated by the new mtime.
         solution_file.write_text("updated")
+        # Force a distinct mtime explicitly — this filesystem quantizes mtime
+        # (~4ms), so two quick writes can share a timestamp and the cache
+        # would legitimately serve the cached entry. The unit under test is
+        # invalidation-on-mtime-change, not the fs timestamp resolution.
+        cached_mtime_ns = memory._solution_cache[solution_file][0] * 1_000_000_000
+        bumped = int(cached_mtime_ns) + 1_000_000_000
+        os.utime(solution_file, ns=(bumped, bumped))
         result2 = await memory._get_relevant_solutions("meeting")
         assert "updated" in result2
         assert "original" not in result2
