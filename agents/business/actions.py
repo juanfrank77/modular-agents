@@ -2,7 +2,7 @@
 agents/business/actions.py
 ---------------------------
 ActionSpec registry mapping approved Business ACTION: types to real
-BusinessTools calls (Gmail/Calendar via Composio).
+BusinessTools calls. Calendar is local SQLite; Gmail runs via Composio.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
     from agents.business.tools import BusinessTools
+    from agents.business.tools.gmail import GmailTool
 
 
 class MissingRequiredArg(Exception):
@@ -19,7 +20,21 @@ class MissingRequiredArg(Exception):
 
 
 class BusinessToolError(Exception):
-    """Raised when a Composio action call returns an {"error": ...} result."""
+    """Raised when a tool action call returns an {"error": ...} result."""
+
+
+def _require_gmail(tools: "BusinessTools") -> "GmailTool":
+    """Return the Gmail tool, or raise a scoped error if it is unavailable.
+
+    Gmail is the only Composio-backed tool; the calendar is local SQLite and
+    must never be blocked by a missing Google connection.
+    """
+    if tools.gmail is None:
+        raise BusinessToolError(
+            "Gmail unavailable — Google account not connected. "
+            "Calendar and local files are unaffected."
+        )
+    return tools.gmail
 
 
 @dataclass
@@ -53,7 +68,8 @@ def _check_error(result: dict) -> None:
 
 async def _run_send_email(tools: "BusinessTools", args: dict[str, str]) -> str:
     to = args["to"]
-    result = await tools.gmail.send_email(to=to, subject=args["subject"], body=args["body"])
+    gmail = _require_gmail(tools)
+    result = await gmail.send_email(to=to, subject=args["subject"], body=args["body"])
     _check_error(result)
     return f"✅ Email sent to {to}"
 
@@ -83,7 +99,8 @@ async def _run_create_event(tools: "BusinessTools", args: dict[str, str]) -> str
 
 async def _run_draft_reply(tools: "BusinessTools", args: dict[str, str]) -> str:
     email_id = args["email_id"]
-    result = await tools.gmail.draft_reply(email_id=email_id, body=args["body"])
+    gmail = _require_gmail(tools)
+    result = await gmail.draft_reply(email_id=email_id, body=args["body"])
     _check_error(result)
     return f"✅ Draft reply created for {email_id}"
 

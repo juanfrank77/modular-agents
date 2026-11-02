@@ -40,25 +40,25 @@ def _make_agent(check_action_return=True, composio_api_key="key123"):
 
 
 class TestToolsProperty:
-    def test_raises_business_tools_unavailable_when_no_api_key(self):
-        agent = _make_agent(composio_api_key="")
-        with pytest.raises(BusinessToolsUnavailable, match="COMPOSIO_API_KEY"):
-            _ = agent.tools
-
-    def test_caches_unavailable_reason_without_retrying(self):
-        agent = _make_agent(composio_api_key="")
-        with pytest.raises(BusinessToolsUnavailable):
-            _ = agent.tools
-        with patch("agents.business.agent.build_tools") as mock_build:
-            with pytest.raises(BusinessToolsUnavailable):
-                _ = agent.tools
-            mock_build.assert_not_called()
-
     def test_returns_business_tools_when_available(self):
         agent = _make_agent()
         fake_tools = BusinessTools(gmail=AsyncMock(), calendar=AsyncMock(), local_file=AsyncMock())
         with patch("agents.business.agent.build_tools", return_value=fake_tools):
             assert agent.tools is fake_tools
+
+    def test_returns_tools_even_when_gmail_is_none(self):
+        agent = _make_agent()
+        fake_tools = BusinessTools(gmail=None, calendar=AsyncMock(), local_file=AsyncMock())
+        with patch("agents.business.agent.build_tools", return_value=fake_tools):
+            assert agent.tools is fake_tools
+
+    def test_builds_tools_once_and_caches(self):
+        agent = _make_agent()
+        fake_tools = BusinessTools(gmail=None, calendar=AsyncMock(), local_file=AsyncMock())
+        with patch("agents.business.agent.build_tools", return_value=fake_tools) as mock_build:
+            _ = agent.tools
+            _ = agent.tools
+        mock_build.assert_called_once()
 
 
 class TestWiredActionExecutesOnApproval:
@@ -81,14 +81,34 @@ class TestWiredActionExecutesOnApproval:
         assert call_kwargs["description"] == "Send email to bob@example.com: Hi"
 
 
-class TestBusinessToolsUnavailableSurfacesAsFailure:
+class TestGmailUnavailableSurfacesAsScopedFailure:
     @pytest.mark.asyncio
-    async def test_no_api_key_becomes_failure_message(self):
-        agent = _make_agent(check_action_return=True, composio_api_key="")
+    async def test_send_email_without_gmail_names_gmail_only(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=None, calendar=AsyncMock(), local_file=AsyncMock())
+        agent._tools = fake_tools
+
         response = 'ACTION: SEND_EMAIL | to=bob@example.com subject=Hi body="Hello there"'
         result = await agent._handle_action_proposal("chat1", response)
 
-        assert "❌ Action failed: Google account not connected" in result
+        assert "Gmail unavailable" in result
+        assert "Calendar and local files are unaffected" in result
+
+    @pytest.mark.asyncio
+    async def test_calendar_still_works_with_gmail_none(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=None, calendar=AsyncMock(), local_file=AsyncMock())
+        fake_tools.calendar.block_time = AsyncMock(return_value={})
+        agent._tools = fake_tools
+
+        response = (
+            'ACTION: BLOCK_TIME | title="Focus" '
+            "start=2026-11-03T10:00:00Z end=2026-11-03T11:00:00Z"
+        )
+        result = await agent._handle_action_proposal("chat1", response)
+
+        assert "✅ Time blocked: Focus" in result
+        fake_tools.calendar.block_time.assert_awaited_once()
 
 
 class TestActionDeniedShowsBlockedMessage:
@@ -176,10 +196,12 @@ class TestNativeToolCallExecutesOnApproval:
         assert follow_up_kwargs.get("tools") is None
 
 
-class TestNativeToolCallBusinessToolsUnavailable:
+class TestNativeToolCallGmailUnavailable:
     @pytest.mark.asyncio
-    async def test_no_api_key_surfaces_in_tool_result_content(self):
-        agent = _make_agent(check_action_return=True, composio_api_key="")
+    async def test_gmail_none_surfaces_scoped_error_in_tool_result(self):
+        agent = _make_agent(check_action_return=True)
+        fake_tools = BusinessTools(gmail=None, calendar=AsyncMock(), local_file=AsyncMock())
+        agent._tools = fake_tools
         agent.llm.complete = AsyncMock(return_value=LLMResult(text="Couldn't send it."))
 
         await _tool_result(
@@ -188,7 +210,8 @@ class TestNativeToolCallBusinessToolsUnavailable:
         )
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "Google account not connected" in follow_up_kwargs["tool_result"].content
+        assert "Gmail unavailable" in follow_up_kwargs["tool_result"].content
+        assert "Calendar and local files are unaffected" in follow_up_kwargs["tool_result"].content
 
 
 class TestNativeToolCallDenied:

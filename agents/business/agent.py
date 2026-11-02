@@ -59,6 +59,11 @@ Autonomy level: supervised
 - You may read, search, and draft freely.
 {action_instructions}
 
+TOOL AVAILABILITY: The calendar is a local store — it always works and has
+nothing to do with Google. Gmail depends on the Google (Composio) connection;
+if a Gmail action fails with "Gmail unavailable", tell the user only Gmail is
+affected and suggest calendar or local-file alternatives where sensible.
+
 {context}
 
 {skills}
@@ -105,18 +110,14 @@ class BusinessAgent(BaseAgent):
         super().__init__(**kwargs)
         self.autonomy_level = self.settings.business_agent_autonomy
         self._tools: BusinessTools | None = None
-        self._tools_error: str | None = None
         self.tool_defs = build_tool_defs(ACTIONS)
 
     @property
     def tools(self) -> BusinessTools:
-        if self._tools is None and self._tools_error is None:
-            try:
-                self._tools = build_tools(self.settings)
-            except BusinessToolsUnavailable as e:
-                self._tools_error = str(e)
+        # build_tools degrades gracefully (gmail=None) instead of raising, so
+        # the local calendar always works even without a Google connection.
         if self._tools is None:
-            raise BusinessToolsUnavailable(self._tools_error)
+            self._tools = build_tools(self.settings)
         return self._tools
 
     # ── Main handler ──────────────────────────
@@ -250,9 +251,7 @@ class BusinessAgent(BaseAgent):
                         result_text = await self._ask_user(chat_id, resolved_args)
                     else:
                         result_text = await spec.execute(self.tools, resolved_args)
-                except BusinessToolsUnavailable as e:
-                    result_text = f"❌ Action failed: Google account not connected — {e}"
-                except BusinessToolError as e:
+                except (BusinessToolsUnavailable, BusinessToolError) as e:
                     result_text = f"❌ Action failed: {e}"
                 except Exception as e:
                     result_text = f"❌ Action failed: invalid argument — {e}"
@@ -371,9 +370,7 @@ class BusinessAgent(BaseAgent):
                             tool_result_text = await self._ask_user(chat_id, resolved_args)
                         else:
                             tool_result_text = await spec.execute(self.tools, resolved_args)
-                    except BusinessToolsUnavailable as e:
-                        tool_result_text = f"❌ Action failed: Google account not connected — {e}"
-                    except BusinessToolError as e:
+                    except (BusinessToolsUnavailable, BusinessToolError) as e:
                         tool_result_text = f"❌ Action failed: {e}"
                     except Exception as e:
                         tool_result_text = f"❌ Action failed: invalid argument — {e}"
