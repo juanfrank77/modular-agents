@@ -432,7 +432,21 @@ class BaseAgent(ABC):
         return self.model
 
     def _is_authorized(self, chat_id: str) -> bool:
-        """Check if a chat_id is in the allowlist."""
+        """Check whether a chat_id may talk to this agent.
+
+        Delegates to the pairing layer when a Safety component is available —
+        it is the single source of truth: the static allowlist OR any chat
+        paired through the pairing flow. That covers HTTP sessions, whose
+        chat_ids are minted per-session at /pair as ``http_<token8>`` and can
+        never appear in the static ``telegram_allowed_chat_ids`` list — the
+        old allowlist-only check denied them with auth_denied even though
+        they hold a valid Bearer token and a persisted pairing record.
+
+        Falls back to the allowlist-only check when safety is absent (test
+        fakes that construct agents without a Safety component).
+        """
+        if self.safety is not None:
+            return self.safety.pairing.is_paired(chat_id)
         allowed = self.settings.telegram_allowed_chat_ids
         # Empty allowlist means no restriction (useful for development)
         if not allowed:

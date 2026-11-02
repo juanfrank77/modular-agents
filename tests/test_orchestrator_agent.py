@@ -59,6 +59,10 @@ def _make_agent(**overrides):
 class TestOrchestratorHandle:
     async def test_handle_unauthorized(self):
         agent = _make_agent(chat_ids=["999"])
+        # Chat authorization delegates to the pairing layer (agents/base.py
+        # _is_authorized). The default MagicMock safety would truthy-authorize
+        # everything, so pin the pairing decision explicitly for this test.
+        agent.safety.pairing.is_paired = MagicMock(return_value=False)
         event = AgentEvent(
             type=EventType.USER_MESSAGE,
             agent_name="orchestrator",

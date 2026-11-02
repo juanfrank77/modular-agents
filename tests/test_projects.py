@@ -57,6 +57,9 @@ def _make_agent(cls, tmp_path: Path, llm_response: str = ""):
     llm.complete = AsyncMock(return_value=LLMResult(text=llm_response))
     safety = AsyncMock()
     safety.check_action = AsyncMock(return_value=True)
+    # BaseAgent._is_authorized delegates to the (sync) pairing layer; pinning
+    # it here avoids AsyncMock auto-creating un-awaited coroutine stubs.
+    safety.pairing.is_paired = MagicMock(return_value=True)
     agent = cls(
         settings=settings,
         storage=storage,
@@ -202,6 +205,10 @@ class TestProjectsAgent:
 
     async def test_unauthorized_chat_rejected(self, tmp_path, monkeypatch):
         agent = _make_agent(ProjectsAgent, tmp_path)
+        # Chat authorization delegates to the pairing layer (agents/base.py
+        # _is_authorized). The default AsyncMock safety would truthy-authorize
+        # everything, so pin the pairing decision explicitly for this test.
+        agent.safety.pairing.is_paired = MagicMock(return_value=False)
 
         event = _event(text="status")
         event.chat_id = "999"
