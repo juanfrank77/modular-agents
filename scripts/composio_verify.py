@@ -8,12 +8,16 @@ loaded via core.config) and:
 
   1. Lists the connected Gmail toolkit's tool slugs — confirms the exact
      casing GmailTool must call (GMAIL_FETCH_EMAILS vs gmail_fetch_emails).
-  2. Optionally executes a dry fetch of 1 email when --fetch is passed.
+  2. Optionally resolves a specific slug directly (--check SLUG) — the
+     default listing may be a curated subset, so a missing slug in step 1
+     is not proof the slug is gone.
+  3. Optionally executes a dry fetch of 1 email when --fetch is passed.
 
-NOTE: step 2 talks to the real Gmail account. Run deliberately:
+NOTE: step 3 talks to the real Gmail account. Run deliberately:
 
-    .venv/bin/python scripts/composio_verify.py           # list slugs only
-    .venv/bin/python scripts/composio_verify.py --fetch   # + fetch 1 email
+    .venv/bin/python scripts/composio_verify.py                 # list slugs
+    .venv/bin/python scripts/composio_verify.py --check GMAIL_SEND_EMAIL
+    .venv/bin/python scripts/composio_verify.py --fetch         # + fetch 1
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from core.config import settings  # noqa: E402
 from core.composio_tool import ComposioTool  # noqa: E402
 
 
-async def main(fetch: bool) -> int:
+async def main(fetch: bool, check: str | None) -> int:
     if not settings.composio_api_key:
         print("COMPOSIO_API_KEY is not set — nothing to verify.")
         return 1
@@ -37,6 +41,23 @@ async def main(fetch: bool) -> int:
     user_id = settings.composio_user_id or "default"
     tool = ComposioTool(api_key=settings.composio_api_key, user_id=user_id)
     print(f"ComposioTool initialised (user_id={user_id!r})")
+
+    if check:
+        # Direct resolution bypasses any curated default listing.
+        print(f"\nResolving slug directly: {check!r} …")
+        schemas = await tool.get_tools(["gmail"])
+        if schemas and isinstance(schemas[0], dict) and "error" in schemas[0]:
+            print(f"get_tools failed: {schemas[0]['error']}")
+            return 1
+        try:
+            direct = tool._sdk.tools.get(user_id, slug=check)
+        except Exception as exc:
+            print(f"✗ {check} does NOT resolve: {exc}")
+            return 1
+        print(f"✓ {check} resolves: {type(direct).__name__}")
+        if isinstance(direct, list):
+            print(f"  ({len(direct)} result(s))")
+        return 0
 
     schemas = await tool.get_tools(["gmail"])
     if schemas and isinstance(schemas[0], dict) and "error" in schemas[0]:
@@ -72,4 +93,8 @@ async def main(fetch: bool) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--fetch", action="store_true", help="also fetch 1 email")
-    raise SystemExit(asyncio.run(main(parser.parse_args().fetch)))
+    parser.add_argument(
+        "--check", metavar="SLUG", help="resolve one slug directly, then exit"
+    )
+    args = parser.parse_args()
+    raise SystemExit(asyncio.run(main(args.fetch, args.check)))
