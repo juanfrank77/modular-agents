@@ -75,6 +75,21 @@ class TestComposioToolInit:
         kwargs = mod.Composio.call_args.kwargs
         assert kwargs["api_key"] == "key123"
         assert isinstance(kwargs["provider"], mod.AnthropicProvider)
+        assert "toolkit_versions" not in kwargs
+
+    def test_init_passes_toolkit_versions_when_given(self, monkeypatch):
+        """toolkit_versions is forwarded into the Composio config when set."""
+        import core.composio_tool as mod
+        monkeypatch.setattr(mod, "_COMPOSIO_AVAILABLE", True)
+        monkeypatch.setattr(mod, "Composio", MagicMock(return_value=_make_fake_sdk()))
+
+        mod.ComposioTool(
+            api_key="key123",
+            user_id="alice",
+            toolkit_versions={"gmail": "20251103_01"},
+        )
+        kwargs = mod.Composio.call_args.kwargs
+        assert kwargs["toolkit_versions"] == {"gmail": "20251103_01"}
 
 
 class TestComposioToolExecute:
@@ -99,6 +114,7 @@ class TestComposioToolExecute:
             "GMAIL_FETCH_EMAILS",
             {"max_results": 5},
             user_id="u1",
+            dangerously_skip_version_check=True,
         )
 
     @pytest.mark.asyncio

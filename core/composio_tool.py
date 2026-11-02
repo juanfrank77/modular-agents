@@ -56,14 +56,33 @@ class ComposioTool:
         RuntimeError: If ``composio`` / ``composio-anthropic`` is not installed.
     """
 
-    def __init__(self, api_key: str, user_id: str = "default") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        user_id: str = "default",
+        toolkit_versions: dict[str, str] | None = None,
+    ) -> None:
+        """Create the wrapper.
+
+        Args:
+            api_key: Composio project API key.
+            user_id: User identifier scoped to the connected accounts.
+            toolkit_versions: Optional ``{toolkit_slug: version}`` map for
+                reproducible tool execution (e.g. ``{"gmail": "20251103_01"}``).
+                When omitted, tools run on the toolkit's latest version —
+                matching the legacy SDK's behaviour — via
+                ``dangerously_skip_version_check`` on every execution.
+        """
         if not _COMPOSIO_AVAILABLE:
             raise RuntimeError(
                 "composio / composio-anthropic is not installed. "
                 "Run: uv pip install composio composio-anthropic"
             )
         self._user_id = user_id
-        self._sdk: Any = Composio(api_key=api_key, provider=AnthropicProvider())
+        sdk_kwargs: dict[str, Any] = {"api_key": api_key, "provider": AnthropicProvider()}
+        if toolkit_versions:
+            sdk_kwargs["toolkit_versions"] = toolkit_versions
+        self._sdk: Any = Composio(**sdk_kwargs)
         log.debug(
             "ComposioTool initialised",
             event="composio_init",
@@ -95,10 +114,16 @@ class ComposioTool:
         )
 
         def _sync_execute() -> dict:
+            # The new SDK refuses 'latest' (its default toolkit version) for
+            # manual execution unless the check is explicitly skipped. The
+            # legacy SDK always executed the latest version, so we preserve
+            # that behaviour; pass `toolkit_versions` to __init__ to pin
+            # specific versions instead.
             response = self._sdk.tools.execute(
                 tool_slug,
                 dict(arguments),
                 user_id=self._user_id,
+                dangerously_skip_version_check=True,
             )
             # ToolExecutionResponse is a TypedDict: {data, error, successful}.
             if not response.get("successful") or response.get("error"):
