@@ -79,10 +79,14 @@ class ComposioTool:
                 "Run: uv pip install composio composio-anthropic"
             )
         self._user_id = user_id
-        sdk_kwargs: dict[str, Any] = {"api_key": api_key, "provider": AnthropicProvider()}
+        sdk_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "provider": AnthropicProvider(),  # type: ignore[reportOptionalCall]
+        }
         if toolkit_versions:
             sdk_kwargs["toolkit_versions"] = toolkit_versions
-        self._sdk: Any = Composio(**sdk_kwargs)
+        # _COMPOSIO_AVAILABLE guarantees the SDK is importable here.
+        self._sdk: Any = Composio(**sdk_kwargs)  # type: ignore[reportOptionalCall]
         log.debug(
             "ComposioTool initialised",
             event="composio_init",
