@@ -15,8 +15,9 @@ python-telegram-bot==22.8
 # Local voice transcription (faster-whisper / CTranslate2, CPU)
 faster-whisper==1.1.0
 
-# Anthropic SDK
-anthropic==0.109.2
+# Anthropic SDK — 2.x reached via composio's floor (composio-anthropic 0.30
+# requires anthropic>=0.120.0,<3); validated by the full suite on 2.3.0.
+anthropic==2.3.0
 
 # Composio (Gmail integrations) — current-generation SDK; BOTH packages must
 # move together (the adapter imports symbols from the core SDK).
