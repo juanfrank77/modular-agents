@@ -225,6 +225,60 @@ class TestWriteLocalFile:
         assert "Permission denied" in result
 
 
+class TestListCalendar:
+    def test_describe_default_today(self):
+        spec = ACTIONS["LIST_CALENDAR"]
+        assert spec.describe(resolve_args(spec, {})) == "List calendar events for today"
+
+    def test_describe_explicit_date(self):
+        spec = ACTIONS["LIST_CALENDAR"]
+        assert spec.describe(resolve_args(spec, {"date": "2026-11-02"})) == (
+            "List calendar events for 2026-11-02"
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_lists_events_formatted(self):
+        spec = ACTIONS["LIST_CALENDAR"]
+        tools = _fake_tools()
+        tools.calendar.list_events = AsyncMock(return_value=[
+            {
+                "title": "Team Sync",
+                "start_utc": "2026-11-02T14:00:00+00:00",
+                "end_utc": "2026-11-02T15:00:00+00:00",
+                "kind": "event",
+            },
+            {
+                "title": "Deep Work",
+                "start_utc": "2026-11-02T18:00:00+00:00",
+                "end_utc": "2026-11-02T20:00:00+00:00",
+                "kind": "block",
+            },
+        ])
+        result = await spec.execute(tools, resolve_args(spec, {"date": "2026-11-02"}))
+
+        assert "Team Sync" in result
+        assert "Deep Work" in result
+        assert "[block]" in result
+        assert "2 events" in result
+        tools.calendar.list_events.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_empty_day_reports_no_events(self):
+        spec = ACTIONS["LIST_CALENDAR"]
+        tools = _fake_tools()
+        tools.calendar.list_events = AsyncMock(return_value=[])
+        result = await spec.execute(tools, resolve_args(spec, {}))
+        assert "No events" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_business_tool_error_on_error_list(self):
+        spec = ACTIONS["LIST_CALENDAR"]
+        tools = _fake_tools()
+        tools.calendar.list_events = AsyncMock(return_value=[{"error": "db locked"}])
+        with pytest.raises(BusinessToolError, match="db locked"):
+            await spec.execute(tools, resolve_args(spec, {}))
+
+
 class TestActionSpecHasToolSchema:
     def test_every_action_has_schema_and_description(self):
         for name, spec in ACTIONS.items():

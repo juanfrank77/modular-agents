@@ -533,6 +533,7 @@ def _parse_action_type(raw: str) -> ActionType:
         "SEND_EMAIL": ActionType.WRITE_HIGH,
         "SEND_MESSAGE": ActionType.WRITE_HIGH,
         "CALENDAR_WRITE": ActionType.WRITE_HIGH,
+        "LIST_CALENDAR": ActionType.READ,
         "CALENDAR_DELETE": ActionType.DESTRUCTIVE,
         "DRAFT": ActionType.WRITE_LOW,
         "READ_LOCAL_FILE": ActionType.READ,

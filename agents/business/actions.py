@@ -97,6 +97,41 @@ async def _run_create_event(tools: "BusinessTools", args: dict[str, str]) -> str
     return f"✅ Calendar event created: {title}"
 
 
+async def _run_list_calendar(tools: "BusinessTools", args: dict[str, str]) -> str:
+    """List calendar events for a day via the local calendar (read-only)."""
+    from datetime import date as _date, datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from core.config import settings
+
+    tz = ZoneInfo(settings.user_timezone or "UTC")
+    raw_date = (args.get("date") or "").strip()
+    day = _date.fromisoformat(raw_date) if raw_date else datetime.now(tz).date()
+    start_local = datetime(day.year, day.month, day.day, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+
+    events = await tools.calendar.list_events(
+        max_results=25,
+        start_utc=start_local.astimezone(timezone.utc).isoformat(),
+        end_utc=end_local.astimezone(timezone.utc).isoformat(),
+    )
+    if events and isinstance(events[0], dict) and "error" in events[0]:
+        raise BusinessToolError(events[0]["error"])
+    if not events:
+        return f"📅 No events on the calendar for {day.isoformat()}."
+
+    lines = []
+    for ev in events:
+        start = datetime.fromisoformat(str(ev["start_utc"])).astimezone(tz).strftime("%H:%M")
+        end = datetime.fromisoformat(str(ev["end_utc"])).astimezone(tz).strftime("%H:%M")
+        label = f"- {start}–{end} {ev['title']}"
+        kind = ev.get("kind") or "event"
+        if kind != "event":
+            label += f" [{kind}]"
+        lines.append(label)
+    return f"📅 Calendar for {day.isoformat()} ({len(events)} events):\n" + "\n".join(lines)
+
+
 async def _run_draft_reply(tools: "BusinessTools", args: dict[str, str]) -> str:
     email_id = args["email_id"]
     gmail = _require_gmail(tools)
@@ -164,6 +199,19 @@ ACTIONS: dict[str, ActionSpec] = {
         description="Block off time on the calendar.",
         describe=lambda a: f"Block time for '{a['title']}' ({a['start']} → {a['end']})",
         execute=_run_block_time,
+    ),
+    "LIST_CALENDAR": ActionSpec(
+        required=[],
+        defaults={"date": ""},
+        schema={
+            "date": {
+                "type": "string",
+                "description": "Optional date to list events for (YYYY-MM-DD). Defaults to today.",
+            },
+        },
+        description="List calendar events for a day (read-only, uses the local calendar).",
+        describe=lambda a: f"List calendar events for {a['date'] or 'today'}",
+        execute=_run_list_calendar,
     ),
     "DRAFT": ActionSpec(
         required=["email_id", "body"],
