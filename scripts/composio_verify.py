@@ -54,6 +54,9 @@ async def main(fetch: bool, check: str | None) -> int:
         except Exception as exc:
             print(f"✗ {check} does NOT resolve: {exc}")
             return 1
+        if isinstance(direct, list) and not direct:
+            print(f"✗ {check} returns 0 results — the slug does not exist.")
+            return 1
         print(f"✓ {check} resolves: {type(direct).__name__}")
         if isinstance(direct, list):
             print(f"  ({len(direct)} result(s))")
