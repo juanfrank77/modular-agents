@@ -403,12 +403,12 @@ page_text = await web_tool.scrape("https://example.com")
 When a supervised agent requests approval for a consequential action, it waits for you to tap Approve or Deny in Telegram. The timeout before auto-denying is configurable per action type:
 
 ```
-APPROVAL_TIMEOUTS=WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600
+APPROVAL_TIMEOUTS=WRITE_HIGH=300,EXECUTE=300,DESTRUCTIVE=600
 ```
 
 | Action type | Default timeout | When it applies |
 |-------------|----------------|-----------------|
-| `WRITE_HIGH` | 120s | Send email, post message, calendar write |
+| `WRITE_HIGH` | 300s | Send email, post message, calendar write |
 | `EXECUTE` | 300s | Run scripts, CLI commands |
 | `DESTRUCTIVE` | 600s | Delete, DB migrate, force deploy |
 

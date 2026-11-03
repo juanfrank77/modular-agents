@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from telegram.error import BadRequest
 
 from core.protocols import AgentResponse
 
@@ -139,6 +140,45 @@ class TestOnCallback:
         update.callback_query = None
 
         await telegram._on_callback(update, MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_stale_callback_tap_still_resolves_to_expired_message(self):
+        # Telegram rejects query.answer() with 400 ("query is too old") when
+        # the tap lands on an already-resolved/expired approval keyboard.
+        # The handler must survive it and still edit the message — the
+        # pre-fix behaviour raised unhandled and the dead keyboard hissed.
+        safety = MagicMock()
+        safety.gate.resolve.return_value = False
+        bus = MagicMock()
+        bus.registered_agents = []
+        bus.send_thinking = AsyncMock(return_value=None)
+        bus.clear_thinking = AsyncMock(return_value=None)
+        bus.publish = AsyncMock(return_value=AgentResponse(text="ok", agent_name=""))
+
+        telegram = _make_telegram(bus=bus, safety=safety)
+
+        query = AsyncMock()
+        query.data = "approve:expired-id"
+        query.answer.side_effect = BadRequest("Query is too old and the timeout expired")
+        update = MagicMock()
+        update.effective_chat.id = 123
+        update.callback_query = query
+
+        await telegram._on_callback(update, MagicMock())
+
+        query.answer.assert_awaited_once()
+        query.edit_message_text.assert_awaited_once_with(
+            "This approval request is not valid or has expired."
+        )
+
+    @pytest.mark.asyncio
+    async def test_register_handlers_registers_error_handler(self):
+        telegram = _make_telegram()
+        app = MagicMock()
+
+        telegram._register_handlers(app)
+
+        app.add_error_handler.assert_called_once_with(telegram._on_error)
 
 
 class TestOnModel:

@@ -16,6 +16,7 @@ import tempfile
 from typing import TYPE_CHECKING, Optional
 
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -68,6 +69,10 @@ class TelegramInterface:
             )
         )
         app.add_handler(CallbackQueryHandler(self._on_callback))
+        # Without a registered handler PTB logs every handler exception as
+        # "No error handlers are registered, logging exception." — route them
+        # through our JSON logger instead.
+        app.add_error_handler(self._on_error)
         app.add_handler(CommandHandler("model", self._on_model))
         app.add_handler(CommandHandler("planmode", self._on_planmode))
         app.add_handler(CommandHandler("agents", self._on_agents))
@@ -285,7 +290,18 @@ class TelegramInterface:
         if not query or not query.data:
             return
 
-        await query.answer()
+        try:
+            await query.answer()
+        except BadRequest as e:
+            # Stale tap: Telegram rejects answer() with 400 ("query is too
+            # old") for callbacks on resolved/expired approval keyboards.
+            # The edit below still works and carries the "expired" message,
+            # so handle the tap instead of letting it bubble up unhandled.
+            log.warning(
+                "Callback answer rejected; handling tap anyway",
+                event="callback_answer_rejected",
+                error=str(e),
+            )
 
         if not update.effective_chat:
             return
@@ -365,6 +381,22 @@ class TelegramInterface:
             else:
                 await query.edit_message_text(invalid_clarification)
             return
+
+    async def _on_error(
+        self, update: object, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """PTB error handler — log handler exceptions through our JSON logger.
+
+        Registered via add_error_handler(); without it PTB swallows handler
+        exceptions into a bare "No error handlers are registered" core log.
+        """
+        error = context.error
+        log.error(
+            f"Unhandled Telegram handler error: {error}",
+            event="telegram_handler_error",
+            error=str(error),
+            update_type=type(update).__name__,
+        )
 
     async def _require_paired(self, chat_id: str) -> bool:
         """Send the pairing prompt and return False if chat_id isn't paired yet."""

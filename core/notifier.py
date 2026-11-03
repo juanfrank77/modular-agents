@@ -81,6 +81,33 @@ async def _send_with_retry(
             raise NotificationError(str(e), chat_id=chat_id, cause=e)
 
 
+async def _send_with_markdown_fallback(
+    chat_id: str,
+    markdown_factory,
+    plain_factory,
+    plain_log_event: str = "send_plain_error",
+) -> None:
+    """Send via Markdown parse mode; on failure retry once as plain text.
+
+    LLM-generated replies routinely contain unbalanced *_`_ characters that
+    break Telegram's legacy Markdown parser, so a failed parse is normal
+    traffic — downgrade it to a WARNING with a distinct event so a successful
+    fallback doesn't read as an outage in the journal. Only raised failures
+    fall through: _send_with_retry never raises after a successful send.
+    """
+    try:
+        await _send_with_retry(
+            chat_id, markdown_factory, log_event="send_markdown_failed"
+        )
+    except NotificationError:
+        log.warning(
+            "Markdown send failed; falling back to plain text",
+            event="send_markdown_fallback",
+            chat_id=chat_id,
+        )
+        await _send_with_retry(chat_id, plain_factory, log_event=plain_log_event)
+
+
 class TelegramNotifier:
     """
     Implements the Notifier Protocol for Telegram.
@@ -111,15 +138,9 @@ class TelegramNotifier:
                     text=chunk,
                 )
 
-            try:
-                await _send_with_retry(
-                    chat_id, _markdown, log_event="send_error"
-                )
-            except NotificationError:
-                # Markdown parse may be the culprit; retry as plain text once.
-                await _send_with_retry(
-                    chat_id, _plain, log_event="send_plain_error"
-                )
+            await _send_with_markdown_fallback(
+                chat_id, _markdown, _plain, plain_log_event="send_plain_error"
+            )
 
     async def send_and_get_id(self, chat_id: str, text: str) -> int | None:
         """Send a message and return its Telegram message_id (for later editing/deletion).
@@ -201,7 +222,7 @@ class TelegramNotifier:
             ]
         )
 
-        async def _send():
+        async def _markdown():
             await self._bot.send_message(
                 chat_id=int(chat_id),
                 text=text,
@@ -209,7 +230,21 @@ class TelegramNotifier:
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-        await _send_with_retry(chat_id, _send, log_event="send_buttons_error")
+        async def _plain():
+            # reply_markup is independent of parse_mode — the buttons still
+            # work without Markdown, so keep them on the fallback.
+            await self._bot.send_message(
+                chat_id=int(chat_id),
+                text=text,
+                reply_markup=keyboard,
+            )
+
+        # Approval prompts die silently without this fallback: a description
+        # containing an unbalanced markdown char fails the parse, and the
+        # approval gate then burns to timeout with no prompt ever delivered.
+        await _send_with_markdown_fallback(
+            chat_id, _markdown, _plain, plain_log_event="send_buttons_error"
+        )
 
     async def notify_done(self, chat_id: str, text: str) -> None:
         pass

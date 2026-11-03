@@ -122,12 +122,37 @@ class TestTelegramNotifierSendWithButtons:
         return _notifier_with_mock_bot()
 
     @pytest.mark.asyncio
-    async def test_send_with_buttons_raises_notification_error(self, notifier):
+    async def test_send_with_buttons_falls_back_to_plain_text_on_markdown_error(
+        self, notifier
+    ):
+        # First call (Markdown) fails; second call (plain) succeeds — the
+        # approval keyboard must survive the fallback (reply_markup is
+        # independent of parse_mode).
+        notifier._bot.send_message.side_effect = [
+            TelegramError("bad markdown"),
+            MagicMock(),
+        ]
+        await notifier.send_with_buttons(
+            "123", "approve me? *now*", [("Yes", "approve:1")]
+        )
+        assert notifier._bot.send_message.await_count == 2
+        first, second = notifier._bot.send_message.await_args_list
+        assert first.kwargs.get("parse_mode") is not None
+        assert "parse_mode" not in second.kwargs
+        assert first.kwargs.get("reply_markup") is not None
+        assert second.kwargs.get("reply_markup") is not None
+
+    @pytest.mark.asyncio
+    async def test_send_with_buttons_raises_when_markdown_and_plain_both_fail(
+        self, notifier
+    ):
         notifier._bot.send_message.side_effect = TelegramError("blocked")
         with pytest.raises(NotificationError):
             await notifier.send_with_buttons(
                 "123", "approve me?", [("Yes", "approve:1")]
             )
+        # Markdown attempt + plain fallback = exactly two send attempts.
+        assert notifier._bot.send_message.await_count == 2
 
     @pytest.mark.asyncio
     async def test_send_with_buttons_retry_after(self, notifier):

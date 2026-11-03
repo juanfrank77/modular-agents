@@ -202,9 +202,11 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
     raw_ids = _optional("TELEGRAM_ALLOWED_CHAT_IDS", "")
     allowed_ids = [i.strip() for i in raw_ids.split(",") if i.strip()]
 
-    # Parse approval timeouts: "WRITE_HIGH=120,EXECUTE=300,DESTRUCTIVE=600"
+    # Parse approval timeouts: "WRITE_HIGH=300,EXECUTE=300,DESTRUCTIVE=600".
+    # WRITE_HIGH default 300s: the human on the other end is usually reading
+    # the prompt on a phone mid-task — 120s expired on them in practice.
     approval_timeouts: dict[str, float] = {
-        "WRITE_HIGH": 120,
+        "WRITE_HIGH": 300,
         "EXECUTE": 300,
         "DESTRUCTIVE": 600,
     }
