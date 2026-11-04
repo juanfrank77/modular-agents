@@ -49,6 +49,7 @@ class Settings:
     db_encryption_key: str = ""
     memory_context_dir: Path = Path("memory/context")
     memory_solutions_dir: Path = Path("memory/solutions")
+    memory_knowledge_dir: Path = Path("memory/knowledge")
     message_retention_days: int = 90  # 0 disables pruning; see Memory.get_session_context
 
     # Scheduler / heartbeat
@@ -72,6 +73,7 @@ class Settings:
     projects_agent_autonomy: str = "supervised"
     focus_agent_autonomy: str = "autonomous"
     finance_agent_autonomy: str = "autonomous"
+    librarian_agent_autonomy: str = "autonomous"
 
     # Per-agent model overrides (empty = use default_model)
     business_agent_model: str = ""
@@ -80,6 +82,7 @@ class Settings:
     projects_agent_model: str = ""
     focus_agent_model: str = ""
     finance_agent_model: str = ""
+    librarian_agent_model: str = ""
 
     # LLM retry / backoff
     llm_max_retries: int = 3
@@ -282,6 +285,9 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         memory_solutions_dir=Path(
             _optional("MEMORY_SOLUTIONS_DIR", "memory/solutions")
         ),
+        memory_knowledge_dir=Path(
+            _optional("MEMORY_KNOWLEDGE_DIR", "memory/knowledge")
+        ),
         message_retention_days=int(_optional("MESSAGE_RETENTION_DAYS", "90")),
         heartbeat_interval_minutes=int(_optional("HEARTBEAT_INTERVAL_MINUTES", "30")),
         scheduler_db_path=Path(_optional("SCHEDULER_DB_PATH", "memory/scheduler.db")),
@@ -293,12 +299,14 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         projects_agent_autonomy=_optional("PROJECTS_AGENT_AUTONOMY", "supervised"),
         focus_agent_autonomy=_optional("FOCUS_AGENT_AUTONOMY", "autonomous"),
         finance_agent_autonomy=_optional("FINANCE_AGENT_AUTONOMY", "autonomous"),
+        librarian_agent_autonomy=_optional("LIBRARIAN_AGENT_AUTONOMY", "autonomous"),
         business_agent_model=_optional("BUSINESS_AGENT_MODEL", ""),
         devops_agent_model=_optional("DEVOPS_AGENT_MODEL", ""),
         wellbeing_agent_model=_optional("WELLBEING_AGENT_MODEL", ""),
         projects_agent_model=_optional("PROJECTS_AGENT_MODEL", ""),
         focus_agent_model=_optional("FOCUS_AGENT_MODEL", ""),
         finance_agent_model=_optional("FINANCE_AGENT_MODEL", ""),
+        librarian_agent_model=_optional("LIBRARIAN_AGENT_MODEL", ""),
         llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
         llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),
