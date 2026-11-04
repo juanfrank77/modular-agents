@@ -70,12 +70,16 @@ class Settings:
     devops_agent_autonomy: str = "autonomous"
     wellbeing_agent_autonomy: str = "autonomous"
     projects_agent_autonomy: str = "supervised"
+    focus_agent_autonomy: str = "autonomous"
+    finance_agent_autonomy: str = "autonomous"
 
     # Per-agent model overrides (empty = use default_model)
     business_agent_model: str = ""
     devops_agent_model: str = ""
     wellbeing_agent_model: str = ""
     projects_agent_model: str = ""
+    focus_agent_model: str = ""
+    finance_agent_model: str = ""
 
     # LLM retry / backoff
     llm_max_retries: int = 3
@@ -287,10 +291,14 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         devops_agent_autonomy=_optional("DEVOPS_AGENT_AUTONOMY", "autonomous"),
         wellbeing_agent_autonomy=_optional("WELLBEING_AGENT_AUTONOMY", "autonomous"),
         projects_agent_autonomy=_optional("PROJECTS_AGENT_AUTONOMY", "supervised"),
+        focus_agent_autonomy=_optional("FOCUS_AGENT_AUTONOMY", "autonomous"),
+        finance_agent_autonomy=_optional("FINANCE_AGENT_AUTONOMY", "autonomous"),
         business_agent_model=_optional("BUSINESS_AGENT_MODEL", ""),
         devops_agent_model=_optional("DEVOPS_AGENT_MODEL", ""),
         wellbeing_agent_model=_optional("WELLBEING_AGENT_MODEL", ""),
         projects_agent_model=_optional("PROJECTS_AGENT_MODEL", ""),
+        focus_agent_model=_optional("FOCUS_AGENT_MODEL", ""),
+        finance_agent_model=_optional("FINANCE_AGENT_MODEL", ""),
         llm_max_retries=int(_optional("LLM_MAX_RETRIES", "3")),
         llm_retry_min_wait=int(_optional("LLM_RETRY_MIN_WAIT", "2")),
         llm_retry_max_wait=int(_optional("LLM_RETRY_MAX_WAIT", "60")),
