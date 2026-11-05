@@ -39,3 +39,6 @@ tenacity==9.2.1
 # Local calendar — Outlook ICS ingestion (feature/local-calendar)
 icalendar==7.3.0
 python-dateutil==3.0.0
+
+# Librarian — PDF text extraction (agents/librarian)
+pypdf==6.21.4
