@@ -16,7 +16,7 @@ Status legend: `verified` = reproduced/confirmed in the run or by code reading.
 
 ## F1 — Local file allowlist blocks agent context files
 
-**Status:** verified
+**Status:** fixed (2026-11-05, commit 00d7e38)
 
 **Symptom:** Devops and projects agents cannot read `memory/context/projects.md`,
 the file that declares which repos/projects they manage. Devops asked the user
@@ -40,7 +40,7 @@ unreadable. Otherwise every deployment must rediscover this.
 
 ## F2 — Failed reads are treated as empty data, producing confident false answers
 
-**Status:** verified
+**Status:** fixed (2026-11-05, commit 2f652ce)
 
 **Symptom:** Projects agent answered "No projects are tracked, so there are no
 updates or stale-project flags to report." — after its read of `projects.md`
@@ -64,7 +64,7 @@ external state must distinguish "empty" from "could not read".
 
 ## F3 — `BaseAgent.reply()` does not persist the assistant turn
 
-**Status:** verified
+**Status:** fixed (2026-11-05, commit e576102)
 
 **Symptom:** Librarian answered instantly (canned "knowledge base is empty"
 reply, sent to Telegram) but the session history contains only the user's
@@ -88,7 +88,7 @@ save and helpers that don't.
 
 ## F4 — Empty final reply after tool-call turns (devops)
 
-**Status:** verified
+**Status:** fixed (2026-11-05, commit 1e6de2f)
 
 **Symptom:** Devops's second turn ("Option A") produced a sendMessage with
 empty content — the user received a blank message and the DB stored nothing.
@@ -110,7 +110,7 @@ that executes tools must terminate in a user-visible response or a structured
 
 ## F5 — Multiple tool calls in one turn: only the first executes
 
-**Status:** verified
+**Status:** fixed (2026-11-05, commits 1c64164 + 1e6de2f)
 
 **Symptom:** `tool_call_extra_ignored` warning ("executing first only") whenever
 the model emits two tool calls in a single turn; the second call is silently
