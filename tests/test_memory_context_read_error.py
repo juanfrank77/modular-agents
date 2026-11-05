@@ -49,8 +49,10 @@ class TestGetContextReadError:
         result = await memory.get_context("projects")
         assert result == ""
 
-    async def test_unreadable_file_returns_error_marker(self, memory):
-        path = memory.settings.memory_context_dir / "projects.md"
+    async def test_unreadable_file_returns_error_marker(self, memory, tmp_path):
+        # The fixture built memory_context_dir as tmp_path/"context"; reach it
+        # via tmp_path directly rather than Memory's private _settings.
+        path = tmp_path / "context" / "projects.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# Projects\n- a: 1d ago", encoding="utf-8")
         os.chmod(path, 0)
