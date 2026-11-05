@@ -72,11 +72,17 @@ shopt -u nullglob
 # silently archives a stale tree while the live process writes elsewhere.
 # Detect any running modular-agents python process and compare its working
 # directory against PROJECT_DIR.
-live_dir="$(pgrep -af '/main\.py' | head -1 | xargs -r ps -o cwd= -p 2>/dev/null | tr -d ' ')"
-if [ -n "$live_dir" ] && [ "$live_dir" != "$PROJECT_DIR" ]; then
-    echo "WARNING: a modular-agents process is running from: $live_dir"
-    echo "WARNING: this backup archives:          $PROJECT_DIR"
-    echo "WARNING: they differ — you are likely backing up a stale tree."
+live_pid="$(pgrep -f 'python .*main\.py' | head -1 || true)"
+if [ -n "$live_pid" ]; then
+    # readlink via /proc is more reliable than ps -o cwd=, which prints '-'
+    # (not empty) when the cwd is inaccessible — '-' would produce a bogus
+    # comparison. An unreadable cwd means we can't verify; stay quiet.
+    live_dir="$(readlink "/proc/$live_pid/cwd" 2>/dev/null || true)"
+    if [ -n "$live_dir" ] && [ "$live_dir" != "$PROJECT_DIR" ]; then
+        echo "WARNING: a modular-agents process is running from: $live_dir"
+        echo "WARNING: this backup archives:          $PROJECT_DIR"
+        echo "WARNING: they differ — you are likely backing up a stale tree."
+    fi
 fi
 
 # ── Content summary (F10) ────────────────────────────────────────────────────
