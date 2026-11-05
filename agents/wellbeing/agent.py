@@ -103,7 +103,11 @@ class WellbeingAgent(BaseAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.autonomy_level = self.settings.wellbeing_agent_autonomy
+        # F8 (docs/specs/known-failure-modes.md): never let a missing settings
+        # attribute fail agent discovery — fall back to the class default.
+        self.autonomy_level = getattr(
+            self.settings, "wellbeing_agent_autonomy", self.autonomy_level
+        )
 
     # ── Schedule registration (uses wake-time / bedtime settings) ────────────
 

@@ -108,8 +108,14 @@ class LibrarianAgent(BaseAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.autonomy_level = self.settings.librarian_agent_autonomy
-        self._knowledge_dir: Path = self.settings.memory_knowledge_dir
+        # F8 (docs/specs/known-failure-modes.md): never let a missing settings
+        # attribute fail agent discovery — fall back to the class default.
+        self.autonomy_level = getattr(
+            self.settings, "librarian_agent_autonomy", self.autonomy_level
+        )
+        self._knowledge_dir: Path = getattr(
+            self.settings, "memory_knowledge_dir", Path("memory/knowledge")
+        )
         self._state_file: Path = _STATE_FILE
         self._tools = None  # lazy — built on first access
 

@@ -172,7 +172,13 @@ handles this" notice is needed.
 
 ## F8 — Missing Settings attribute fails agent discovery entirely
 
-**Status:** verified (2026-11-04 23:54 boot; fixed by 23:56 boot)
+**Status:** fixed (2026-11-05). All five remaining direct constructor reads
+(librarian, devops, projects, wellbeing, business) now use
+`getattr(settings, '<attr>', <class default>)`, so a missing agent-level
+setting falls back to the class default instead of failing discovery.
+Focus and finance already used the safe pattern. Discovery's error log
+already names the failing attribute, which is the actionable part.
+Librarian's `memory_knowledge_dir` read was guarded the same way.
 
 **Symptom:** Librarian failed to instantiate at boot:
 `'Settings' object has no attribute 'librarian_agent_autonomy'` — the whole
