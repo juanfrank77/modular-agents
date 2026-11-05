@@ -194,7 +194,14 @@ protect against upgrade-by-addition regressions.
 
 ## F9 — `startup_degraded` on every boot, cause unlogged
 
-**Status:** pending investigation
+**Status:** root-caused + fixed (2026-11-05). The failing agent is the
+orchestrator: its health-check LLM probe used `max_tokens=4`, which a
+reasoning model spends entirely on its thinking block, so `result.text` was
+always empty and the check returned False on every boot. The `startup_degraded`
+warning itself is now understood to be that single failing agent; the
+`health_check_diagnostic` log lines (added during triage) name the agent and
+reason. Fix: probe budget raised to 1024 tokens so a reasoning model can
+finish thinking and emit visible text.
 
 **Symptom:** Every boot this night logged
 `WARNING … startup_degraded: Some agents failed health checks` followed by
