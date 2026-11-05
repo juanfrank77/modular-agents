@@ -212,7 +212,7 @@ class LLMProvider(Protocol):
         model: str = "",
         max_tokens: int = 1024,
         tools: list[ToolDef] | None = None,
-        tool_result: ToolResultInput | None = None,
+        tool_results: list[ToolResultInput] | None = None,
         raw_assistant: Any = None,
     ) -> LLMResult: ...
 
