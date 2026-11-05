@@ -1,0 +1,11 @@
+[Unit]
+Description=Modular Agents — backup stateful files
+
+[Service]
+Type=oneshot
+# F10 (docs/specs/known-failure-modes.md): the script defaults PROJECT_DIR to
+# its own parent (the master tree, stale since Nov 1). Point it at the live
+# worktree explicitly so backups cover real data.
+Environment=PROJECT_DIR=/home/exedev/modular-agents-live
+Environment=BACKUP_DIR=/var/backups/modular-agents
+ExecStart=/bin/bash /home/exedev/modular-agents-live/scripts/backup.sh
