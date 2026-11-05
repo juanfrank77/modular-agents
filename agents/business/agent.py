@@ -108,7 +108,11 @@ class BusinessAgent(BaseAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.autonomy_level = self.settings.business_agent_autonomy
+        # F8 (docs/specs/known-failure-modes.md): never let a missing settings
+        # attribute fail agent discovery — fall back to the class default.
+        self.autonomy_level = getattr(
+            self.settings, "business_agent_autonomy", self.autonomy_level
+        )
         self._tools: BusinessTools | None = None
         self.tool_defs = build_tool_defs(ACTIONS)
 
