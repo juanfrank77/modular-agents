@@ -110,6 +110,7 @@ class LibrarianAgent(BaseAgent):
         super().__init__(**kwargs)
         self.autonomy_level = self.settings.librarian_agent_autonomy
         self._knowledge_dir: Path = self.settings.memory_knowledge_dir
+        self._state_file: Path = _STATE_FILE
         self._tools = None  # lazy — built on first access
 
     @property
@@ -428,12 +429,12 @@ class LibrarianAgent(BaseAgent):
 
     def _load_state(self) -> dict:
         try:
-            return json.loads(_STATE_FILE.read_text())
+            return json.loads(self._state_file.read_text())
         except Exception:
             return {}
 
     def _save_state(self, state: dict) -> None:
-        _STATE_FILE.write_text(json.dumps(state, indent=2))
+        self._state_file.write_text(json.dumps(state, indent=2))
 
     # ── System prompt ─────────────────────────
 
