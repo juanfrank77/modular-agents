@@ -190,6 +190,24 @@ def _optional(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _local_file_paths(memory_context_dir: Path) -> list[Path]:
+    """Build the local-file allowlist for the LocalFileTool.
+
+    Agents keep their own context assets (repos, preferences, mission state)
+    under memory_context_dir, so that directory is always allowed — F1 in
+    docs/specs/known-failure-modes.md. LOCAL_FILE_PATHS adds extra roots on
+    top; duplicates are dropped.
+    """
+    paths = [
+        Path(p.strip())
+        for p in os.getenv("LOCAL_FILE_PATHS", "").split(",")
+        if p.strip()
+    ]
+    if memory_context_dir not in paths:
+        paths.append(memory_context_dir)
+    return paths
+
+
 def _check_env_permissions(env_path: Path) -> None:
     """Warn if .env is world-readable (should be chmod 600)."""
     if not env_path.exists():
@@ -313,11 +331,9 @@ def load_settings(env_path: Path = Path(".env")) -> Settings:
         log_level=_optional("LOG_LEVEL", "INFO"),
         log_format=_optional("LOG_FORMAT", "json"),
         approval_timeouts=approval_timeouts,
-        local_file_paths=[
-            Path(p.strip())
-            for p in _optional("LOCAL_FILE_PATHS", "").split(",")
-            if p.strip()
-        ],
+        local_file_paths=_local_file_paths(
+            Path(_optional("MEMORY_CONTEXT_DIR", "memory/context"))
+        ),
         quiet_hours_enabled=_optional("QUIET_HOURS_ENABLED", "true").lower() == "true",
         quiet_hours_windows=quiet_hours_windows,
         emergency_keywords=[
