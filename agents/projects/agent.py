@@ -490,6 +490,13 @@ class ProjectsAgent(BaseAgent):
 
     def _momentum_summary(self, projects_md: str) -> str:
         """One line per project: days since last logged update + last note."""
+        # F2 (docs/specs/known-failure-modes.md): a read failure must not be
+        # reported as "(no projects tracked)" — surface the failure instead.
+        if projects_md.startswith("[CONTEXT READ ERROR:"):
+            return (
+                "⚠️ Could not read projects.md — "
+                f"{projects_md.removeprefix('[CONTEXT READ ERROR: ').rstrip(']')}"
+            )
         progress = _parse_progress_log(projects_md)
         now = datetime.now(timezone.utc)
         lines: list[str] = []
