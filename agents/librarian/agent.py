@@ -8,8 +8,8 @@ notes stored under memory/knowledge/.
 Ingestion flow:
   1. Telegram file (document/voice/audio) or URL arrives with
      event.data["file_path"] or a URL in event.text
-  2. Extract raw text (pypdf for PDFs, Whisper API for audio, WebTool
-     for URLs, direct read for text files)
+  2. Extract raw text (pypdf for PDFs, local faster-whisper for audio,
+     WebTool for URLs, direct read for text files)
   3. LLM distills it into a structured note: summary, key ideas,
      next actions, related projects
   4. Note saved to memory/knowledge/<date>-<slug>.md + INDEX.md updated
@@ -199,23 +199,20 @@ class LibrarianAgent(BaseAgent):
             raise _IngestError(f"PDF extraction failed ({e})")
 
     async def _transcribe(self, path: Path) -> str:
-        if not self.settings.openai_api_key:
+        """Local transcription via the shared faster-whisper model
+        (core/transcription.py) — no API key, same path voice messages
+        already use."""
+        try:
+            from core.transcription import TranscriptionError, transcribe
+        except ImportError:
             raise _IngestError(
-                "transcription needs OPENAI_API_KEY in .env (Whisper API)"
+                "transcription support not installed — "
+                "run: uv pip install faster-whisper"
             )
         try:
-            from openai import AsyncOpenAI
-
-            client = AsyncOpenAI(api_key=self.settings.openai_api_key)
-            with path.open("rb") as f:
-                result = await client.audio.transcriptions.create(
-                    model="whisper-1", file=f
-                )
-            return result.text
-        except _IngestError:
-            raise
-        except Exception as e:
-            raise _IngestError(f"transcription failed ({e})")
+            return await asyncio.to_thread(transcribe, str(path))
+        except TranscriptionError as e:
+            raise _IngestError(str(e))
 
     # ── URL ingestion ─────────────────────────
 

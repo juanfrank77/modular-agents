@@ -25,7 +25,6 @@ def _make_settings(**overrides):
     s.quiet_hours_enabled = overrides.get("enabled", False)
     s.telegram_allowed_chat_ids = overrides.get("chat_ids", ["123"])
     s.librarian_agent_autonomy = "autonomous"
-    s.openai_api_key = overrides.get("openai_api_key", "")
     s.tavily_api_key = ""
     return s
 
@@ -157,12 +156,33 @@ class TestFileIngestion:
         resp = await agent.handle(_user_event(data={"file_path": str(f)}))
         assert "extracted no text" in resp.text
 
-    async def test_audio_without_api_key(self, tmp_path):
-        agent = _make_agent(tmp_path, openai_api_key="")
+    async def test_audio_transcribed_locally(self, tmp_path, monkeypatch):
+        agent = _make_agent(tmp_path)
+
+        def fake_transcribe(path):
+            return "spoken content about pricing plans"
+
+        monkeypatch.setattr("core.transcription.transcribe", fake_transcribe)
         f = tmp_path / "note.ogg"
         f.write_bytes(b"OggS")
         resp = await agent.handle(_user_event(data={"file_path": str(f), "kind": "voice"}))
-        assert "OPENAI_API_KEY" in resp.text
+        assert "Saved to knowledge base" in resp.text
+        assert "spoken content about pricing plans" in _prompt_content(agent)
+
+    async def test_transcription_failure_surfaces(self, tmp_path, monkeypatch):
+        from core.transcription import TranscriptionError
+
+        agent = _make_agent(tmp_path)
+
+        def failing_transcribe(path):
+            raise TranscriptionError("model load failed")
+
+        monkeypatch.setattr("core.transcription.transcribe", failing_transcribe)
+        f = tmp_path / "note.ogg"
+        f.write_bytes(b"OggS")
+        resp = await agent.handle(_user_event(data={"file_path": str(f), "kind": "voice"}))
+        assert "Couldn't process" in resp.text
+        assert "model load failed" in resp.text
 
     async def test_text_file_distilled(self, tmp_path):
         agent = _make_agent(tmp_path)
