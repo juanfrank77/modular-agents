@@ -300,16 +300,39 @@ class BaseAgent(ABC):
 
     async def reply(self, event: AgentEvent, text: str) -> AgentResponse:
         """Send a message back to the user and return a response object.
-        
+
         Format: **🤖 Agent Name**\n\nresponse text
         The agent name is bolded with an emoji for prominent identification.
         Reasoning models sometimes leak chain-of-thought markers such as
         `<mm:think>` into their final text; those are stripped here so
         they never reach the user or session history.
+
+        The assistant turn is also persisted to storage keyed by the event's
+        chat_id — previously only the user's message was saved, leaving
+        session history with a half-missing exchange (F3 in
+        docs/specs/known-failure-modes.md).
         """
         text = _strip_thinking_tags(text)
         formatted = f"**{self.emoji} {self.name}**\n\n{text}"
         await self.notifier.send(event.chat_id, formatted)
+        # getattr, not attribute access: a subclass (or test stub) without a
+        # storage attribute must hit the missing-data path, not raise
+        # AttributeError from the guard itself (F3 CI follow-up).
+        storage = getattr(self, "storage", None)
+        if storage and text:
+            try:
+                session_id = await self.storage.get_or_create_session(
+                    event.chat_id, self.name
+                )
+                await self.storage.save_message(
+                    session_id, "assistant", text, self.name
+                )
+            except Exception as e:
+                log.warning(
+                    "Failed to persist assistant reply in session history",
+                    event="reply_persist_error",
+                    error=str(e),
+                )
         return AgentResponse(text=text, agent_name=self.name)
 
     async def delegate(

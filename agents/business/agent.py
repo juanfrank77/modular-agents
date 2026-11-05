@@ -108,7 +108,11 @@ class BusinessAgent(BaseAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.autonomy_level = self.settings.business_agent_autonomy
+        # F8 (docs/specs/known-failure-modes.md): never let a missing settings
+        # attribute fail agent discovery — fall back to the class default.
+        self.autonomy_level = getattr(
+            self.settings, "business_agent_autonomy", self.autonomy_level
+        )
         self._tools: BusinessTools | None = None
         self.tool_defs = build_tool_defs(ACTIONS)
 
@@ -320,79 +324,96 @@ class BusinessAgent(BaseAgent):
         assert self.safety is not None, "safety required"
         assert self.llm is not None, "llm required"
 
-        tool_call = result.tool_calls[0]
-        if len(result.tool_calls) > 1:
-            log.warning(
-                "Multiple tool calls in one turn — executing first only",
-                event="tool_call_extra_ignored",
-                count=len(result.tool_calls),
+        # F5 (docs/specs/known-failure-modes.md): execute ALL tool calls the
+        # model emits — silently dropping extras produced half-done turns.
+        tool_calls = result.tool_calls
+        if len(tool_calls) > 1:
+            log.info(
+                "Executing multiple tool calls in one turn",
+                event="tool_call_parallel",
+                count=len(tool_calls),
             )
 
-        action_type = _parse_action_type(tool_call.name)
-        spec = ACTIONS.get(tool_call.name)
+        tool_results: list[ToolResultInput] = []
+        for tool_call in tool_calls:
+            tool_result_text: str = ""
+            action_type = _parse_action_type(tool_call.name)
+            spec = ACTIONS.get(tool_call.name)
 
-        if spec is None:
-            tool_result_text = (
-                f"No execution handler wired for {tool_call.name} yet."
-            )
-            log.warning(
-                "Approved action has no execution handler",
-                event="action_not_wired",
-                action=tool_call.name,
-            )
-        else:
-            try:
-                resolved_args = resolve_args(spec, tool_call.args)
-            except MissingRequiredArg as e:
-                tool_result_text = f"❌ Action failed: missing required argument '{e}'"
-                spec = None
-
-            if spec is not None:
-                description = spec.describe(resolved_args)
-                allowed = await self.safety.check_action(
-                    chat_id=chat_id,
-                    action_type=action_type,
-                    autonomy_level=self.autonomy_level,
-                    description=description,
+            if spec is None:
+                tool_result_text = (
+                    f"No execution handler wired for {tool_call.name} yet."
                 )
+                log.warning(
+                    "Approved action has no execution handler",
+                    event="action_not_wired",
+                    action=tool_call.name,
+                )
+            else:
+                resolved_args: dict[str, Any] = {}
+                try:
+                    resolved_args = resolve_args(spec, tool_call.args)
+                except MissingRequiredArg as e:
+                    tool_result_text = f"❌ Action failed: missing required argument '{e}'"
+                    spec = None
 
-                if not allowed:
-                    tool_result_text = f"⚠️ Action blocked — approval required: {description}"
-                    log.info(
-                        "Action denied",
-                        event="action_denied",
-                        action=tool_call.name,
+                if spec is not None:
+                    description = spec.describe(resolved_args)
+                    allowed = await self.safety.check_action(
+                        chat_id=chat_id,
+                        action_type=action_type,
+                        autonomy_level=self.autonomy_level,
                         description=description,
                     )
-                else:
-                    try:
-                        if tool_call.name == "ASK_USER":
-                            tool_result_text = await self._ask_user(chat_id, resolved_args)
-                        else:
-                            tool_result_text = await spec.execute(self.tools, resolved_args)
-                    except (BusinessToolsUnavailable, BusinessToolError) as e:
-                        tool_result_text = f"❌ Action failed: {e}"
-                    except Exception as e:
-                        tool_result_text = f"❌ Action failed: invalid argument — {e}"
-                        log.error(
-                            "Action execution failed with unexpected error",
-                            event="action_exec_error",
+
+                    if not allowed:
+                        tool_result_text = f"⚠️ Action blocked — approval required: {description}"
+                        log.info(
+                            "Action denied",
+                            event="action_denied",
                             action=tool_call.name,
-                            error=str(e),
+                            description=description,
                         )
                     else:
-                        log.info(
-                            "Action executed", event="action_executed", action=tool_call.name
-                        )
+                        try:
+                            if tool_call.name == "ASK_USER":
+                                tool_result_text = await self._ask_user(chat_id, resolved_args)
+                            else:
+                                tool_result_text = await spec.execute(self.tools, resolved_args)
+                        except (BusinessToolsUnavailable, BusinessToolError) as e:
+                            tool_result_text = f"❌ Action failed: {e}"
+                        except Exception as e:
+                            tool_result_text = f"❌ Action failed: invalid argument — {e}"
+                            log.error(
+                                "Action execution failed with unexpected error",
+                                event="action_exec_error",
+                                action=tool_call.name,
+                                error=str(e),
+                            )
+                        else:
+                            log.info(
+                                "Action executed", event="action_executed", action=tool_call.name
+                            )
+
+            tool_results.append(
+                ToolResultInput(tool_call_id=tool_call.id, content=tool_result_text)
+            )
 
         follow_up = await self.llm.complete(
             messages=messages,
             system=system_prompt,
             tools=None,
-            tool_result=ToolResultInput(tool_call_id=tool_call.id, content=tool_result_text),
+            tool_results=tool_results,
             raw_assistant=result.raw_assistant,
             model=self.resolve_model(chat_id),
         )
+        # F4: a turn with tool activity must never end in a blank message.
+        if not (follow_up.text or "").strip():
+            log.warning(
+                "Empty follow-up after tool execution — using fallback text",
+                event="empty_followup_fallback",
+            )
+            return "Done — action executed (no summary returned)."
         return follow_up.text
 
     # ── Scheduled task handlers ───────────────

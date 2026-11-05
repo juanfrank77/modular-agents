@@ -196,8 +196,8 @@ class TestNativeToolCallExecutesOnApproval:
         assert call_kwargs["description"] == "Merge PR #42 in org/x (rebase)"
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert follow_up_kwargs["tool_result"].tool_call_id == "call_1"
-        assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in follow_up_kwargs["tool_result"].content
+        assert follow_up_kwargs["tool_results"][0].tool_call_id == "call_1"
+        assert "✅ Auto-merge enabled for PR #42 in org/x (rebase)" in follow_up_kwargs["tool_results"][0].content
         assert follow_up_kwargs["raw_assistant"] == {"raw": True}
         assert follow_up_kwargs.get("tools") is None
 
@@ -213,7 +213,7 @@ class TestNativeToolCallDenied:
 
         agent.tools.railway.deploy.assert_not_called()
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "approval required" in follow_up_kwargs["tool_result"].content.lower()
+        assert "approval required" in follow_up_kwargs["tool_results"][0].content.lower()
 
 
 class TestNativeToolCallToolError:
@@ -228,8 +228,8 @@ class TestNativeToolCallToolError:
         await _tool_result(agent, "chat1", "MERGE_PR", {"number": 42, "repo": "org/x"})
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "❌ Action failed" in follow_up_kwargs["tool_result"].content
-        assert "not mergeable" in follow_up_kwargs["tool_result"].content
+        assert "❌ Action failed" in follow_up_kwargs["tool_results"][0].content
+        assert "not mergeable" in follow_up_kwargs["tool_results"][0].content
 
 
 class TestNativeToolCallMissingRequiredArg:
@@ -242,7 +242,7 @@ class TestNativeToolCallMissingRequiredArg:
 
         agent.safety.check_action.assert_not_called()
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "missing required argument 'number'" in follow_up_kwargs["tool_result"].content
+        assert "missing required argument 'number'" in follow_up_kwargs["tool_results"][0].content
 
 
 class TestNativeToolCallUnwiredType:
@@ -254,7 +254,7 @@ class TestNativeToolCallUnwiredType:
         await _tool_result(agent, "chat1", "RESTART_SERVICE", {})
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "no execution handler wired for restart_service" in follow_up_kwargs["tool_result"].content.lower()
+        assert "no execution handler wired for restart_service" in follow_up_kwargs["tool_results"][0].content.lower()
 
 
 class TestReadLocalFileAction:
@@ -368,4 +368,4 @@ class TestValidatedCompletion:
 
         mock_verify.assert_awaited_once_with(repo="org/x", number=42)
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "Verification failed" not in follow_up_kwargs["tool_result"].content
+        assert "Verification failed" not in follow_up_kwargs["tool_results"][0].content

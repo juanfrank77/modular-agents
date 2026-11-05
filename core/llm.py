@@ -72,10 +72,9 @@ class SummaryFailedError(Exception):
 def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
     """
     Build the `tools=` (+ `parallel_tool_calls=`) kwargs for an OpenAI-compatible
-    chat.completions.create call. v1's contract is single-tool-call-per-turn, so
-    when tools are offered we also disable parallel tool calls at the API level —
-    a multi-tool-call turn would otherwise crash the continuation request (only
-    one tool_result is ever sent back per turn).
+    chat.completions.create call. Parallel tool calls are allowed: the
+    continuation request sends a tool_result for every tool_use the model
+    emits (F5 in docs/specs/known-failure-modes.md).
     """
     if not tools:
         return {}
@@ -91,7 +90,9 @@ def _openai_tools_kwarg(tools: list["ToolDef"] | None) -> dict[str, Any]:
             }
             for t in tools
         ],
-        "parallel_tool_calls": False,
+        # Continuation requests now balance multi-tool-call turns with a
+        # matching list of tool results (F5), so parallel calls are safe.
+        "parallel_tool_calls": True,
     }
 
 
@@ -130,7 +131,7 @@ class _SummarizeMixin:
         model: str = "",
         max_tokens: int = 0,
         tools: list[ToolDef] | None = None,
-        tool_result: ToolResultInput | None = None,
+        tool_results: "list[ToolResultInput] | None" = None,
         raw_assistant: Any = None,
     ) -> LLMResult:
         raise NotImplementedError
@@ -207,27 +208,28 @@ class _OpenAICompatibleLLM(_SummarizeMixin):
         model: str = "",
         max_tokens: int = 0,
         tools: list["ToolDef"] | None = None,
-        tool_result: "ToolResultInput | None" = None,
+        tool_results: "list[ToolResultInput] | None" = None,
         raw_assistant: Any = None,
     ) -> "LLMResult":
         model = model or settings.default_model
         max_tokens = max_tokens or settings.default_max_tokens
 
-        api_messages = [{"role": "system", "content": system}] + [
+        api_messages: list[dict[str, Any]] = [{"role": "system", "content": system}] + [
             {"role": m.role, "content": m.content}
             for m in messages
             if m.role in ("user", "assistant")
         ]
 
-        if tool_result is not None and raw_assistant is not None:
+        if tool_results and raw_assistant is not None:
             api_messages.append({
                 "role": "assistant", "content": None, "tool_calls": raw_assistant,
             })
-            api_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_result.tool_call_id,
-                "content": tool_result.content,
-            })
+            for tr in tool_results:
+                api_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr.tool_call_id,
+                    "content": tr.content,
+                })
 
         extra_kwargs: dict[str, Any] = {}
         if self._extra_headers:
@@ -290,27 +292,30 @@ class AnthropicLLM(_SummarizeMixin):
         model: str = "",
         max_tokens: int = 0,
         tools: list["ToolDef"] | None = None,
-        tool_result: "ToolResultInput | None" = None,
+        tool_results: "list[ToolResultInput] | None" = None,
         raw_assistant: Any = None,
     ) -> "LLMResult":
         model = model or settings.default_model
         max_tokens = max_tokens or settings.default_max_tokens
 
-        api_messages = [
+        api_messages: list[dict[str, Any]] = [
             {"role": m.role, "content": m.content}
             for m in messages
             if m.role in ("user", "assistant")
         ]
 
-        if tool_result is not None and raw_assistant is not None:
+        if tool_results and raw_assistant is not None:
             api_messages.append({"role": "assistant", "content": raw_assistant})
             api_messages.append({
                 "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_result.tool_call_id,
-                    "content": tool_result.content,
-                }],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr.tool_call_id,
+                        "content": tr.content,
+                    }
+                    for tr in tool_results
+                ],
             })
 
         if not api_messages:
@@ -322,12 +327,11 @@ class AnthropicLLM(_SummarizeMixin):
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
-            # v1's contract is single-tool-call-per-turn — disable parallel tool
-            # use so the model never returns more tool_use blocks in one turn
-            # than the continuation request can balance with tool_results.
+            # Continuation requests now balance multi-tool-call turns with a
+            # matching list of tool results (F5), so parallel tool use is safe.
             extra_kwargs["tool_choice"] = {
                 "type": "auto",
-                "disable_parallel_tool_use": True,
+                "disable_parallel_tool_use": False,
             }
 
         with log.timer() as t:

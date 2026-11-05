@@ -66,6 +66,34 @@ for state_file in "$PROJECT_DIR"/agents/*/state.json; do
 done
 shopt -u nullglob
 
+# ── Live-process guard (F10) ─────────────────────────────────────────────────
+# The classic deployment mistake: developing in one checkout, running the
+# service from another. backup.sh defaults to *this script's* tree, which
+# silently archives a stale tree while the live process writes elsewhere.
+# Detect any running modular-agents python process and compare its working
+# directory against PROJECT_DIR.
+live_pid="$(pgrep -f 'python .*main\.py' | head -1 || true)"
+if [ -n "$live_pid" ]; then
+    # readlink via /proc is more reliable than ps -o cwd=, which prints '-'
+    # (not empty) when the cwd is inaccessible — '-' would produce a bogus
+    # comparison. An unreadable cwd means we can't verify; stay quiet.
+    live_dir="$(readlink "/proc/$live_pid/cwd" 2>/dev/null || true)"
+    if [ -n "$live_dir" ] && [ "$live_dir" != "$PROJECT_DIR" ]; then
+        echo "WARNING: a modular-agents process is running from: $live_dir"
+        echo "WARNING: this backup archives:          $PROJECT_DIR"
+        echo "WARNING: they differ — you are likely backing up a stale tree."
+    fi
+fi
+
+# ── Content summary (F10) ────────────────────────────────────────────────────
+# A backup with an empty DB is not a backup. Log what was actually archived.
+if [ -f "$TEMP_DIR/memory/sessions.db" ]; then
+    rows="$(sqlite3 "$TEMP_DIR/memory/sessions.db" 'SELECT COUNT(*) FROM messages;' 2>/dev/null || echo '?')"
+    echo "Archived: memory/sessions.db ($rows message rows)"
+else
+    echo "WARNING: no sessions.db found in $PROJECT_DIR/memory — nothing conversation-wise was archived."
+fi
+
 # ── Archive ───────────────────────────────────────────────────────────────────
 tar -C "$TEMP_DIR" -czf "$ARCHIVE" .
 

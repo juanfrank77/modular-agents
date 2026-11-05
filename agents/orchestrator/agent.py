@@ -288,7 +288,11 @@ class OrchestratorAgent(BaseAgent):
                     ),
                     system="Health check.",
                     user_message="ping",
-                    max_tokens=4,
+                    # F6 (docs/specs/known-failure-modes.md): 4 tokens left no
+                    # visible text once a reasoning model spent the whole
+                    # budget on its thinking block — the probe failed on every
+                    # boot. 1024 gives reasoning headroom for a one-word reply.
+                    max_tokens=1024,
                 )
                 if not result.text:
                     # [orch-health-a4f2] diagnostic — strip when revisiting health semantics.
