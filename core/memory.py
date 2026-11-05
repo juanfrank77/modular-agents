@@ -133,11 +133,20 @@ class Memory(MemoryStore):
         """
         Read a single topic file by key.
         e.g. 'preferences' → memory/context/preferences.md
+
+        A missing file returns "" (legitimate empty state, safe to report as
+        "nothing tracked"). A file that EXISTS but cannot be read (permissions,
+        encoding, etc.) must NOT be conflated with empty — F2 in
+        docs/specs/known-failure-modes.md. We return an explicit error marker
+        so agents can distinguish "no data" from "read failed".
         """
         path = self._context_dir / f"{key}.md"
         if not path.exists():
             return ""
-        return path.read_text(encoding="utf-8")
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as e:
+            return f"[CONTEXT READ ERROR: {key}.md could not be read: {e}]"
 
     async def get_relevant_context(self, task: str) -> str:
         """
