@@ -28,7 +28,16 @@ def memory(tmp_path: Path) -> Memory:
     return Memory(
         storage=None,  # type: ignore[arg-type]
         llm=None,  # type: ignore[arg-type]
-        settings=type("S", (), {"memory_context_dir": tmp_path / "context"}),
+        # Master's Memory.__init__ reads both context and solutions dirs;
+        # the stub must define everything the constructor touches.
+        settings=type(
+            "S",
+            (),
+            {
+                "memory_context_dir": tmp_path / "context",
+                "memory_solutions_dir": tmp_path / "solutions",
+            },
+        ),
     )
 
 
@@ -64,9 +73,16 @@ class TestMomentumSummaryReadError:
         assert "no projects tracked" not in result
 
     def test_normal_content_still_parsed(self):
-        projects_md = "# Projects\n- work: updated 1d ago"
+        # Content must match the real projects.md layout the parser expects:
+        # '### Name' headings plus a '## Progress log' section with
+        # '- YYYY-MM-DD · project: note' entries.
+        projects_md = (
+            "# Projects\n\n### work\n\n## Progress log\n"
+            "- 2026-11-01 · work: shipped a feature"
+        )
         result = ProjectsAgent._momentum_summary(None, projects_md)
         assert "no projects tracked" not in result
+        assert "work" in result
 
     def test_truly_empty_is_not_mistaken_for_error(self):
         # An empty-but-valid file is a legitimate "nothing tracked" state.

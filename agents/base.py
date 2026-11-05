@@ -315,7 +315,11 @@ class BaseAgent(ABC):
         text = _strip_thinking_tags(text)
         formatted = f"**{self.emoji} {self.name}**\n\n{text}"
         await self.notifier.send(event.chat_id, formatted)
-        if self.storage and text:
+        # getattr, not attribute access: a subclass (or test stub) without a
+        # storage attribute must hit the missing-data path, not raise
+        # AttributeError from the guard itself (F3 CI follow-up).
+        storage = getattr(self, "storage", None)
+        if storage and text:
             try:
                 session_id = await self.storage.get_or_create_session(
                     event.chat_id, self.name

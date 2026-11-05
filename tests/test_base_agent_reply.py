@@ -27,7 +27,7 @@ def _make_agent(bus=None, model=""):
     notifier.send = AsyncMock()
     return EchoAgent(
         settings=settings,
-        storage=MagicMock(),
+        storage=AsyncMock(),
         notifier=notifier,
         bus=bus,
     )

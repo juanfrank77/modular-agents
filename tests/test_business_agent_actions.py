@@ -190,8 +190,8 @@ class TestNativeToolCallExecutesOnApproval:
 
         # Follow-up call carries the tool_result + raw_assistant for continuation
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert follow_up_kwargs["tool_result"].tool_call_id == "call_1"
-        assert "✅ Email sent to bob@example.com" in follow_up_kwargs["tool_result"].content
+        assert follow_up_kwargs["tool_results"][0].tool_call_id == "call_1"
+        assert "✅ Email sent to bob@example.com" in follow_up_kwargs["tool_results"][0].content
         assert follow_up_kwargs["raw_assistant"] == {"raw": True}
         assert follow_up_kwargs.get("tools") is None
 
@@ -210,8 +210,8 @@ class TestNativeToolCallGmailUnavailable:
         )
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "Gmail unavailable" in follow_up_kwargs["tool_result"].content
-        assert "Calendar and local files are unaffected" in follow_up_kwargs["tool_result"].content
+        assert "Gmail unavailable" in follow_up_kwargs["tool_results"][0].content
+        assert "Calendar and local files are unaffected" in follow_up_kwargs["tool_results"][0].content
 
 
 class TestNativeToolCallDenied:
@@ -229,7 +229,7 @@ class TestNativeToolCallDenied:
 
         fake_tools.gmail.send_email.assert_not_called()
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "approval required" in follow_up_kwargs["tool_result"].content.lower()
+        assert "approval required" in follow_up_kwargs["tool_results"][0].content.lower()
 
 
 class TestNativeToolCallMissingRequiredArg:
@@ -242,7 +242,7 @@ class TestNativeToolCallMissingRequiredArg:
 
         agent.safety.check_action.assert_not_called()
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "missing required argument 'subject'" in follow_up_kwargs["tool_result"].content
+        assert "missing required argument 'subject'" in follow_up_kwargs["tool_results"][0].content
 
 
 class TestNativeToolCallUnwiredType:
@@ -254,7 +254,7 @@ class TestNativeToolCallUnwiredType:
         await _tool_result(agent, "chat1", "CALENDAR_DELETE", {})
 
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "no execution handler wired for calendar_delete" in follow_up_kwargs["tool_result"].content.lower()
+        assert "no execution handler wired for calendar_delete" in follow_up_kwargs["tool_results"][0].content.lower()
 
 
 class TestReadLocalFileAction:
@@ -343,7 +343,7 @@ class TestAskUserAction:
             default="staging",
         )
         follow_up_kwargs = agent.llm.complete.call_args.kwargs
-        assert "User answer: production" in follow_up_kwargs["tool_result"].content
+        assert "User answer: production" in follow_up_kwargs["tool_results"][0].content
 
     @pytest.mark.asyncio
     async def test_ask_user_during_quiet_hours_returns_default(self):

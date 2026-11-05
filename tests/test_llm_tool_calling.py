@@ -89,11 +89,11 @@ class TestAnthropicToolCalling:
             {"name": "MERGE_PR", "description": "Merge a PR.",
              "input_schema": {"type": "object", "properties": {}, "required": []}}
         ]
-        # v1 is single-tool-call-per-turn: parallel tool use must be disabled
-        # at the API level whenever tools are offered.
+        # Parallel tool calls are supported: the continuation request balances
+        # N tool_use blocks with N tool_result blocks (F5).
         assert call_kwargs["tool_choice"] == {
             "type": "auto",
-            "disable_parallel_tool_use": True,
+            "disable_parallel_tool_use": False,
         }
 
     @pytest.mark.asyncio
@@ -128,7 +128,7 @@ class TestAnthropicToolCalling:
             result = await llm.complete(
                 messages=[Message(role="user", content="merge pr 42")],
                 system="sys",
-                tool_result=ToolResultInput(tool_call_id="call_1", content="✅ merged"),
+                tool_results=[ToolResultInput(tool_call_id="call_1", content="✅ merged")],
                 raw_assistant=raw_assistant,
             )
 
@@ -207,9 +207,9 @@ class TestOpenAICompatibleToolCalling:
                 "parameters": {"type": "object", "properties": {}, "required": []},
             },
         }]
-        # v1 is single-tool-call-per-turn: parallel tool calls must be disabled
-        # at the API level whenever tools are offered.
-        assert call_kwargs["parallel_tool_calls"] is False
+        # Parallel tool calls are supported (F5): one result per tool_use is
+        # sent back in the continuation request.
+        assert call_kwargs["parallel_tool_calls"] is True
 
     @pytest.mark.asyncio
     async def test_kilo_complete_without_tools_omits_parallel_tool_calls(self):
@@ -233,7 +233,7 @@ class TestOpenAICompatibleToolCalling:
         assert "parallel_tool_calls" not in call_kwargs
 
     @pytest.mark.asyncio
-    async def test_kilo_complete_with_tool_result_appends_continuation_messages(self):
+    async def test_kilo_complete_with_tool_results_appends_continuation_messages(self):
         from core.llm import KiloLLM
         llm = KiloLLM(api_key="key")
 
@@ -248,7 +248,7 @@ class TestOpenAICompatibleToolCalling:
         result = await llm.complete(
             messages=[Message(role="user", content="merge pr 42")],
             system="sys",
-            tool_result=ToolResultInput(tool_call_id="call_1", content="✅ merged"),
+            tool_results=[ToolResultInput(tool_call_id="call_1", content="✅ merged")],
             raw_assistant=raw_tool_calls,
         )
 
@@ -270,7 +270,7 @@ class TestOpenAICompatibleToolCalling:
         assert llm.supports_tools is True
 
     @pytest.mark.asyncio
-    async def test_openrouter_complete_with_tools_disables_parallel_tool_calls(self):
+    async def test_openrouter_complete_with_tools_allows_parallel_tool_calls(self):
         from core.llm import OpenRouterLLM
         llm = OpenRouterLLM(api_key="key")
 
@@ -298,7 +298,7 @@ class TestOpenAICompatibleToolCalling:
         )
 
         call_kwargs = llm._client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["parallel_tool_calls"] is False
+        assert call_kwargs["parallel_tool_calls"] is True
 
     @pytest.mark.asyncio
     async def test_openrouter_complete_without_tools_omits_parallel_tool_calls(self):

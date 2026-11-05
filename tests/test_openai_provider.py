@@ -77,7 +77,7 @@ class TestOpenAILLMToolCalling:
 
         assert result.tool_calls[0].name == "MERGE_PR"
         call_kwargs = llm._client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["parallel_tool_calls"] is False
+        assert call_kwargs["parallel_tool_calls"] is True
         assert "extra_headers" not in call_kwargs
 
     @pytest.mark.asyncio
