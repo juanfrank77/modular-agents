@@ -84,9 +84,13 @@ class TestFocusSessions:
         assert "active_session" not in state
         assert not state.get("sessions")
 
-    def test_unrelated_message_returns_empty(self, tmp_path):
+    def test_unrelated_message_gets_fallback_hint(self, tmp_path):
+        # F7: unmatched input used to return "" silently (agent looked dead
+        # from the outside); it now returns a short capabilities hint.
         agent = _make_agent(tmp_path)
-        assert agent._build_interactive_response("what's for dinner") == ""
+        msg = agent._build_interactive_response("what's for dinner")
+        assert msg, "fallback must not be empty"
+        assert "focus 50" in msg
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────

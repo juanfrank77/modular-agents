@@ -150,9 +150,9 @@ instead of taking `.text`.
 **Core relevance:** Type discipline on LLM result objects — a single shared
 formatter/serializer prevents per-agent repr leaks.
 
-## F7 — Command-only agents silently drop unmatched input
+## F7 — Focus agent silently drops unmatched input
 
-**Status:** verified
+**Status:** fixed (2026-11-05)
 
 **Symptom:** Focus received "Status check" and "What's on"; both were dropped
 in ~12 ms with no LLM call and no reply (working as coded, per its fallback

@@ -237,8 +237,13 @@ class FocusAgent(BaseAgent):
                 "I also send a daily planning prompt and a Sunday review."
             )
 
-        # Fallback: empty (don't respond to unrelated messages)
-        return ""
+        # Fallback (F7, docs/specs/known-failure-modes.md): silently dropping
+        # unmatched input made the agent look dead from the outside. A short
+        # capabilities hint acknowledges the message without adding noise.
+        return (
+            "I only handle focus sessions. 'focus 50' starts one, 'done' ends "
+            "it, 'stats' shows totals — or 'help' for the full list."
+        )
 
     def _start_session(self, state: dict, text: str) -> str:
         if state.get("active_session"):
